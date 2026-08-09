@@ -3,7 +3,7 @@
 ## Design specification
 
 Date: 9 August 2026  
-Status: Approved design consolidated for user review  
+Status: Approved by Adriano Aguzzi<br>
 Repository: `aagaag/EHF-applications`  
 Production hostname: `ehf.isab.science`
 
@@ -473,4 +473,3 @@ The first release is complete only when:
 - 2026 applicant folders under the Foundation's synchronized call directory
 - Microsoft Entra B2B collaboration and guest MFA documentation
 - Cloudflare Tunnel, origin protection, and Turnstile documentation
-
