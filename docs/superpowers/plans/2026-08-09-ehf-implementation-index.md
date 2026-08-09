@@ -62,4 +62,3 @@ Stop without enabling real invitations if any of these remains true:
 - the Foundation-approved sender identity is absent;
 - the internal delivery test has not passed; or
 - Adriano Aguzzi has not explicitly authorized production applicant invitations after final review.
-
