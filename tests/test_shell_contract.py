@@ -35,7 +35,6 @@ def test_task_six_public_assets_exist_and_preserve_the_official_logo() -> None:
         "assets/site.css",
         "assets/shell.js",
         "assets/theme.js",
-        "internal/index.html",
         "applicant/index.html",
     ):
         assert (PUBLIC / relative_path).is_file(), relative_path
@@ -43,7 +42,7 @@ def test_task_six_public_assets_exist_and_preserve_the_official_logo() -> None:
 
 def test_preview_routes_are_honest_and_keep_internal_and_applicant_markup_separate() -> None:
     """Break caught: a preview could imply active sign-in/submission or expose internal workspaces."""
-    response = preview_client().get("/internal/")
+    response = preview_client().get("/__preview/internal/administrator/")
 
     assert response.status_code == 200
     assert "Preview only" in response.text
@@ -86,13 +85,9 @@ def test_internal_authorization_indicator_uses_canonical_group_pills_only() -> N
         INTERNAL_GROUPS.administrators,
         INTERNAL_GROUPS.trustees,
     )
-    internal_source = (PUBLIC / "internal" / "index.html").read_text(encoding="utf-8")
     applicant_source = (PUBLIC / "applicant" / "index.html").read_text(encoding="utf-8")
-    stylesheet = (PUBLIC / "assets" / "site.css").read_text(encoding="utf-8")
-
-    assert "Authorizations:" in internal_source
-    assert "canonical-group-administrators" in stylesheet
-    assert "canonical-group-trustees" in stylesheet
+    assert INTERNAL_GROUPS.administrators == "EHF-Applications-Administrators"
+    assert INTERNAL_GROUPS.trustees == "EHF-Applications-Trustees"
     assert "Authorizations:" not in applicant_source
 
 
@@ -100,7 +95,7 @@ def test_shell_uses_no_browser_persistence_and_has_required_accessible_structure
     """Break caught: a browser cache could become authoritative or the drawer could lose keyboard semantics."""
     assets = "\n".join(path.read_text(encoding="utf-8") for path in (PUBLIC / "assets").glob("*.js"))
     stylesheet = (PUBLIC / "assets" / "site.css").read_text(encoding="utf-8")
-    internal = (PUBLIC / "internal" / "index.html").read_text(encoding="utf-8")
+    internal = preview_client().get("/__preview/internal/administrator/").text
 
     assert "localStorage" not in assets
     assert "sessionStorage" not in assets

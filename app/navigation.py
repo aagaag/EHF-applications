@@ -11,8 +11,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class InternalGroups:
-    administrators: str = "administrators"
-    trustees: str = "trustees"
+    administrators: str = "EHF-Applications-Administrators"
+    trustees: str = "EHF-Applications-Trustees"
 
 
 INTERNAL_GROUPS = InternalGroups()
@@ -77,3 +77,9 @@ def help_entries(entries: tuple[NavigationEntry, ...]) -> tuple[NavigationEntry,
 def internal_authorization_groups() -> tuple[str, str]:
     """Canonical EHF groups shown as informative navigation pills."""
     return (INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees)
+
+
+def authorization_groups(entries: tuple[NavigationEntry, ...]) -> tuple[str, ...]:
+    """Derive visible authorization pills from the same filtered destination inventory."""
+    permitted = {group for entry in entries for group in entry.permitted_groups}
+    return tuple(group for group in internal_authorization_groups() if group in permitted)

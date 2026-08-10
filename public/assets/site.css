@@ -60,8 +60,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .app-nav-authorizations { display: grid; gap: 6px; min-width: 0; margin: 8px 4px 0; padding: 12px 8px 0; border-top: 1px solid var(--nav-border); color: var(--nav-muted); font-size: .68rem; }
 .app-nav-authorization-pills { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
 .app-nav-authorization-pill { display: inline-flex; max-width: 100%; align-items: center; border-radius: 6px; padding: 3px 7px; font-size: 11px; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
-.canonical-group-administrators { background: #fce7f3; color: #9d174d; }
-.canonical-group-trustees { background: #dbeafe; color: #1e40af; }
+.group-pill-1 { background: #fce7f3; color: #9d174d; }
+.group-pill-2 { background: #dbeafe; color: #1e40af; }
 
 .site-main { width: 94%; margin-inline: 3%; padding-block: clamp(1.5rem, 4vw, 4rem); }
 .site-hero { display: grid; gap: .7rem; max-width: 76rem; }

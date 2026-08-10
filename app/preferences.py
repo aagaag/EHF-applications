@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 
 _SKINS = frozenset({"default", "high-contrast", "soft-earth", "blue"})
@@ -11,6 +11,12 @@ _SKINS = frozenset({"default", "high-contrast", "soft-earth", "blue"})
 
 class PreferenceValidationError(ValueError):
     """Raised when an appearance preference falls outside the shared F2 contract."""
+
+
+class PreferenceRepository(Protocol):
+    def load(self, identity: "Identity") -> "AppearancePreference": ...
+
+    def save(self, identity: "Identity", preference: "AppearancePreference") -> "AppearancePreference": ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +61,19 @@ class SqlPreferenceRepository:
                 return self._save_with_connection(opened_connection, identity, preference)
         return self._save_with_connection(connection, identity, preference)
 
+    def load(self, identity: Identity) -> AppearancePreference:
+        connection = self._connection_factory()
+        execute = getattr(connection, "execute", None)
+        if execute is None:
+            with connection as opened_connection:
+                return self._load_with_connection(opened_connection, identity)
+        return self._load_with_connection(connection, identity)
+
+    @staticmethod
+    def _load_with_connection(connection: Any, identity: Identity) -> AppearancePreference:
+        row = connection.execute("EXEC dbo.GetUserPreference @IdentityKey=?", identity.key).fetchone()
+        return AppearancePreference() if row is None else SqlPreferenceRepository._decode_row(row)
+
     @staticmethod
     def _save_with_connection(
         connection: Any, identity: Identity, preference: AppearancePreference
@@ -74,9 +93,13 @@ class SqlPreferenceRepository:
         row = cursor.fetchone()
         if row is None:
             return preference
+        return SqlPreferenceRepository._decode_row(row)
+
+    @staticmethod
+    def _decode_row(row: Any) -> AppearancePreference:
         return AppearancePreference(
-            skin=str(row[0]),
-            invert=bool(row[1]),
-            compact=bool(row[2]),
-            reduce_motion=bool(row[3]),
+            skin=str(row[4]),
+            invert=bool(row[5]),
+            compact=bool(row[6]),
+            reduce_motion=bool(row[7]),
         )

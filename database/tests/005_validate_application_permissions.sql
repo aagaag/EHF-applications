@@ -7,6 +7,8 @@ IF OBJECT_ID(N'dbo.SetUserPreference', N'P') IS NULL
     THROW 51501, 'The preference procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.SetApplicationStatus', N'P') IS NULL
     THROW 51502, 'The application-status procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.GetUserPreference', N'P') IS NULL
+    THROW 51517, 'The preference-read procedure is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'EHFApplicationRuntime') IS NULL
     THROW 51503, 'The EHF runtime role is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'ehf_app') IS NULL
@@ -15,7 +17,7 @@ IF DATABASE_PRINCIPAL_ID(N'ehf_app') IS NULL
 DECLARE @RuntimeRoleId int = DATABASE_PRINCIPAL_ID(N'EHFApplicationRuntime');
 DECLARE @RuntimeUserId int = DATABASE_PRINCIPAL_ID(N'ehf_app');
 DECLARE @ApprovedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
-INSERT @ApprovedProcedures VALUES (N'RuntimeHealth'), (N'SetUserPreference'), (N'SetApplicationStatus');
+INSERT @ApprovedProcedures VALUES (N'RuntimeHealth'), (N'SetUserPreference'), (N'GetUserPreference'), (N'SetApplicationStatus');
 DECLARE @ProtectedTables TABLE (TableName sysname NOT NULL PRIMARY KEY);
 INSERT @ProtectedTables VALUES
     (N'SchemaMigration'), (N'FellowshipCall'), (N'Applicant'), (N'ApplicantContact'),

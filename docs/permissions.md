@@ -45,7 +45,7 @@ narrower denials, and is checked by the isolated verifier. It has no user in
 database grant and belongs only to `EHFApplicationRuntime`.
 
 The role receives `CONNECT` and `EXECUTE` only on `dbo.RuntimeHealth`,
-`dbo.SetUserPreference`, and `dbo.SetApplicationStatus`. It receives no table
+`dbo.SetUserPreference`, `dbo.GetUserPreference`, and `dbo.SetApplicationStatus`. It receives no table
 or schema grant and has explicit table DML/read denials. `SetUserPreference`
 retains its migration-004 execution principal, so preference and audit writes
 remain one transaction despite direct DML being denied.

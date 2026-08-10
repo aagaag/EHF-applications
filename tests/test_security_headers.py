@@ -28,7 +28,7 @@ def test_all_responses_receive_restrictive_security_headers_and_no_store() -> No
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["content-security-policy"] == (
         "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
-        "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+        "connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
     )
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["x-content-type-options"] == "nosniff"

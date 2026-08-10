@@ -32,6 +32,10 @@ class RecordingConnection:
 
     def fetchone(self) -> tuple[object, ...]:
         return (
+            "preference-001",
+            "entra:person-001",
+            "person@example.org",
+            "Preview Person",
             "blue",
             True,
             True,
@@ -57,9 +61,18 @@ def test_sql_preference_repository_reads_and_writes_only_the_current_identity() 
     )
 
     assert saved.skin == "blue"
+    assert saved.invert is True
+    assert saved.compact is True
+    assert saved.reduce_motion is False
     assert len(connection.executed) == 1
     sql, parameters = connection.executed[0]
     assert "dbo.SetUserPreference" in sql
     assert parameters[0] == identity.key
     assert parameters[-1] == identity.key
     assert "localStorage" not in sql
+
+    loaded = repository.load(identity)
+    assert loaded == saved
+    load_sql, load_parameters = connection.executed[1]
+    assert "dbo.GetUserPreference" in load_sql
+    assert load_parameters == (identity.key,)

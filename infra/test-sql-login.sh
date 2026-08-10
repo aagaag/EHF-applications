@@ -95,12 +95,12 @@ run_helper create-test-login --server "$server" --admin-credential-file "$admin_
 
 run_helper create-test-database --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --run-token "$run_token" >/dev/null || fail "The isolated primary database creation failed."
 run_helper create-test-database --server "$server" --admin-credential-file "$admin_password_file" --database "$peer_database" --run-token "$run_token" >/dev/null || fail "The isolated peer database creation failed."
-for migration_file in 001_database_contract.sql 002_application_core.sql 003_audit_and_preferences.sql 004_audit_and_preference_hardening.sql 005_application_permissions.sql; do
+for migration_file in 001_database_contract.sql 002_application_core.sql 003_audit_and_preferences.sql 004_audit_and_preference_hardening.sql 005_application_permissions.sql 006_user_preference_read.sql; do
   [[ -f "$migration_directory/$migration_file" ]] || fail "The isolated EHF migration set is incomplete."
   run_admin_sql "$database" "$migration_file" >/dev/null 2>&1 || fail "The isolated EHF migration failed without credential details."
   run_helper record-test-migration --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --migration-file "$migration_file" >/dev/null || fail "The isolated EHF migration record failed."
 done
-for validation_file in 001_validate_database_contract.sql 002_validate_application_core.sql 003_validate_audit_and_preferences.sql 004_validate_audit_and_preference_hardening.sql 005_validate_application_permissions.sql; do
+for validation_file in 001_validate_database_contract.sql 002_validate_application_core.sql 003_validate_audit_and_preferences.sql 004_validate_audit_and_preference_hardening.sql 005_validate_application_permissions.sql 006_validate_user_preference_read.sql; do
   run_admin_sql "$database" "$validation_file" >/dev/null 2>&1 || fail "The isolated EHF SQL validator failed without credential details."
 done
 run_helper create-test-login --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --login "$login" --credential-file "$test_password_file" >/dev/null || fail "The isolated test login creation failed."
@@ -111,7 +111,13 @@ run_runtime_sql "$database" <<'SQL' >/dev/null 2>&1 || fail "The isolated runtim
 DECLARE @Health TABLE (IsReady bit NOT NULL); INSERT @Health EXEC dbo.RuntimeHealth; IF NOT EXISTS (SELECT 1 FROM @Health WHERE IsReady=1) THROW 51640,'Runtime health failed.',1;
 SQL
 run_runtime_sql "$database" <<'SQL' >/dev/null 2>&1 || fail "The isolated runtime preference transaction probe failed."
-BEGIN TRANSACTION; EXEC dbo.SetUserPreference @IdentityKey=N'isolated-runtime-validator',@Email=N'validator@example.invalid',@DisplayName=N'Isolated runtime validator',@Skin='blue',@InvertColors=0,@CompactDensity=1,@ReduceMotion=0,@ActorIdentity=N'isolated-runtime-validator'; IF @@TRANCOUNT<>1 THROW 51641,'Preference transaction changed.',1; ROLLBACK;
+BEGIN TRANSACTION;
+EXEC dbo.SetUserPreference @IdentityKey=N'isolated-runtime-validator',@Email=N'validator@example.invalid',@DisplayName=N'Isolated runtime validator',@Skin='blue',@InvertColors=0,@CompactDensity=1,@ReduceMotion=0,@ActorIdentity=N'isolated-runtime-validator';
+IF @@TRANCOUNT<>1 THROW 51641,'Preference transaction changed.',1;
+DECLARE @Preference TABLE (UserPreferenceId uniqueidentifier,IdentityKey nvarchar(255),Email nvarchar(320),DisplayName nvarchar(320),Skin varchar(24),InvertColors bit,CompactDensity bit,ReduceMotion bit);
+INSERT @Preference EXEC dbo.GetUserPreference @IdentityKey=N'isolated-runtime-validator';
+IF NOT EXISTS (SELECT 1 FROM @Preference WHERE Skin='blue' AND CompactDensity=1) THROW 51642,'Preference read failed.',1;
+ROLLBACK;
 SQL
 run_runtime_sql "$database" <<'SQL' >/dev/null 2>&1 || fail "The isolated DML denial probe failed."
 DECLARE @DmlTargets TABLE (TableName sysname NOT NULL, ColumnName sysname NOT NULL);

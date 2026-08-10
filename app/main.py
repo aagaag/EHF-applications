@@ -8,9 +8,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -21,6 +21,10 @@ from app.errors import (
     unhandled_exception_handler,
     validation_exception_handler,
 )
+from app.identity import AuthenticatedIdentity, IdentityResolver, deny_identity
+from app.internal_preview import render_internal_preview
+from app.navigation import INTERNAL_GROUPS
+from app.preferences import AppearancePreference, Identity, PreferenceRepository, SqlPreferenceRepository
 from app.http import SecurityMiddleware
 
 
@@ -91,6 +95,8 @@ def create_app(
     settings: Settings | None = None,
     *,
     readiness_checks: ReadinessChecks | None = None,
+    identity_resolver: IdentityResolver | None = None,
+    preference_repository: PreferenceRepository | None = None,
 ) -> FastAPI:
     """Create the HTTP service without starting application workflows."""
     resolved_settings = settings or Settings.from_environment()
@@ -98,6 +104,8 @@ def create_app(
         sql_probe=lambda timeout: _probe_sql(resolved_settings, timeout),
         storage_probe=lambda timeout: _probe_storage(resolved_settings, timeout),
     )
+    resolve_identity = identity_resolver or deny_identity
+    preferences = preference_repository or SqlPreferenceRepository(lambda: connect(resolved_settings))
     readiness_gate = ReadinessGate(resolved_checks)
     application = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     application.add_middleware(SecurityMiddleware, settings=resolved_settings)
@@ -107,10 +115,58 @@ def create_app(
 
     public_root = Path(__file__).resolve().parents[1] / "public"
     application.mount("/assets", StaticFiles(directory=public_root / "assets"), name="assets")
-    application.mount("/internal", StaticFiles(directory=public_root / "internal", html=True), name="internal")
     application.mount(
         "/applicant", StaticFiles(directory=public_root / "applicant", html=True), name="applicant"
     )
+
+    def authenticated(request: Request) -> AuthenticatedIdentity:
+        principal = resolve_identity(request)
+        if principal is None:
+            raise HTTPException(status_code=404)
+        return principal
+
+    @application.get("/internal/", response_class=HTMLResponse)
+    def internal_preview(request: Request) -> HTMLResponse:
+        principal = authenticated(request)
+        if not principal.groups & {INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}:
+            raise HTTPException(status_code=404)
+        return HTMLResponse(render_internal_preview(principal))
+
+    @application.get("/api/preferences")
+    def get_preferences(request: Request) -> dict[str, str | bool]:
+        principal = resolve_identity(request)
+        if principal is None:
+            raise HTTPException(status_code=401)
+        return _preference_response(preferences.load(principal.identity))
+
+    @application.post("/api/preferences")
+    async def save_preferences(request: Request) -> dict[str, str | bool]:
+        principal = resolve_identity(request)
+        if principal is None:
+            raise HTTPException(status_code=401)
+        try:
+            payload = await request.json()
+            preference = AppearancePreference(
+                skin=payload["skin"],
+                invert=payload["invert"],
+                compact=payload["compact"],
+                reduce_motion=payload["reduceMotion"],
+            )
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=400) from None
+        return _preference_response(preferences.save(principal.identity, preference))
+
+    if resolved_settings.environment == "development":
+        simulation = AuthenticatedIdentity(
+            identity=Identity(
+                "development:administrator", "preview@example.invalid", "Development preview"
+            ),
+            groups=frozenset({INTERNAL_GROUPS.administrators}),
+        )
+
+        @application.get("/__preview/internal/administrator/", response_class=HTMLResponse)
+        def development_administrator_preview() -> HTMLResponse:
+            return HTMLResponse(render_internal_preview(simulation, simulation=True))
 
     @application.get("/health/live", response_model=None)
     def live() -> dict[str, str]:
@@ -123,6 +179,15 @@ def create_app(
         return {"status": "ready"}
 
     return application
+
+
+def _preference_response(preference: AppearancePreference) -> dict[str, str | bool]:
+    return {
+        "skin": preference.skin,
+        "invert": preference.invert,
+        "compact": preference.compact,
+        "reduceMotion": preference.reduce_motion,
+    }
 
 
 def _probe_sql(settings: Settings, timeout_seconds: float) -> None:

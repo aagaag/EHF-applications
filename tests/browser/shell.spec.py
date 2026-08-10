@@ -65,7 +65,8 @@ def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_ov
             page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
             page_errors: list[str] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
-            page.goto(f"{base_url}/internal/", wait_until="networkidle")
+            page.goto(f"{base_url}/__preview/internal/administrator/", wait_until="domcontentloaded")
+            page.locator("html[data-preferences-ready='true']").wait_for()
             assert not page_errors, page_errors
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
             assert page.locator(".shell-card").count() >= 1
@@ -79,11 +80,45 @@ def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_ov
                 toggle.focus()
                 toggle.press("Enter")
                 assert page.get_by_role("complementary", name="Application navigation").get_attribute("data-open") == "true"
+                assert page.locator(".app-nav").evaluate("node => !node.inert")
+                assert page.evaluate("document.activeElement.closest('#application-navigation') !== null")
+                page.locator(".app-nav-backdrop").click(
+                    position={"x": viewport[0] - 10, "y": 100}
+                )
+                assert toggle.get_attribute("aria-expanded") == "false"
+                assert page.evaluate("document.activeElement === document.querySelector('.app-nav-toggle')")
+                toggle.press("Enter")
+                page.get_by_role("button", name="Help").click()
+                assert page.locator("#help-links").is_visible()
                 page.keyboard.press("Escape")
                 assert toggle.get_attribute("aria-expanded") == "false"
                 assert page.evaluate("document.activeElement === document.querySelector('.app-nav-toggle')")
 
             results = Axe().run(page)
             assert results.violations_count == 0, results.generate_report()
+        finally:
+            browser.close()
+
+
+def test_applicant_preview_is_accessible_and_closed_mobile_drawer_is_not_tabbable() -> None:
+    pytest.importorskip("playwright.sync_api")
+    from axe_playwright_python.sync_playwright import Axe
+    from playwright.sync_api import sync_playwright
+
+    with preview_server() as base_url, sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover - environment-specific browser installation
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page(viewport={"width": 390, "height": 844})
+            page.goto(f"{base_url}/applicant/", wait_until="domcontentloaded")
+            page.locator("html[data-preferences-ready='true']").wait_for()
+            assert page.locator(".app-nav").evaluate("node => node.inert")
+            page.get_by_role("button", name="Open application navigation").focus()
+            page.keyboard.press("Tab")
+            assert page.evaluate("document.activeElement.closest('#application-navigation') === null")
+            assert page.evaluate("document.activeElement === document.querySelector('.shell-card')")
+            assert Axe().run(page).violations_count == 0
         finally:
             browser.close()

@@ -54,6 +54,7 @@ def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
     for fragment in (
         "dbo.RuntimeHealth",
         "dbo.SetUserPreference",
+        "dbo.GetUserPreference",
         "dbo.SetApplicationStatus",
         "EHFApplicationRuntime",
         "sys.database_permissions",
@@ -63,7 +64,7 @@ def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
     assert "SET XACT_ABORT OFF;" in validator
 
 
-def test_permission_migration_denies_direct_table_access_and_publishes_only_three_procedures() -> None:
+def test_permission_migrations_deny_direct_table_access_and_publish_only_four_procedures() -> None:
     """Break caught: the runtime role could gain a table grant or unreviewed module access."""
     migration = MIGRATION.read_text(encoding="utf-8")
 
@@ -82,6 +83,9 @@ def test_permission_migration_denies_direct_table_access_and_publishes_only_thre
         assert (
             f"GRANT EXECUTE ON dbo.{procedure_name} TO EHFApplicationRuntime;"
         ) in migration
+    preference_read = (MIGRATIONS / "006_user_preference_read.sql").read_text(encoding="utf-8")
+    assert "CREATE PROCEDURE dbo.GetUserPreference" in preference_read
+    assert "GRANT EXECUTE ON dbo.GetUserPreference TO EHFApplicationRuntime;" in preference_read
     assert "GRANT SELECT ON SCHEMA::dbo" not in migration
     assert "GRANT EXECUTE ON SCHEMA::dbo" not in migration
     assert "DENY ALTER, CONTROL ON SCHEMA::dbo" not in migration
