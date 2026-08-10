@@ -21,6 +21,9 @@ EHF_SQL_ADMIN_PASSWORD_FILE=/protected/root-only/sql-admin-password \
 
 The helper opens each credential once with `O_NOFOLLOW|O_CLOEXEC`, validates the
 opened descriptor and its root-owned, non-writable parent path, then reads it.
+The isolated verifier never reads the SQL administrator credential in the shell:
+the helper supplies it only to a fixed SQLCMD invocation for repository-owned
+migrations and validators, or to fixed ODBC checks.
 The application password is created only once at `/etc/ehf/sql-app-password`
 as `root:ehf`, mode `0640`; it is never printed or put in argv. Existing logins
 must authenticate from that file before any mapping change. An authenticated,
@@ -64,9 +67,12 @@ EHF_SQL_PRINCIPAL_PYTHON=/temporary/pyodbc-venv/bin/python \
 ```
 
 The verifier creates only randomized `EHFApplications_Test_sqlperm_…`
-resources. Each disposable database carries an opaque `EHF.Task4RunToken`
-extended-property marker; a disposable login must authenticate with its
-run-specific credential and have its exact expected shape before deletion. It
-also seeds a separate test-shaped peer/login, proves current-run cleanup
-preserves it, then removes it only with its own token and credential. Cleanup
-is explicit and verified before `PASS`; the EXIT trap remains as failure safety.
+resources. Every run token is suffix-bound to the randomized 24-hex resource
+suffix. Cleanup deletes a current-run login only when both current-run database
+markers match that token and the login has the exact temporary-login shape; it
+deletes each database only when its own marker matches. It neither requires nor
+uses a credential during cleanup, so an interrupted run remains deterministically
+auditable. The verifier seeds a separate test-shaped peer/login with different
+suffix-bound markers, proves current-run cleanup preserves it, then removes it
+only with its own evidence. Cleanup is explicit and globally verified before
+`PASS`; the EXIT trap remains as failure safety.

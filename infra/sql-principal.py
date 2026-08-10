@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 import sys
 from typing import Iterable, Sequence
 
@@ -78,6 +79,20 @@ COMMANDS = (
     "verify-test-cleanup",
     "verify-no-test-leftovers",
     "verify-test-targets-preserved",
+    "run-admin-sqlcmd",
+    "verify-test-preference-rollback",
+)
+
+SQLCMD_PATH = "/opt/mssql-tools18/bin/sqlcmd"
+SQLCMD_ARTIFACTS = frozenset(
+    {
+        *MIGRATIONS,
+        "001_validate_database_contract.sql",
+        "002_validate_application_core.sql",
+        "003_validate_audit_and_preferences.sql",
+        "004_validate_audit_and_preference_hardening.sql",
+        "005_validate_application_permissions.sql",
+    }
 )
 
 
@@ -152,6 +167,9 @@ def validate_command_arguments(
             raise PrincipalError("Unexpected principal target")
     elif command in {"create-test-database"}:
         if _test_suffix(database) is None:
+            raise PrincipalError("Unexpected principal target")
+    elif command in {"run-admin-sqlcmd", "verify-test-preference-rollback"}:
+        if not TEST_DATABASE.fullmatch(database):
             raise PrincipalError("Unexpected principal target")
     elif command in {"create-test-login", "map-test-user", "exercise-test-status"}:
         if login is None:
@@ -256,9 +274,25 @@ def _odbc_component(value: str) -> str:
     return "{" + value.replace("}", "}}") + "}"
 
 
-def _connect(server: str, database: str | None, login: str, password: str):
+def _connect(
+    server: str,
+    database: str | None,
+    login: str,
+    password: str,
+    trusted_database_names: frozenset[str] | None = None,
+):
     _require_server(server)
-    if database is not None and database not in {"master", PRODUCTION_DATABASE} and _test_suffix(database) is None:
+    known_database = database in {"master", PRODUCTION_DATABASE} or (
+        database is not None and _test_suffix(database) is not None
+    )
+    trusted_database = (
+        database is not None
+        and trusted_database_names is not None
+        and database in trusted_database_names
+        and 0 < len(database) <= 128
+        and "\x00" not in database
+    )
+    if database is not None and not (known_database or trusted_database):
         raise PrincipalError("Unexpected principal target")
     if not login or "\x00" in login:
         raise PrincipalError("Unexpected principal target")
@@ -277,6 +311,28 @@ def _connect(server: str, database: str | None, login: str, password: str):
 
 def connect_admin(server: str, credential_file: Path, database: str = "master"):
     return _connect(server, database, "sa", read_credential(credential_file, "admin"))
+
+
+def _expected_cannot_open_database_for_login(error: Exception) -> bool:
+    """Accept only SQL Server's native 4060 login/database boundary response."""
+    details = " ".join(str(value) for value in getattr(error, "args", ())).casefold()
+    return (
+        "cannot open database" in details
+        and "requested by the login" in details
+        and re.search(r"\b4060\b", details) is not None
+    )
+
+
+def _trusted_online_user_databases(rows: Iterable[object], expected_database: str) -> frozenset[str]:
+    names: set[str] = set()
+    for row in rows:
+        if not isinstance(row, (tuple, list)) or len(row) != 1 or not isinstance(row[0], str):
+            raise PrincipalError("Expected effective cross-database inspection is invalid")
+        name = row[0]
+        if name == expected_database or not (0 < len(name) <= 128) or "\x00" in name:
+            raise PrincipalError("Expected effective cross-database inspection is invalid")
+        names.add(name)
+    return frozenset(names)
 
 
 def _execute(connection, statement: str, parameters: Sequence[object] = ()) -> None:
@@ -300,6 +356,8 @@ def first_result_row(cursor):
 
 def create_production_login(connection, database: str, login: str, credential_file: Path) -> None:
     validate_command_arguments("create-production-login", SERVER, database, login, None, PRODUCTION_USER)
+    if inspect_production(connection, database, login, PRODUCTION_USER) != "ABSENT":
+        raise PrincipalError("Expected login has an unexpected shape")
     password = read_credential(credential_file, "application")
     _require_safe_password(password)
     connection.autocommit = True
@@ -307,13 +365,6 @@ def create_production_login(connection, database: str, login: str, credential_fi
 DECLARE @LoginName sysname=?; DECLARE @Password nvarchar(128)=?; DECLARE @DatabaseName sysname=?;
 IF SUSER_ID(@LoginName) IS NOT NULL THROW 51701, 'Expected login already exists.', 1;
 IF DB_ID(@DatabaseName) IS NULL THROW 51702, 'Expected database is unavailable.', 1;
-DECLARE @Check nvarchar(max)=N'USE '+QUOTENAME(@DatabaseName)+N';
-DECLARE @Auth nvarchar(60); SELECT @Auth=authentication_type_desc FROM sys.database_principals WHERE name=N''ehf_app'' AND type_desc=N''SQL_USER'';
-IF @Auth<>N''NONE'' THROW 51703,''Expected database user has an unexpected shape.'',1;
-IF EXISTS (SELECT 1 FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID(N''ehf_app'')) THROW 51726,''Expected database user has direct permissions.'',1;
-IF EXISTS (SELECT 1 FROM sys.database_role_members m INNER JOIN sys.database_principals r ON r.principal_id=m.role_principal_id WHERE m.member_principal_id=DATABASE_PRINCIPAL_ID(N''ehf_app'') AND r.name<>N''EHFApplicationRuntime'') THROW 51724,''Expected database user has an unexpected role.'',1;
-IF NOT EXISTS (SELECT 1 FROM sys.database_role_members WHERE role_principal_id=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime'') AND member_principal_id=DATABASE_PRINCIPAL_ID(N''ehf_app'')) THROW 51725,''Expected database user lacks its runtime role.'',1;';
-EXEC(@Check);
 DECLARE @Ddl nvarchar(max)=N'CREATE LOGIN '+QUOTENAME(@LoginName)+N' WITH PASSWORD=N'+QUOTENAME(@Password,N'''')+N', CHECK_POLICY=ON, CHECK_EXPIRATION=OFF, DEFAULT_DATABASE='+QUOTENAME(@DatabaseName)+N';';
 EXEC(@Ddl);
 DECLARE @Permission sysname;
@@ -375,7 +426,7 @@ IF @AllowCreate=1
 BEGIN
   DECLARE @Revoke nvarchar(max)=N''REVOKE CONNECT FROM ''+QUOTENAME(@UserName)+N'';''; EXEC(@Revoke);
 END;
-IF NOT EXISTS (SELECT 1 FROM sys.database_role_members WHERE role_principal_id=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime'') AND member_principal_id=DATABASE_PRINCIPAL_ID(@UserName))
+IF @AllowCreate=1 AND NOT EXISTS (SELECT 1 FROM sys.database_role_members WHERE role_principal_id=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime'') AND member_principal_id=DATABASE_PRINCIPAL_ID(@UserName))
 BEGIN DECLARE @Role nvarchar(max)=N''ALTER ROLE [EHFApplicationRuntime] ADD MEMBER ''+QUOTENAME(@UserName)+N'';''; EXEC(@Role); END;
 IF EXISTS (SELECT 1 FROM sys.database_role_members AS m INNER JOIN sys.database_principals AS r ON r.principal_id=m.role_principal_id WHERE m.member_principal_id=DATABASE_PRINCIPAL_ID(@UserName) AND r.name<>N''EHFApplicationRuntime'') THROW 51724,''Expected database user has an unexpected role.'',1;
 IF EXISTS (SELECT 1 FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID(@UserName)) THROW 51726,''Expected database user has direct permissions.'',1;';
@@ -383,8 +434,11 @@ EXEC sys.sp_executesql @Sql,N'@LoginName sysname,@UserName sysname,@AllowCreate 
 """, (database, login, user, 0 if production else 1))
 
 
-def map_production_user(connection, database: str, login: str, user: str) -> None:
+def map_production_user(connection, database: str, login: str, user: str, credential_file: Path) -> None:
     validate_command_arguments("map-production-user", SERVER, database, login, None, user)
+    if inspect_production(connection, database, login, user) != "UNMAPPED":
+        raise PrincipalError("Expected login has an unexpected shape")
+    require_no_effective_cross_database_access(connection, SERVER, database, login, credential_file)
     _map_user(connection, database, login, user, True)
 
 
@@ -414,25 +468,33 @@ SELECT DatabaseName,Finding FROM #Finding WHERE DatabaseName<>@ExpectedDatabase;
 def _inspect_production_state(connection, database: str, login: str, user: str) -> str:
     rows = _rows(connection, """
 DECLARE @LoginName sysname=?; DECLARE @DatabaseName sysname=?; DECLARE @UserName sysname=?;
-IF SUSER_ID(@LoginName) IS NULL SELECT 'ABSENT' AS State;
-ELSE IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name=@LoginName AND type_desc=N'SQL_LOGIN' AND is_disabled=0 AND default_database_name=@DatabaseName) SELECT 'INVALID' AS State;
-ELSE IF EXISTS (SELECT 1 FROM sys.server_role_members m INNER JOIN sys.server_principals p ON p.principal_id=m.member_principal_id WHERE p.name=@LoginName) SELECT 'INVALID' AS State;
-ELSE IF EXISTS (SELECT 1 FROM sys.server_permissions p WHERE p.grantee_principal_id=SUSER_ID(@LoginName) AND (p.state_desc<>N'DENY' OR p.permission_name NOT IN (N'ALTER ANY LOGIN',N'ALTER ANY SERVER ROLE',N'CONTROL SERVER',N'VIEW ANY DATABASE',N'VIEW ANY DEFINITION',N'VIEW SERVER STATE'))) SELECT 'INVALID' AS State;
-ELSE IF (SELECT COUNT(*) FROM sys.server_permissions WHERE grantee_principal_id=SUSER_ID(@LoginName) AND state_desc=N'DENY' AND permission_name IN (N'ALTER ANY LOGIN',N'ALTER ANY SERVER ROLE',N'CONTROL SERVER',N'VIEW ANY DATABASE',N'VIEW ANY DEFINITION',N'VIEW SERVER STATE'))<>6 SELECT 'INVALID' AS State;
-ELSE
-BEGIN
- DECLARE @Sql nvarchar(max)=N'USE '+QUOTENAME(@DatabaseName)+N';
- DECLARE @Auth nvarchar(60),@Sid varbinary(85); SELECT @Auth=authentication_type_desc,@Sid=sid FROM sys.database_principals WHERE name=@UserName AND type_desc=N''SQL_USER'';
- IF @Auth IS NULL SELECT ''INVALID'' AS State;
- ELSE IF EXISTS (SELECT 1 FROM sys.schemas WHERE principal_id=DATABASE_PRINCIPAL_ID(@UserName)) SELECT ''INVALID'' AS State;
- ELSE IF EXISTS (SELECT 1 FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID(@UserName)) SELECT ''INVALID'' AS State;
- ELSE IF EXISTS (SELECT 1 FROM sys.database_role_members m INNER JOIN sys.database_principals r ON r.principal_id=m.role_principal_id WHERE m.member_principal_id=DATABASE_PRINCIPAL_ID(@UserName) AND r.name<>N''EHFApplicationRuntime'') SELECT ''INVALID'' AS State;
- ELSE IF NOT EXISTS (SELECT 1 FROM sys.database_role_members WHERE role_principal_id=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime'') AND member_principal_id=DATABASE_PRINCIPAL_ID(@UserName)) SELECT ''INVALID'' AS State;
- ELSE IF @Auth=N''NONE'' SELECT ''UNMAPPED'' AS State;
- ELSE IF @Sid<>SUSER_SID(@LoginName) SELECT ''INVALID'' AS State;
- ELSE SELECT ''READY'' AS State;';
- EXEC sys.sp_executesql @Sql,N'@LoginName sysname,@UserName sysname',@LoginName,@UserName;
-END;
+DECLARE @LoginExists bit=CASE WHEN SUSER_ID(@LoginName) IS NULL THEN 0 ELSE 1 END;
+DECLARE @UserState varchar(12)=NULL;
+DECLARE @Sql nvarchar(max)=N'USE '+QUOTENAME(@DatabaseName)+N';
+DECLARE @Auth nvarchar(60),@Sid varbinary(85),@UserId int=DATABASE_PRINCIPAL_ID(@UserName);
+SELECT @Auth=authentication_type_desc,@Sid=sid FROM sys.database_principals WHERE principal_id=@UserId AND type_desc=N''SQL_USER'';
+IF @UserId IS NULL OR @Auth IS NULL SELECT @Out=''INVALID'';
+ELSE IF @Auth NOT IN (N''NONE'',N''INSTANCE'') SELECT @Out=''INVALID'';
+ELSE IF EXISTS (SELECT 1 FROM sys.schemas WHERE principal_id=@UserId)
+     OR EXISTS (SELECT 1 FROM sys.objects WHERE principal_id=@UserId)
+     OR EXISTS (SELECT 1 FROM sys.database_principals WHERE owning_principal_id=@UserId)
+     OR EXISTS (SELECT 1 FROM sys.database_permissions WHERE grantee_principal_id=@UserId)
+     OR EXISTS (SELECT 1 FROM sys.database_role_members m INNER JOIN sys.database_principals r ON r.principal_id=m.role_principal_id WHERE m.member_principal_id=@UserId AND r.name<>N''EHFApplicationRuntime'')
+     OR NOT EXISTS (SELECT 1 FROM sys.database_role_members WHERE role_principal_id=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime'') AND member_principal_id=@UserId)
+     SELECT @Out=''INVALID'';
+ELSE IF @LoginExists=0 AND @Auth=N''NONE'' SELECT @Out=''ABSENT'';
+ELSE IF @LoginExists=1 AND @Auth=N''NONE'' SELECT @Out=''UNMAPPED'';
+ELSE IF @LoginExists=1 AND @Auth=N''INSTANCE'' AND @Sid=SUSER_SID(@LoginName) SELECT @Out=''READY'';
+ELSE SELECT @Out=''INVALID'';';
+EXEC sys.sp_executesql @Sql,N'@LoginName sysname,@UserName sysname,@LoginExists bit,@Out varchar(12) OUTPUT',@LoginName,@UserName,@LoginExists,@UserState OUTPUT;
+IF @UserState=N''INVALID'' SELECT ''INVALID'' AS State;
+ELSE IF @LoginExists=0 SELECT ''ABSENT'' AS State;
+ELSE IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name=@LoginName AND type_desc=N''SQL_LOGIN'' AND is_disabled=0 AND default_database_name=@DatabaseName AND is_policy_checked=1 AND is_expiration_checked=0) SELECT ''INVALID'' AS State;
+ELSE IF EXISTS (SELECT 1 FROM sys.databases WHERE owner_sid=SUSER_SID(@LoginName)) SELECT ''INVALID'' AS State;
+ELSE IF EXISTS (SELECT 1 FROM sys.server_role_members m INNER JOIN sys.server_principals p ON p.principal_id=m.member_principal_id WHERE p.name=@LoginName) SELECT ''INVALID'' AS State;
+ELSE IF EXISTS (SELECT 1 FROM sys.server_permissions p WHERE p.grantee_principal_id=SUSER_ID(@LoginName) AND (p.state_desc<>N''DENY'' OR p.permission_name NOT IN (N''ALTER ANY LOGIN'',N''ALTER ANY SERVER ROLE'',N''CONTROL SERVER'',N''VIEW ANY DATABASE'',N''VIEW ANY DEFINITION'',N''VIEW SERVER STATE''))) SELECT ''INVALID'' AS State;
+ELSE IF (SELECT COUNT(*) FROM sys.server_permissions WHERE grantee_principal_id=SUSER_ID(@LoginName) AND state_desc=N''DENY'' AND permission_name IN (N''ALTER ANY LOGIN'',N''ALTER ANY SERVER ROLE'',N''CONTROL SERVER'',N''VIEW ANY DATABASE'',N''VIEW ANY DEFINITION'',N''VIEW SERVER STATE''))<>6 SELECT ''INVALID'' AS State;
+ELSE SELECT @UserState AS State;
 """, (login, database, user))
     if len(rows) != 1:
         raise PrincipalError("Expected login inspection is ambiguous")
@@ -459,16 +521,18 @@ def require_no_effective_cross_database_access(
         "SELECT name FROM sys.databases WHERE state_desc=N'ONLINE' AND database_id>4 AND name<>? AND source_database_id IS NULL;",
         (database,),
     )
-    for row in rows:
-        candidate = str(row[0])
+    candidates = _trusted_online_user_databases(rows, database)
+    for candidate in candidates:
         runtime = None
         try:
-            runtime = _connect(server, candidate, login, password)
+            runtime = _connect(server, candidate, login, password, candidates)
             actual = _rows(runtime, "SELECT DB_NAME();")
             if len(actual) == 1 and str(actual[0][0]) == candidate:
                 raise PrincipalError("Expected login has effective cross-database access")
-        except pyodbc.Error:
-            continue
+            raise PrincipalError("Expected effective cross-database probe is invalid")
+        except pyodbc.Error as error:
+            if not _expected_cannot_open_database_for_login(error):
+                raise PrincipalError("Expected effective cross-database denial was unavailable") from None
         finally:
             if runtime is not None:
                 runtime.close()
@@ -485,6 +549,53 @@ def authenticate_login(server: str, database: str, login: str, credential_file: 
             raise PrincipalError("Credential did not authenticate the expected login")
     finally:
         connection.close()
+
+
+def _static_sqlcmd_input(name: str) -> Path:
+    if name not in SQLCMD_ARTIFACTS:
+        raise PrincipalError("Unexpected SQLCMD input")
+    root = Path(__file__).resolve().parents[1]
+    directory = root / "database" / ("migrations" if name in MIGRATIONS else "tests")
+    candidate = (directory / name).resolve()
+    if candidate.parent != directory.resolve() or not candidate.is_file():
+        raise PrincipalError("Unexpected SQLCMD input")
+    return candidate
+
+
+def run_admin_sqlcmd(server: str, database: str, credential_file: Path, sql_file: str) -> None:
+    """Execute one repository-owned migration or validator through SQLCMD safely."""
+    validate_command_arguments("run-admin-sqlcmd", server, database, None, None)
+    input_file = _static_sqlcmd_input(sql_file)
+    password = read_credential(credential_file, "admin")
+    environment = dict(os.environ)
+    environment.pop("SQLCMDINI", None)
+    environment["SQLCMDPASSWORD"] = password
+    completed = subprocess.run(
+        [SQLCMD_PATH, "-S", server, "-U", "sa", "-C", "-X", "-I", "-d", database, "-b", "-V", "11", "-r", "1", "-i", str(input_file)],
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise PrincipalError("SQLCMD static artifact failed")
+
+
+def verify_test_preference_rollback(connection, database: str) -> None:
+    validate_command_arguments("verify-test-preference-rollback", SERVER, database, None, None)
+    _execute(connection, """
+IF EXISTS
+(
+    SELECT 1
+    FROM dbo.UserPreference AS preference_row
+    INNER JOIN dbo.AuditEvent AS audit_row
+      ON audit_row.EntityId=preference_row.UserPreferenceId
+    WHERE preference_row.IdentityKey=N'isolated-runtime-validator'
+      AND audit_row.EventType=N'USER_PREFERENCE_SET'
+)
+    THROW 51655,'Preference audit did not roll back.',1;
+""")
 
 
 def record_test_migration(connection, database: str, migration_file: str) -> None:
@@ -597,14 +708,14 @@ def verify_no_test_leftovers(connection) -> None:
         raise PrincipalError("Test principal cleanup verification failed")
 
 
-def verify_test_targets_preserved(connection, database: str, login: str, run_token: str, credential_file: Path, server: str = SERVER) -> None:
+def verify_test_targets_preserved(connection, database: str, login: str, run_token: str, server: str = SERVER) -> None:
     validate_command_arguments("verify-test-targets-preserved", server, database, login, None, run_token=run_token)
     if _database_marker(connection, database) != run_token or not _test_login_exists(connection, login) or not _test_login_shape(connection, database, login):
         raise PrincipalError("Test principal preservation verification failed")
 
 
 def admin_connection_database(command: str, database: str | None) -> str:
-    return database if command in {"record-test-migration", "exercise-test-status"} else "master"
+    return database if command in {"record-test-migration", "exercise-test-status", "verify-test-preference-rollback"} else "master"
 
 
 def _admin_connection(arguments):
@@ -620,6 +731,8 @@ def dispatch(arguments) -> None:
     validate_command_arguments(command, arguments.server, getattr(arguments, "database", None), getattr(arguments, "login", None), getattr(arguments, "peer_database", None), getattr(arguments, "user", None), getattr(arguments, "run_token", None))
     if command == "authenticate-login":
         authenticate_login(arguments.server, arguments.database, arguments.login, Path(arguments.credential_file), arguments.credential_kind); return
+    if command == "run-admin-sqlcmd":
+        run_admin_sqlcmd(arguments.server, arguments.database, Path(arguments.admin_credential_file), arguments.sql_file); return
     connection = _admin_connection(arguments)
     try:
         if command == "inspect-production":
@@ -628,7 +741,7 @@ def dispatch(arguments) -> None:
                 require_no_effective_cross_database_access(connection, arguments.server, arguments.database, arguments.login, Path(arguments.credential_file))
             print(state.lower())
         elif command == "create-production-login": create_production_login(connection, arguments.database, arguments.login, Path(arguments.credential_file))
-        elif command == "map-production-user": map_production_user(connection, arguments.database, arguments.login, arguments.user)
+        elif command == "map-production-user": map_production_user(connection, arguments.database, arguments.login, arguments.user, Path(arguments.credential_file))
         elif command == "create-test-database": create_test_database(connection, arguments.database, arguments.run_token)
         elif command == "create-test-login": create_test_login(connection, arguments.database, arguments.login, Path(arguments.credential_file))
         elif command == "map-test-user": map_test_user(connection, arguments.database, arguments.login, arguments.user)
@@ -637,7 +750,8 @@ def dispatch(arguments) -> None:
         elif command == "cleanup-test-targets": cleanup_test_targets(connection, arguments.database, arguments.peer_database, arguments.login, arguments.run_token, arguments.server)
         elif command == "verify-test-cleanup": verify_test_cleanup(connection, arguments.database, arguments.peer_database, arguments.login, arguments.run_token)
         elif command == "verify-no-test-leftovers": verify_no_test_leftovers(connection)
-        elif command == "verify-test-targets-preserved": verify_test_targets_preserved(connection, arguments.database, arguments.login, arguments.run_token, Path(arguments.credential_file), arguments.server)
+        elif command == "verify-test-targets-preserved": verify_test_targets_preserved(connection, arguments.database, arguments.login, arguments.run_token, arguments.server)
+        elif command == "verify-test-preference-rollback": verify_test_preference_rollback(connection, arguments.database)
     finally:
         connection.close()
 
@@ -650,12 +764,13 @@ def parser() -> argparse.ArgumentParser:
         if command != "verify-no-test-leftovers": item.add_argument("--database", required=True)
         if command in {"inspect-production", "map-production-user", "map-test-user"}: item.add_argument("--user", required=True)
         if command in {"inspect-production", "authenticate-login", "create-production-login", "map-production-user", "create-test-login", "map-test-user", "exercise-test-status", "cleanup-test-targets", "verify-test-cleanup", "verify-test-targets-preserved"}: item.add_argument("--login", required=True)
-        if command in {"authenticate-login", "create-production-login", "create-test-login", "exercise-test-status", "verify-test-targets-preserved"}: item.add_argument("--credential-file", required=True)
+        if command in {"authenticate-login", "create-production-login", "map-production-user", "create-test-login", "exercise-test-status"}: item.add_argument("--credential-file", required=True)
         elif command == "inspect-production": item.add_argument("--credential-file")
         if command == "authenticate-login": item.add_argument("--credential-kind", choices=("application", "test"), required=True)
         if command in {"cleanup-test-targets", "verify-test-cleanup"}: item.add_argument("--peer-database", required=True)
         if command in {"create-test-database", "cleanup-test-targets", "verify-test-cleanup", "verify-test-targets-preserved"}: item.add_argument("--run-token", required=True)
         if command == "record-test-migration": item.add_argument("--migration-file", required=True, choices=tuple(MIGRATIONS))
+        if command == "run-admin-sqlcmd": item.add_argument("--sql-file", required=True, choices=tuple(SQLCMD_ARTIFACTS))
     return result
 
 

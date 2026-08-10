@@ -77,6 +77,20 @@ class FakePyodbc:
         return self.connection
 
 
+class ProbePyodbc(FakePyodbc):
+    """ODBC double with real Driver 18-style database-login failures."""
+
+    def __init__(self, connection: FakeConnection, error: Exception | None = None):
+        super().__init__(connection)
+        self.error = error
+
+    def connect(self, connection_string: str, autocommit: bool):
+        self.calls.append((connection_string, autocommit))
+        if self.error is not None:
+            raise self.error
+        return self.connection
+
+
 def test_helper_has_only_fixed_lifecycle_commands() -> None:
     """Break caught: a principal helper could become a generic SQL execution tool."""
     helper = load_helper()
@@ -95,6 +109,8 @@ def test_helper_has_only_fixed_lifecycle_commands() -> None:
         "verify-test-cleanup",
         "verify-no-test-leftovers",
         "verify-test-targets-preserved",
+        "run-admin-sqlcmd",
+        "verify-test-preference-rollback",
     }
 
 
@@ -129,6 +145,7 @@ def test_create_login_binds_name_password_and_database_not_sql_text(monkeypatch)
     connection.autocommit = False
     safe_password = "Aa1._~" + "a" * 42
     monkeypatch.setattr(helper, "read_credential", lambda *_: safe_password)
+    monkeypatch.setattr(helper, "inspect_production", lambda *_: "ABSENT")
 
     helper.create_production_login(
         connection,
@@ -176,6 +193,125 @@ def test_inspection_refuses_cross_database_mapping_or_ownership() -> None:
         )
 
     helper.require_no_cross_database_access([], "EHFApplications")
+
+
+def test_production_inspection_checks_its_own_database_owner_and_login_policy() -> None:
+    """Break caught: ehf_app could own EHFApplications or weaken its password policy."""
+    source = HELPER.read_text(encoding="utf-8")
+    assert "owner_sid" in source
+    assert "is_policy_checked" in source
+    assert "is_expiration_checked" in source
+
+
+def test_cross_database_probe_accepts_only_sql_servers_cannot_open_database_login_denial(
+    monkeypatch,
+) -> None:
+    """Break caught: a TLS or authentication failure could be accepted as database isolation."""
+    helper = load_helper()
+    cannot_open = FakePyodbc.Error(
+        "42000",
+        "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Cannot open database 'Finances2' requested by the login. The login failed. (4060)",
+    )
+    driver = ProbePyodbc(FakeConnection(FakeCursor()), cannot_open)
+    monkeypatch.setattr(helper, "pyodbc", driver)
+    monkeypatch.setattr(helper, "read_credential", lambda *_: "Aa1._~" + "a" * 42)
+    monkeypatch.setattr(helper, "_rows", lambda *_: [("Finances2",)])
+
+    helper.require_no_effective_cross_database_access(
+        FakeConnection(FakeCursor()), helper.SERVER, "EHFApplications", "ehf_app", Path("/protected/password")
+    )
+
+    assert "DATABASE={Finances2}" in driver.calls[0][0]
+
+
+def test_cross_database_probe_rejects_non_access_denial_odbc_errors(monkeypatch) -> None:
+    """Break caught: an unavailable driver or TLS failure could look like a denied database."""
+    helper = load_helper()
+    driver = ProbePyodbc(FakeConnection(FakeCursor()), FakePyodbc.Error("08001", "TLS negotiation failed"))
+    monkeypatch.setattr(helper, "pyodbc", driver)
+    monkeypatch.setattr(helper, "read_credential", lambda *_: "Aa1._~" + "a" * 42)
+    monkeypatch.setattr(helper, "_rows", lambda *_: [("Finances2",)])
+
+    with pytest.raises(helper.PrincipalError, match="effective cross-database"):
+        helper.require_no_effective_cross_database_access(
+            FakeConnection(FakeCursor()), helper.SERVER, "EHFApplications", "ehf_app", Path("/protected/password")
+        )
+
+
+@pytest.mark.parametrize(
+    ("operation", "state"),
+    (("create_production_login", "READY"), ("map_production_user", "INVALID")),
+)
+def test_production_lifecycle_refuses_unsafe_state_before_any_mutation(monkeypatch, operation: str, state: str) -> None:
+    """Break caught: setup could change a principal before discovering its unsafe shape."""
+    helper = load_helper()
+    connection = FakeConnection(FakeCursor())
+    monkeypatch.setattr(helper, "inspect_production", lambda *_: state)
+    monkeypatch.setattr(helper, "_execute", lambda *_: pytest.fail("principal mutation was reached"))
+    monkeypatch.setattr(helper, "read_credential", lambda *_: "Aa1._~" + "a" * 42)
+
+    with pytest.raises(helper.PrincipalError, match="unexpected shape"):
+        if operation == "create_production_login":
+            helper.create_production_login(connection, "EHFApplications", "ehf_app", Path("/protected/password"))
+        else:
+            helper.map_production_user(connection, "EHFApplications", "ehf_app", "ehf_app", Path("/protected/password"))
+
+
+def test_production_mapping_proves_effective_database_isolation_before_mutation(monkeypatch) -> None:
+    """Break caught: an unmapped login with access through another database could be mapped before that access was rejected."""
+    helper = load_helper()
+    connection = FakeConnection(FakeCursor())
+    monkeypatch.setattr(helper, "inspect_production", lambda *_: "UNMAPPED")
+    monkeypatch.setattr(
+        helper,
+        "require_no_effective_cross_database_access",
+        lambda *_: (_ for _ in ()).throw(helper.PrincipalError("Expected effective cross-database access")),
+    )
+    monkeypatch.setattr(helper, "_map_user", lambda *_: pytest.fail("principal mutation was reached"))
+
+    with pytest.raises(helper.PrincipalError, match="effective cross-database"):
+        helper.map_production_user(
+            connection,
+            "EHFApplications",
+            "ehf_app",
+            "ehf_app",
+            Path("/protected/password"),
+        )
+
+
+def test_helper_executes_only_fixed_admin_sqlcmd_artifacts_without_exposing_secret(monkeypatch) -> None:
+    """Break caught: the verifier could reopen the admin secret or invoke arbitrary SQLCMD input."""
+    helper = load_helper()
+    invoked: list[tuple[list[str], dict[str, str]]] = []
+
+    class Completed:
+        returncode = 0
+
+    monkeypatch.setattr(helper, "read_credential", lambda *_: "Aa1._~" + "a" * 42)
+    monkeypatch.setattr(
+        helper.subprocess,
+        "run",
+        lambda arguments, **kwargs: invoked.append((arguments, kwargs["env"])) or Completed(),
+    )
+
+    helper.run_admin_sqlcmd(
+        helper.SERVER,
+        "EHFApplications_Test_sqlperm_0123456789abcdef01234567",
+        Path("/protected/admin-password"),
+        "005_validate_application_permissions.sql",
+    )
+
+    arguments, environment = invoked[0]
+    assert arguments[-1].endswith("005_validate_application_permissions.sql")
+    assert "Aa1._~" not in " ".join(arguments)
+    assert environment["SQLCMDPASSWORD"] == "Aa1._~" + "a" * 42
+    with pytest.raises(helper.PrincipalError, match="Unexpected SQLCMD input"):
+        helper.run_admin_sqlcmd(
+            helper.SERVER,
+            "EHFApplications_Test_sqlperm_0123456789abcdef01234567",
+            Path("/protected/admin-password"),
+            "../../Finances2.sql",
+        )
 
 
 def test_cleanup_only_accepts_exact_randomized_test_targets() -> None:

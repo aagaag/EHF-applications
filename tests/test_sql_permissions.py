@@ -114,6 +114,26 @@ def test_permission_validator_rejects_direct_runtime_user_grants_and_unexpected_
     assert "The runtime user has an unexpected role." in validator
 
 
+def test_permission_validator_rejects_unapproved_runtime_grants_and_ownership() -> None:
+    """Break caught: the runtime role could inherit object access or own a database object."""
+    validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(encoding="utf-8")
+    assert "The runtime role has an unapproved grant." in validator
+    assert "The runtime role owns a database object." in validator
+
+
+def test_permission_validator_requires_each_table_dml_deny_and_rejects_database_execute() -> None:
+    """Break caught: a database-scoped EXECUTE or a missing table DML deny could bypass the role boundary."""
+    validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(encoding="utf-8")
+
+    assert "@ProtectedTables" in validator
+    assert "@RequiredDmlDenies" in validator
+    assert "permission_row.major_id = OBJECT_ID" in validator
+    assert "permission_row.major_id = 0" in validator
+    assert "sys.objects" in validator
+    assert "runtime role is nested" in validator.casefold()
+    assert "A required runtime CONNECT grant is missing." in validator
+
+
 @pytest.mark.parametrize(
     ("script", "arguments"),
     (
@@ -254,6 +274,16 @@ def test_setup_converges_an_authenticated_unmapped_login_without_creating_a_pass
     assert "/opt/ehf/current/venv/bin/python" in source
 
 
+def test_setup_proves_effective_cross_database_denial_before_mapping_an_unmapped_user() -> None:
+    """Break caught: an unmapped login could gain a database user before its effective cross-database access was rejected."""
+    source = SETUP_SCRIPT.read_text(encoding="utf-8")
+
+    assert "verified_state=" in source
+    assert source.index("verified_state=") < source.index('if [[ "$inspect_state" == unmapped ]]')
+    effective_helper = source[source.index("verified_state() {") : source.index("inspect_state=")]
+    assert '--credential-file "$password_file"' in effective_helper
+
+
 def test_isolated_sqlcmd_wrapper_forwards_static_migration_and_validator_files() -> None:
     """Break caught: -i migration files could be accepted by the wrapper but never executed."""
     source = TEST_SCRIPT.read_text(encoding="utf-8")
@@ -262,3 +292,25 @@ def test_isolated_sqlcmd_wrapper_forwards_static_migration_and_validator_files()
     assert "EXEC(N'ALTER SERVER ROLE" not in source
     assert "@loginSql" in source and "@roleSql" in source
     assert "IF ERROR_NUMBER()<>15247 THROW" in source
+
+
+def test_isolated_verifier_exercises_every_protected_table_and_metadata_deny() -> None:
+    """Break caught: direct DML or metadata checks could cover only Application and miss another protected table."""
+    source = TEST_SCRIPT.read_text(encoding="utf-8")
+
+    for table_name in PROTECTED_TABLES:
+        assert f"N'{table_name}'" in source
+    for permission_name in (
+        "VIEW ANY DATABASE",
+        "VIEW ANY DEFINITION",
+        "VIEW SERVER STATE",
+        "CREATE PROCEDURE",
+        "CREATE VIEW",
+        "ALTER ANY SCHEMA",
+        "ALTER ANY USER",
+        "ALTER ANY ROLE",
+        "VIEW DEFINITION",
+    ):
+        assert permission_name in source
+    assert "Protected SELECT succeeded." not in source
+    assert "DML permission denial was not returned" in source
