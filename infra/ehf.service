@@ -1,0 +1,45 @@
+[Unit]
+Description=EHF fellowship portal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=ehf
+Group=ehf
+WorkingDirectory=/opt/ehf/current
+EnvironmentFile=/etc/ehf/ehf.env
+LoadCredential=sql-password:/etc/ehf/sql-app-password
+LoadCredential=document-keyring:/etc/ehf/document-keyring
+LoadCredential=session-pepper:/etc/ehf/session-pepper
+LoadCredential=otp-pepper:/etc/ehf/otp-pepper
+LoadCredential=turnstile-secret:/etc/ehf/turnstile-secret
+ExecStart=/opt/ehf/current/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8086 --workers 2 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/ehf/documents /var/lib/ehf/quarantine
+ReadOnlyPaths=/etc/ehf
+
+[Install]
+WantedBy=multi-user.target

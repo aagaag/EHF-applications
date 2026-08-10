@@ -59,18 +59,26 @@ if ($Status) {
 Write-Host 'Expected: main branch and empty git status --short output.'
 git diff --exit-code origin/main
 & $Python -m pytest -q
-powershell -File scripts\deploy-isab01.ps1
-powershell -File scripts\verify-isab01.ps1
+powershell -NoProfile -File scripts\deploy-isab01.ps1 -WhatIf
 ```
 
-If the post-activation health check fails, use the documented atomic rollback command after confirming the named previous release:
+Apply only after the reviewed commit has been pushed, local `HEAD` equals
+`origin/main`, the ISAB01 non-secret configuration/credential prerequisites are
+available, and the approved protected SQL administrator credential **path** is
+known. The complete procedure is in [deployment.md](docs/deployment.md).
+
+If the post-activation health check fails, the installer restores the previous
+release automatically. A later explicit rollback requires the named, validated
+previous release:
 
 ```powershell
-powershell -File scripts\deploy-isab01.ps1 -Rollback
-powershell -File scripts\verify-isab01.ps1
+$PreviousCommit = '<validated 40-hex previous commit>'
+powershell -NoProfile -File scripts\deploy-isab01.ps1 -Rollback $PreviousCommit
+powershell -NoProfile -File scripts\verify-isab01.ps1 -ExpectedCommit $PreviousCommit
 ```
 
-The deploy and rollback scripts are introduced by the foundation deployment task; until then, these commands are operational documentation rather than an enabled production path.
+The deployment path does not configure Cloudflare, DNS, Access, invitations,
+production mail, applicant data, or outbound communications.
 
 ## Production invitation gate
 

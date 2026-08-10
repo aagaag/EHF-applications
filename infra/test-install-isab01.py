@@ -77,6 +77,7 @@ def test_atomic_activation_and_rollback_only_switch_the_current_symlink(tmp_path
     """Break caught: activation or rollback could copy mutable release contents instead of atomically switching links."""
     installer = load_installer()
     installer.APP_ROOT = tmp_path / "opt" / "ehf"
+    installer.RELEASE_ROOT = installer.APP_ROOT / "r"
     installer.CURRENT = installer.APP_ROOT / "current"
     previous = installer.APP_ROOT / "r" / ("d" * 40)
     candidate = installer.APP_ROOT / "r" / ("e" * 40)
