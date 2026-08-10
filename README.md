@@ -19,12 +19,14 @@ Do not place credentials, applicant documents, PDFs, or generated import output 
 Run the complete available suite from the repository root:
 
 ```powershell
+$Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
 & $Python -m pytest -q
 ```
 
 For the repository bootstrap contract only:
 
 ```powershell
+$Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
 & $Python -m pytest tests\test_repository_contract.py -q
 ```
 
@@ -33,6 +35,7 @@ For the repository bootstrap contract only:
 The bootstrap does not import production records. Once the approved import workflow is present, preview an import before writing anything:
 
 ```powershell
+$Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
 & $Python -m app.importer --source '<approved-source-directory>' --database EHFApplications --dry-run
 ```
 
@@ -43,8 +46,17 @@ Proceed only after the preview reconciles every expected applicant and document 
 Deployment targets ISAB01 only after the release has passed its focused tests and the full suite on a clean, synchronized `main`:
 
 ```powershell
+$Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
 git fetch origin
-git status --short
+$Branch = git branch --show-current
+if ($Branch -ne 'main') {
+    throw "Expected active branch main; found '$Branch'."
+}
+$Status = git status --short
+if ($Status) {
+    throw "Expected clean working tree; git status --short returned:`n$Status"
+}
+Write-Host 'Expected: main branch and empty git status --short output.'
 git diff --exit-code origin/main
 & $Python -m pytest -q
 powershell -File scripts\deploy-isab01.ps1

@@ -97,3 +97,25 @@ def test_repository_bootstrap_contract_is_present_and_safe() -> None:
     )
     for pattern in token_patterns:
         assert not re.search(pattern, coordination), f"token-like value found: {pattern}"
+
+
+def test_import_and_deploy_commands_define_python_runtime_in_each_block() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runtime_definition = "$Python = 'C:\\Users\\aag\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe'"
+
+    import_section = readme.split("## Import", 1)[1].split("## Deploy and rollback", 1)[0]
+    deploy_section = readme.split("## Deploy and rollback", 1)[1].split("## Production invitation gate", 1)[0]
+
+    assert runtime_definition in import_section
+    assert runtime_definition in deploy_section
+
+
+def test_deploy_commands_require_main_and_empty_git_status() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    deploy_section = readme.split("## Deploy and rollback", 1)[1].split("## Production invitation gate", 1)[0]
+
+    assert "$Branch = git branch --show-current" in deploy_section
+    assert "if ($Branch -ne 'main')" in deploy_section
+    assert "$Status = git status --short" in deploy_section
+    assert "if ($Status)" in deploy_section
+    assert "Expected: main branch and empty git status --short output." in deploy_section
