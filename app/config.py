@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Mapping
+from uuid import RFC_4122, UUID
 
 
 class ConfigurationError(ValueError):
@@ -40,6 +41,12 @@ _PRODUCTION_REQUIRED_VARIABLES = {
     "EHF_DOCUMENT_ROOT": "document root",
     "EHF_QUARANTINE_ROOT": "quarantine root",
 }
+
+_APPROVED_SENDER_PATTERN = re.compile(
+    r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*"
+    r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}"
+)
+_SUPPORTED_PRODUCTION_MAIL_TRANSPORTS = frozenset({"microsoft-graph"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,10 +115,14 @@ class Settings:
         production_mail_enabled = _boolean(
             values.get("EHF_PRODUCTION_MAIL_ENABLED"), "production mail enabled"
         )
-        approved_mail_sender = _optional_value(values, "EHF_APPROVED_MAIL_SENDER")
-        mail_transport = _optional_value(values, "EHF_MAIL_TRANSPORT")
-        internal_mail_delivery_test_receipt = _optional_value(
-            values, "EHF_INTERNAL_MAIL_DELIVERY_TEST_RECEIPT"
+        approved_mail_sender = _approved_sender(
+            _optional_value(values, "EHF_APPROVED_MAIL_SENDER")
+        )
+        mail_transport = _production_mail_transport(
+            _optional_value(values, "EHF_MAIL_TRANSPORT")
+        )
+        internal_mail_delivery_test_receipt = _delivery_test_receipt(
+            _optional_value(values, "EHF_INTERNAL_MAIL_DELIVERY_TEST_RECEIPT")
         )
         if production_mail_enabled and not all(
             (approved_mail_sender, mail_transport, internal_mail_delivery_test_receipt)
@@ -264,7 +275,7 @@ def _storage_path(value: str | None, label: str, *, production: bool) -> str | N
 
 
 def _absolute_path(value: str, error_message: str) -> str:
-    path = _pure_path(value)
+    path = _canonical_path(_pure_path(value))
     if not path.is_absolute():
         raise ConfigurationError(error_message)
     return str(path)
@@ -276,13 +287,26 @@ def _pure_path(value: str) -> PurePath:
     return PurePosixPath(value)
 
 
+def _canonical_path(path: PurePath) -> PurePath:
+    """Lexically normalize a path without requiring the target to exist."""
+    normalized_parts: list[str] = []
+    for part in path.parts[1:]:
+        if part == "..":
+            if normalized_parts:
+                normalized_parts.pop()
+            continue
+        if part != ".":
+            normalized_parts.append(part)
+    return type(path)(path.anchor, *normalized_parts)
+
+
 def _reject_overlapping_storage_roots(
     document_root: str | None, quarantine_root: str | None
 ) -> None:
     if document_root is None or quarantine_root is None:
         return
-    document_path = _pure_path(document_root)
-    quarantine_path = _pure_path(quarantine_root)
+    document_path = _canonical_path(_pure_path(document_root))
+    quarantine_path = _canonical_path(_pure_path(quarantine_root))
     if type(document_path) is not type(quarantine_path):
         raise ConfigurationError("document root and quarantine root must use the same path semantics")
     if _contains(document_path, quarantine_path) or _contains(quarantine_path, document_path):
@@ -290,11 +314,42 @@ def _reject_overlapping_storage_roots(
 
 
 def _contains(parent: PurePath, child: PurePath) -> bool:
+    parent = _canonical_path(parent)
+    child = _canonical_path(child)
     try:
         child.relative_to(parent)
     except ValueError:
         return False
     return True
+
+
+def _approved_sender(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if not _APPROVED_SENDER_PATTERN.fullmatch(value):
+        raise ConfigurationError("approved sender must be a valid email address")
+    return value
+
+
+def _production_mail_transport(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.lower()
+    if normalized not in _SUPPORTED_PRODUCTION_MAIL_TRANSPORTS:
+        raise ConfigurationError("mail transport must be one of the supported production transports")
+    return normalized
+
+
+def _delivery_test_receipt(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        receipt = UUID(value)
+    except ValueError:
+        raise ConfigurationError("delivery-test receipt must be a canonical RFC 4122 UUIDv4") from None
+    if receipt.version != 4 or receipt.variant != RFC_4122 or str(receipt) != value.lower():
+        raise ConfigurationError("delivery-test receipt must be a canonical RFC 4122 UUIDv4")
+    return str(receipt)
 
 
 def _read_credential_file(path: str | None, label: str) -> str:

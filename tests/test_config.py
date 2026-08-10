@@ -138,6 +138,79 @@ def test_production_accepts_systemd_credential_paths_with_posix_semantics() -> N
         Settings.from_environment(windows_storage)
 
 
+def test_production_canonicalizes_in_root_systemd_credentials_and_rejects_traversal() -> None:
+    """Break caught: lexical path checks could let a credential escape /run/credentials."""
+    in_root_path = "/run/credentials/ehf.service/staging/../sql-password"
+    settings = Settings.from_environment(
+        production_environment() | {"EHF_SQL_CREDENTIAL_PATH": in_root_path}
+    )
+    assert settings.sql_credential_path == "/run/credentials/ehf.service/sql-password"
+
+    escaped_path = "/run/credentials/ehf.service/../../../var/lib/ehf/sql-password"
+    with pytest.raises(ConfigurationError, match="systemd credential-file path"):
+        Settings.from_environment(
+            production_environment() | {"EHF_SQL_CREDENTIAL_PATH": escaped_path}
+        )
+
+
+def test_development_canonicalizes_windows_credential_paths_without_reading_them() -> None:
+    """Break caught: Windows-style path aliases could retain unresolved parent traversal."""
+    settings = Settings.from_environment(
+        {"EHF_SQL_CREDENTIAL_PATH": "C:\\ehf\\credentials\\unit\\..\\sql-password"}
+    )
+
+    assert settings.sql_credential_path == "C:\\ehf\\credentials\\sql-password"
+
+
+@pytest.mark.parametrize(
+    ("environment", "document_root", "quarantine_root"),
+    [
+        (
+            production_environment(),
+            "/var/lib/ehf/documents/../shared",
+            "/var/lib/ehf/shared",
+        ),
+        (
+            production_environment(),
+            "/var/lib/ehf/documents/../shared",
+            "/var/lib/ehf/shared/archive",
+        ),
+        (
+            production_environment(),
+            "/var/lib/ehf/shared",
+            "/var/lib/ehf/shared",
+        ),
+        (
+            {},
+            "C:\\ehf\\documents\\..\\shared",
+            "C:\\ehf\\shared",
+        ),
+        (
+            {},
+            "C:\\ehf\\documents\\..\\shared",
+            "C:\\ehf\\shared\\archive",
+        ),
+        (
+            {},
+            "C:\\ehf\\shared",
+            "C:\\ehf\\shared",
+        ),
+    ],
+)
+def test_storage_roots_reject_normalized_aliases_and_overlaps(
+    environment: dict[str, str], document_root: str, quarantine_root: str
+) -> None:
+    """Break caught: aliasing could make document and quarantine roots overlap unnoticed."""
+    with pytest.raises(ConfigurationError, match="must not overlap"):
+        Settings.from_environment(
+            environment
+            | {
+                "EHF_DOCUMENT_ROOT": document_root,
+                "EHF_QUARANTINE_ROOT": quarantine_root,
+            }
+        )
+
+
 def test_credential_helpers_read_file_contents_without_storing_them(tmp_path: Path) -> None:
     """Break caught: a helper could read secrets from the environment or retain them in Settings."""
     pepper_path = tmp_path / "session-pepper"
@@ -188,8 +261,8 @@ def test_production_mail_requires_all_approval_gate_configuration(
     environment = production_environment() | {
         "EHF_PRODUCTION_MAIL_ENABLED": "true",
         "EHF_APPROVED_MAIL_SENDER": "ehf-notifications@isab.science",
-        "EHF_MAIL_TRANSPORT": "approved-worker-transport",
-        "EHF_INTERNAL_MAIL_DELIVERY_TEST_RECEIPT": "receipt-2026-08-10",
+        "EHF_MAIL_TRANSPORT": "microsoft-graph",
+        "EHF_INTERNAL_MAIL_DELIVERY_TEST_RECEIPT": "2f24c2d4-2be9-4eb3-937d-43f5f4b0af33",
     }
     del environment[missing_variable]
 
@@ -204,9 +277,56 @@ def test_production_mail_gate_allows_a_complete_configuration() -> None:
         | {
             "EHF_PRODUCTION_MAIL_ENABLED": "true",
             "EHF_APPROVED_MAIL_SENDER": "ehf-notifications@isab.science",
-            "EHF_MAIL_TRANSPORT": "approved-worker-transport",
-            "EHF_INTERNAL_MAIL_DELIVERY_TEST_RECEIPT": "receipt-2026-08-10",
+            "EHF_MAIL_TRANSPORT": "microsoft-graph",
+            "EHF_INTERNAL_MAIL_DELIVERY_TEST_RECEIPT": "2f24c2d4-2be9-4eb3-937d-43f5f4b0af33",
         }
     )
 
     assert settings.production_mail_enabled is True
+
+
+@pytest.mark.parametrize(
+    ("variable", "value", "expected_name"),
+    [
+        ("EHF_APPROVED_MAIL_SENDER", "not an email address", "approved sender"),
+        ("EHF_APPROVED_MAIL_SENDER", "ehf-notifications@isab", "approved sender"),
+        ("EHF_MAIL_TRANSPORT", "smtp", "mail transport"),
+        ("EHF_INTERNAL_MAIL_DELIVERY_TEST_RECEIPT", "receipt-2026-08-10", "delivery-test receipt"),
+        (
+            "EHF_INTERNAL_MAIL_DELIVERY_TEST_RECEIPT",
+            "2f24c2d4-2be9-3eb3-937d-43f5f4b0af34",
+            "delivery-test receipt",
+        ),
+    ],
+)
+def test_production_mail_rejects_invalid_typed_gate_values(
+    variable: str, value: str, expected_name: str
+) -> None:
+    """Break caught: arbitrary strings could make production mail appear release-ready."""
+    environment = production_environment() | {
+        "EHF_PRODUCTION_MAIL_ENABLED": "true",
+        "EHF_APPROVED_MAIL_SENDER": "ehf-notifications@isab.science",
+        "EHF_MAIL_TRANSPORT": "microsoft-graph",
+        "EHF_INTERNAL_MAIL_DELIVERY_TEST_RECEIPT": "2f24c2d4-2be9-4eb3-937d-43f5f4b0af33",
+        variable: value,
+    }
+
+    with pytest.raises(ConfigurationError, match=expected_name):
+        Settings.from_environment(environment)
+
+
+def test_production_mail_gate_accepts_typed_microsoft_graph_configuration() -> None:
+    """Break caught: the supported explicit mail-release shape could be rejected."""
+    settings = Settings.from_environment(
+        production_environment()
+        | {
+            "EHF_PRODUCTION_MAIL_ENABLED": "true",
+            "EHF_APPROVED_MAIL_SENDER": "ehf-notifications@isab.science",
+            "EHF_MAIL_TRANSPORT": "microsoft-graph",
+            "EHF_INTERNAL_MAIL_DELIVERY_TEST_RECEIPT": "2f24c2d4-2be9-4eb3-937d-43f5f4b0af33",
+        }
+    )
+
+    assert settings.approved_mail_sender == "ehf-notifications@isab.science"
+    assert settings.mail_transport == "microsoft-graph"
+    assert settings.internal_mail_delivery_test_receipt == "2f24c2d4-2be9-4eb3-937d-43f5f4b0af33"
