@@ -20,6 +20,14 @@ def test_existing_document_lookup_uses_the_import_provenance_timestamp() -> None
     assert "ORDER BY ObservedAtUtc" in importer
     assert "ObservedAtUtc datetime2(7)" in migration
     assert "ORDER BY CreatedAtUtc" not in importer
+
+
+def test_2026_verifier_pins_the_reviewed_broader_source_inventory() -> None:
+    """Break caught: verification retained counts from the narrower pre-review inventory."""
+    verifier = (ROOT / "scripts" / "verify-import-2026.ps1").read_text(encoding="utf-8")
+
+    assert "application_occurrences + call_occurrences != 164" in verifier
+    assert "call_occurrences != 10" in verifier
 APPROVED_SPEC = "docs/superpowers/specs/2026-08-09-ehf-applications-portal-design.md"
 
 EXPECTED_RUNTIME_REQUIREMENTS = [

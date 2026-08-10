@@ -67,8 +67,8 @@ try:
     print(f'Confidential recommendation links: {recommendations}')
     print(f'Applicant-visible documents: {applicant_visible}')
     print(f'Encrypted object hashes verified: {len(objects)}')
-    if (run < 1 or applications != 36 or application_occurrences + call_occurrences != 162
-            or call_occurrences != 8 or rejected_nonempty != 0 or rejected_empty != 1
+    if (run < 1 or applications != 36 or application_occurrences + call_occurrences != 164
+            or call_occurrences != 10 or rejected_nonempty != 0 or rejected_empty != 1
             or applicant_visible != 0):
         raise RuntimeError('import verification contract failed')
 finally:
