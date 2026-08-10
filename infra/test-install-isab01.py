@@ -180,6 +180,38 @@ def test_interrupted_dependency_install_is_removed_and_retried(
     assert (release / "venv" / ".complete").is_file()
 
 
+def test_marked_complete_but_corrupt_virtual_environment_is_rebuilt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Break caught: a completion marker alone could preserve a partially installed package set."""
+    installer = load_installer()
+    release = tmp_path / "release"
+    executable = release / "venv" / "bin" / "python"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"corrupt")
+    (release / "venv" / ".complete").write_text("ready\n", encoding="ascii")
+    system_python = tmp_path / "python3.12"
+    system_python.write_bytes(b"python")
+    monkeypatch.setattr(installer, "SYSTEM_PYTHON", system_python)
+    validations = 0
+
+    def fake_run(command, **_kwargs) -> None:
+        nonlocal validations
+        if command[1:4] == ["-m", "pip", "check"]:
+            validations += 1
+            if validations == 1:
+                raise installer.DeploymentError("corrupt")
+        elif command[1:4] == ["-m", "venv", "--copies"]:
+            (release / "venv" / "bin").mkdir(parents=True)
+            (release / "venv" / "bin" / "python").write_bytes(b"rebuilt")
+
+    monkeypatch.setattr(installer, "_run", fake_run)
+
+    assert installer._build_venv(release).read_bytes() == b"rebuilt"
+    assert validations == 2
+    assert (release / "venv" / ".complete").read_text(encoding="ascii") == "ready\n"
+
+
 def test_hard_interruption_leftover_is_rebuilt_only_when_release_is_inactive(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -375,6 +375,19 @@ def _build_venv(release: Path) -> Path:
             complete = marker.read_text(encoding="ascii") == "ready\n"
         except OSError:
             complete = False
+    if complete:
+        try:
+            _run([str(executable), "-m", "pip", "check"], cwd=release)
+            _run(
+                [
+                    str(executable),
+                    "-c",
+                    "import uvicorn; import uvicorn._ansi; import fastapi; import pyodbc",
+                ],
+                cwd=release,
+            )
+        except DeploymentError:
+            complete = False
     if not complete:
         if venv.exists() or venv.is_symlink():
             if venv.is_symlink() or not venv.is_dir():
@@ -403,6 +416,15 @@ def _build_venv(release: Path) -> Path:
                     "app/requirements.txt",
                     "-r",
                     "app/requirements-dev.txt",
+                ],
+                cwd=release,
+            )
+            _run([str(executable), "-m", "pip", "check"], cwd=release)
+            _run(
+                [
+                    str(executable),
+                    "-c",
+                    "import uvicorn; import uvicorn._ansi; import fastapi; import pyodbc",
                 ],
                 cwd=release,
             )
