@@ -24,7 +24,7 @@ The first release shall:
 3. Give each applicant secure access to one personalized application record.
 4. Require the applicant to review and explicitly confirm or correct all applicant-facing data, not merely missing fields.
 5. Allow controlled uploads of missing documents and administrator-authorized replacements without overwriting originals.
-6. Provide an internal administration portal with the applicant table, completeness management, communications, audit history, exports, and two scatter plots.
+6. Provide an internal administration portal with the applicant table, completeness management, communications, audit history, an interactive report with an on-demand Excel download, and two scatter plots.
 7. Support secure internal access for the Foundation president, administrator, and trustees through EHF-specific groups in the ISAB Microsoft Entra tenant.
 8. Run on the ISAB01 server, using the existing Microsoft SQL Server and local encrypted document storage.
 9. Publish the portal as `ehf.isab.science` through Cloudflare Tunnel and Cloudflare security controls.
@@ -61,11 +61,13 @@ Internal users authenticate through the ISAB Microsoft Entra tenant. External tr
 
 The authoritative security groups are:
 
-- `EHF-Applications-Administrators`: Adriano Aguzzi and Margaryta Schaltegger. Members have full operational rights.
-- `EHF-Applications-Trustees`: Ricky Weissman and Magda Polymenidou. Members have read-only access to the full administrative table, reports, applicant documents, confidential recommendation letters, and exports.
+- `EHF-Administrators`: Adriano Aguzzi, Margaryta Schaltegger, and Elena De Cecco. Members have full operational rights.
+- `EHF-Trustees`: Adriano Aguzzi, Ricky Weissman, and Magdalini Polymenidou. Members have read-only access to the full administrative table, reports, applicant documents, confidential recommendation letters, and exports.
 - `EHF-Applications-Selection-Committee`: reserved for a later phase and granted no first-release access.
 
 The EHF groups are assigned only to the dedicated EHF enterprise application. They are not general ISAB authorization groups. Application roles are derived from group membership on every sign-in and must also be checked on every protected server operation.
+
+The existing administrator and trustee security-group objects shall be renamed in place so that their stable Microsoft Entra object IDs and application assignments remain unchanged. When a person belongs to both groups, administrator authorization takes precedence over trustee authorization.
 
 ### 3.3 Permission matrix
 
@@ -308,6 +310,10 @@ It also includes operational columns or views for:
 
 Administrators and trustees can search, sort, filter, choose visible columns, and export authorized data to CSV or XLSX. Exports are generated on demand, watermarked or otherwise identified with the exporting user and time where appropriate, and recorded in the audit history.
 
+Selecting Reports opens one authorized report workspace containing a responsive 2026 applicant-metrics table, the two citation-versus-age visualizations, and a `Download Excel` action. The on-screen table, plot data, and downloaded workbook are generated from the same filtered server-side dataset so that they cannot diverge.
+
+The generated workbook follows the columns, explanatory notes, and missing-value semantics of the approved SharePoint document `Call_2026_applicant_metrics.docx`. It contains the applicant-metrics table, Excel-native versions of the two scatter plots, and export metadata identifying the call, filters, exporting stable identity, UTC generation time, and row count. It never contains applicant documents, recommendation contents, hidden security identifiers, invitation or verification material, or authentication data. Generation is role-checked, audited, bounded, and removes temporary files in a guaranteed cleanup path.
+
 ### 8.2 Record navigation
 
 Each applicant row is a complete keyboard-accessible link to the authorized applicant detail page. The detail page separates applicant-facing data, internal verification, applicant-visible documents, confidential recommendations, communications, and audit history. Trustees see read-only controls; administrators see operational controls.
@@ -349,7 +355,7 @@ The interface shall include:
 - responsive, full-width record layouts with approximately three-percent side margins and no horizontal page overflow; and
 - internal authorization pills generated from the same Entra-group inventory used for server authorization.
 
-Long records reflow into labelled card sections at narrow widths. Any rounded record or destination card is one semantic, keyboard-accessible control without a redundant nested `Open` link.
+Long records reflow into labelled card sections at narrow widths. Any rounded record or destination card is one semantic, keyboard-accessible control without a redundant nested `Open` link. Workload and destination cards do not display the redundant label `Preview surface`.
 
 Applicant pages use plain language and show only the steps relevant to that applicant. Internal terminology, hidden-field existence, storage paths, and recommendation filenames are not revealed.
 
