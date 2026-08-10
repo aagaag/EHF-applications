@@ -34,6 +34,7 @@ SERVICE_USER = "ehf"
 SERVICE_GROUP = "ehf"
 DOCUMENT_ROOT = Path("/var/lib/ehf/documents")
 QUARANTINE_ROOT = Path("/var/lib/ehf/quarantine")
+SYSTEM_PYTHON = Path("/usr/bin/python3.12")
 ARCHIVE_RE = re.compile(r"^/tmp/ehf-[0-9]+\.tar$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 MAX_ARCHIVE_MEMBERS = 10_000
@@ -362,28 +363,57 @@ def _install_configuration(release: Path, account: pwd.struct_passwd) -> None:
 
 
 def _build_venv(release: Path) -> Path:
-    python = Path("/usr/bin/python3.12")
+    python = SYSTEM_PYTHON
     if not python.is_file():
         raise DeploymentError("Python 3.12 is unavailable on ISAB01.")
     venv = release / "venv"
-    if not (venv / "bin" / "python").is_file():
-        _run([str(python), "-m", "venv", str(venv)])
-        _run(
-            [
-                str(venv / "bin" / "python"),
-                "-m",
-                "pip",
-                "install",
-                "--disable-pip-version-check",
-                "--no-cache-dir",
-                "-r",
-                "app/requirements.txt",
-                "-r",
-                "app/requirements-dev.txt",
-            ],
-            cwd=release,
-        )
-    return venv / "bin" / "python"
+    executable = venv / "bin" / "python"
+    marker = venv / ".complete"
+    complete = False
+    if executable.is_file() and marker.is_file() and not marker.is_symlink():
+        try:
+            complete = marker.read_text(encoding="ascii") == "ready\n"
+        except OSError:
+            complete = False
+    if not complete:
+        if venv.exists() or venv.is_symlink():
+            if venv.is_symlink() or not venv.is_dir():
+                raise DeploymentError("The virtual environment has an unsafe shape.")
+            if CURRENT.is_symlink() and CURRENT.resolve(strict=True) == release.resolve(strict=True):
+                raise DeploymentError("An active virtual environment is incomplete.")
+            shutil.rmtree(venv)
+        try:
+            _run([str(python), "-m", "venv", "--copies", str(venv)])
+            compatibility_link = venv / "lib64"
+            if compatibility_link.is_symlink():
+                if os.readlink(compatibility_link) != "lib":
+                    raise DeploymentError("The virtual environment has an unexpected compatibility link.")
+                compatibility_link.unlink()
+            elif compatibility_link.exists() and not compatibility_link.is_dir():
+                raise DeploymentError("The virtual environment has an unsafe compatibility path.")
+            _run(
+                [
+                    str(executable),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--disable-pip-version-check",
+                    "--no-cache-dir",
+                    "-r",
+                    "app/requirements.txt",
+                    "-r",
+                    "app/requirements-dev.txt",
+                ],
+                cwd=release,
+            )
+            marker.write_text("ready\n", encoding="ascii")
+            os.chmod(marker, 0o644)
+            _harden_release(release)
+        except Exception:
+            if venv.exists() and venv.is_dir() and not venv.is_symlink():
+                shutil.rmtree(venv)
+            raise
+    return executable
 
 
 def _preactivation_tests(

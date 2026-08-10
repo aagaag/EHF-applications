@@ -116,6 +116,97 @@ def test_safe_extract_rejects_path_escape_links_and_oversized_archives(tmp_path:
         installer.safe_extract(unsafe, tmp_path / "release")
 
 
+def test_virtual_environment_is_copy_based_and_leaves_no_compatibility_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Break caught: an interrupted deployment could make the immutable release fail its own retry check."""
+    installer = load_installer()
+    release = tmp_path / "release"
+    release.mkdir()
+    system_python = tmp_path / "python3.12"
+    system_python.write_bytes(b"python")
+    monkeypatch.setattr(installer, "SYSTEM_PYTHON", system_python)
+    commands: list[tuple[str, ...]] = []
+
+    def fake_run(command, **_kwargs) -> None:
+        commands.append(tuple(str(value) for value in command))
+        if command[1:4] == ["-m", "venv", "--copies"]:
+            venv = release / "venv"
+            (venv / "bin").mkdir(parents=True)
+            (venv / "bin" / "python").write_bytes(b"python")
+            (venv / "lib").mkdir()
+            (venv / "lib64").symlink_to("lib", target_is_directory=True)
+
+    monkeypatch.setattr(installer, "_run", fake_run)
+
+    executable = installer._build_venv(release)
+
+    assert "--copies" in commands[0]
+    assert executable == release / "venv" / "bin" / "python"
+    assert not (release / "venv" / "lib64").exists()
+    assert (release / "venv" / ".complete").read_text(encoding="ascii") == "ready\n"
+    installer._harden_release(release)
+
+
+def test_interrupted_dependency_install_is_removed_and_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    installer = load_installer()
+    release = tmp_path / "release"
+    release.mkdir()
+    system_python = tmp_path / "python3.12"
+    system_python.write_bytes(b"python")
+    monkeypatch.setattr(installer, "SYSTEM_PYTHON", system_python)
+
+    def interrupted_run(command, **_kwargs) -> None:
+        if command[1:4] == ["-m", "venv", "--copies"]:
+            (release / "venv" / "bin").mkdir(parents=True)
+            (release / "venv" / "bin" / "python").write_bytes(b"python")
+        elif command[1:4] == ["-m", "pip", "install"]:
+            raise installer.DeploymentError("interrupted")
+
+    monkeypatch.setattr(installer, "_run", interrupted_run)
+    with pytest.raises(installer.DeploymentError, match="interrupted"):
+        installer._build_venv(release)
+    assert not (release / "venv").exists()
+
+    def successful_run(command, **_kwargs) -> None:
+        if command[1:4] == ["-m", "venv", "--copies"]:
+            (release / "venv" / "bin").mkdir(parents=True)
+            (release / "venv" / "bin" / "python").write_bytes(b"python")
+
+    monkeypatch.setattr(installer, "_run", successful_run)
+    assert installer._build_venv(release).is_file()
+    assert (release / "venv" / ".complete").is_file()
+
+
+def test_hard_interruption_leftover_is_rebuilt_only_when_release_is_inactive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    installer = load_installer()
+    release = tmp_path / "release"
+    (release / "venv" / "bin").mkdir(parents=True)
+    (release / "venv" / "bin" / "python").write_bytes(b"incomplete")
+    system_python = tmp_path / "python3.12"
+    system_python.write_bytes(b"python")
+    installer.CURRENT = tmp_path / "current"
+    monkeypatch.setattr(installer, "SYSTEM_PYTHON", system_python)
+
+    def successful_run(command, **_kwargs) -> None:
+        if command[1:4] == ["-m", "venv", "--copies"]:
+            (release / "venv" / "bin").mkdir(parents=True)
+            (release / "venv" / "bin" / "python").write_bytes(b"complete")
+
+    monkeypatch.setattr(installer, "_run", successful_run)
+    assert installer._build_venv(release).read_bytes() == b"complete"
+    assert (release / "venv" / ".complete").is_file()
+
+    (release / "venv" / ".complete").unlink()
+    installer.CURRENT.symlink_to(release, target_is_directory=True)
+    with pytest.raises(installer.DeploymentError, match="active.*incomplete"):
+        installer._build_venv(release)
+
+
 def test_atomic_activation_and_rollback_only_switch_the_current_symlink(tmp_path: Path) -> None:
     """Break caught: activation or rollback could copy mutable release contents instead of atomically switching links."""
     installer = load_installer()
