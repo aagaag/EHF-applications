@@ -5,6 +5,26 @@ IF OBJECT_ID(N'dbo.RecordReportExportAudit', N'P') IS NULL
     THROW 51920, 'The report-export audit procedure is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'EHFReportExportAuditExecutor') IS NULL
     THROW 51921, 'The report-export execution principal is missing.', 1;
+
+BEGIN TRY
+    EXEC dbo.GetInternalApplicationMetrics @ActorGroup=N'EHF-Administrators';
+    EXEC dbo.GetInternalApplicationMetrics @ActorGroup=N'EHF-Trustees';
+END TRY
+BEGIN CATCH
+    THROW 51928, 'The canonical EHF groups cannot read the internal metrics projection.', 1;
+END CATCH;
+
+DECLARE @LegacyGroupRejected bit = 0;
+BEGIN TRY
+    EXEC dbo.GetInternalApplicationMetrics @ActorGroup=N'EHF-Applications-Administrators';
+END TRY
+BEGIN CATCH
+    IF ERROR_NUMBER() <> 51725 THROW;
+    SET @LegacyGroupRejected = 1;
+END CATCH;
+IF @LegacyGroupRejected = 0
+    THROW 51929, 'A legacy EHF group name remains authorized by the metrics procedure.', 1;
+
 IF NOT EXISTS
 (
     SELECT 1

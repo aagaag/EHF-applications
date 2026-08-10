@@ -142,6 +142,16 @@ def test_report_export_audit_uses_a_procedure_only_execution_principal() -> None
     assert "PASS 010 report export audit" in validator
 
 
+def test_current_migration_updates_the_metrics_procedure_to_canonical_group_names() -> None:
+    migration = (MIGRATIONS / "010_report_export_audit.sql").read_text(encoding="utf-8")
+    altered_metrics = migration[migration.index("ALTER PROCEDURE dbo.GetInternalApplicationMetrics") :]
+
+    assert "N''EHF-Administrators''" in altered_metrics
+    assert "N''EHF-Trustees''" in altered_metrics
+    assert "EHF-Applications-Administrators" not in altered_metrics
+    assert "EHF-Applications-Trustees" not in altered_metrics
+
+
 def test_permission_validator_leaves_real_login_checks_to_the_isolated_verifier() -> None:
     """Break caught: a database-scoped impersonation check could claim server-login coverage."""
     validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(

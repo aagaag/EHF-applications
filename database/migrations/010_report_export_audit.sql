@@ -38,6 +38,51 @@ END;
 ');
 
 EXEC(N'
+ALTER PROCEDURE dbo.GetInternalApplicationMetrics
+    @ActorGroup nvarchar(128)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF @ActorGroup NOT IN
+       (N''EHF-Administrators'', N''EHF-Trustees'')
+        THROW 51725, ''The internal metrics role is not authorized.'', 1;
+
+    SELECT
+        CONCAT(applicant.LegalGivenNames, N'' '', applicant.LegalFamilyName) AS ApplicantName,
+        JSON_VALUE(section_row.SnapshotJson, ''$.degree'') AS Degree,
+        TRY_CONVERT(decimal(8,2), JSON_VALUE(section_row.SnapshotJson, ''$.age_observation'')) AS AgeObservation,
+        TRY_CONVERT(decimal(8,2), JSON_VALUE(section_row.SnapshotJson, ''$.academic_age_observation'')) AS AcademicAgeObservation,
+        applicant.SelfReportedGender,
+        bibliometrics.FirstAuthorPaperCount,
+        bibliometrics.LastAuthorPaperCount,
+        bibliometrics.TotalPaperCount,
+        TRY_CONVERT(int, JSON_VALUE(section_row.SnapshotJson, ''$.h_index'')) AS HIndex,
+        TRY_CONVERT(bigint, JSON_VALUE(section_row.SnapshotJson, ''$.total_citations'')) AS TotalCitations,
+        JSON_VALUE(section_row.SnapshotJson, ''$.orcid'') AS Orcid,
+        bibliometrics.GoogleScholarCitationCount,
+        JSON_VALUE(section_row.SnapshotJson, ''$.identity_certainty'') AS IdentityCertainty
+    FROM dbo.Application AS application_row
+    JOIN dbo.FellowshipCall AS call_row
+      ON call_row.FellowshipCallId = application_row.FellowshipCallId
+    JOIN dbo.Applicant AS applicant
+      ON applicant.ApplicantId = application_row.ApplicantId
+    LEFT JOIN dbo.Bibliometrics AS bibliometrics
+      ON bibliometrics.ApplicationId = application_row.ApplicationId
+    OUTER APPLY
+    (
+        SELECT TOP (1) version_row.SnapshotJson
+        FROM dbo.ApplicationSectionVersion AS version_row
+        WHERE version_row.ApplicationId = application_row.ApplicationId
+          AND version_row.SectionCode = ''LEGACY_REGISTER_OBSERVATIONS''
+        ORDER BY version_row.VersionNumber DESC
+    ) AS section_row
+    WHERE call_row.CallCode = N''EHF-2026''
+    ORDER BY applicant.LegalFamilyName, applicant.LegalGivenNames;
+END;
+');
+
+EXEC(N'
 CREATE PROCEDURE dbo.RecordReportExportAudit
     @ActorIdentity nvarchar(255),
     @ActorGroup nvarchar(100),
