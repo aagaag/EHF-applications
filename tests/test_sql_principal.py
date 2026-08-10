@@ -109,6 +109,7 @@ def test_helper_has_only_fixed_lifecycle_commands() -> None:
         "verify-test-cleanup",
         "verify-no-test-leftovers",
         "verify-test-targets-preserved",
+        "verify-peer-database-denial",
         "run-admin-sqlcmd",
         "verify-test-preference-rollback",
     }
@@ -304,6 +305,86 @@ def test_cross_database_probe_rejects_non_access_denial_odbc_errors(monkeypatch)
         )
 
 
+def test_peer_database_denial_accepts_only_native_4060_for_the_exact_test_pair(monkeypatch) -> None:
+    """Break caught: the isolated peer check could accept a generic connection failure as isolation."""
+    helper = load_helper()
+    suffix = "0123456789abcdef01234567"
+    cannot_open = FakePyodbc.Error(
+        "42000",
+        "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Cannot open database "
+        f"'EHFApplications_Test_sqlperm_peer_{suffix}' requested by the login. "
+        "The login failed. (4060) (SQLDriverConnect)",
+    )
+    driver = ProbePyodbc(FakeConnection(FakeCursor()), cannot_open)
+    monkeypatch.setattr(helper, "pyodbc", driver)
+    monkeypatch.setattr(helper, "read_credential", lambda *_: "Aa1._~" + "a" * 42)
+
+    helper.verify_peer_database_denial(
+        helper.SERVER,
+        f"EHFApplications_Test_sqlperm_peer_{suffix}",
+        f"ehf_app_test_{suffix}",
+        Path("/protected/test-password"),
+    )
+
+    assert "DATABASE={EHFApplications_Test_sqlperm_peer_0123456789abcdef01234567}" in driver.calls[0][0]
+
+
+@pytest.mark.parametrize(
+    "driver_error",
+    (
+        FakePyodbc.Error("28000", "Login failed for user. (18456)"),
+        FakePyodbc.Error("08001", "TLS negotiation failed"),
+        FakePyodbc.Error("HYT00", "Login timeout expired"),
+        FakePyodbc.Error("IM002", "Data source name not found and no default driver specified"),
+        FakePyodbc.Error("42000", "Incorrect syntax near SELECT"),
+        FakePyodbc.Error("42000", "Cannot open database requested by the login without native code"),
+    ),
+)
+def test_peer_database_denial_fails_closed_for_every_non_4060_odbc_error(monkeypatch, driver_error) -> None:
+    """Break caught: authentication, TLS, timeout, driver, or query errors could false-pass the peer check."""
+    helper = load_helper()
+    suffix = "0123456789abcdef01234567"
+    driver = ProbePyodbc(FakeConnection(FakeCursor()), driver_error)
+    monkeypatch.setattr(helper, "pyodbc", driver)
+    monkeypatch.setattr(helper, "read_credential", lambda *_: "Aa1._~" + "a" * 42)
+
+    with pytest.raises(helper.PrincipalError, match="peer database denial"):
+        helper.verify_peer_database_denial(
+            helper.SERVER,
+            f"EHFApplications_Test_sqlperm_peer_{suffix}",
+            f"ehf_app_test_{suffix}",
+            Path("/protected/test-password"),
+        )
+
+
+def test_peer_database_denial_rejects_success_and_invalid_targets_before_secret_read(monkeypatch) -> None:
+    """Break caught: a successful or caller-directed peer connection could be treated as denied."""
+    helper = load_helper()
+    suffix = "0123456789abcdef01234567"
+    connection = FakeConnection(FakeCursor())
+    driver = ProbePyodbc(connection)
+    monkeypatch.setattr(helper, "pyodbc", driver)
+    monkeypatch.setattr(helper, "read_credential", lambda *_: "Aa1._~" + "a" * 42)
+
+    with pytest.raises(helper.PrincipalError, match="effective peer database access"):
+        helper.verify_peer_database_denial(
+            helper.SERVER,
+            f"EHFApplications_Test_sqlperm_peer_{suffix}",
+            f"ehf_app_test_{suffix}",
+            Path("/protected/test-password"),
+        )
+    assert connection.closed
+
+    monkeypatch.setattr(helper, "read_credential", lambda *_: pytest.fail("credential read was reached"))
+    with pytest.raises(helper.PrincipalError, match="Unexpected principal target"):
+        helper.verify_peer_database_denial(
+            helper.SERVER,
+            "Finances2",
+            f"ehf_app_test_{suffix}",
+            Path("/protected/test-password"),
+        )
+
+
 @pytest.mark.parametrize(
     ("operation", "state"),
     (("create_production_login", "READY"), ("map_production_user", "INVALID")),
@@ -343,6 +424,68 @@ def test_production_mapping_proves_effective_database_isolation_before_mutation(
             "ehf_app",
             Path("/protected/password"),
         )
+
+
+def test_production_mapping_revalidates_exact_user_shape_before_alter_user(monkeypatch) -> None:
+    """Break caught: an ownership, permission, authentication, or role race could reach ALTER USER."""
+    helper = load_helper()
+    connection = FakeConnection(FakeCursor())
+    monkeypatch.setattr(helper, "inspect_production", lambda *_: "UNMAPPED")
+    monkeypatch.setattr(helper, "require_no_effective_cross_database_access", lambda *_: None)
+
+    helper.map_production_user(
+        connection,
+        "EHFApplications",
+        "ehf_app",
+        "ehf_app",
+        Path("/protected/password"),
+    )
+
+    assert len(connection.cursor_instance.executions) == 1
+    statement, parameters = connection.cursor_instance.executions[0]
+    alter_index = statement.index("ALTER USER")
+    for precondition in (
+        "@Auth<>N''NONE''",
+        "sys.schemas WHERE principal_id=@UserId",
+        "sys.objects WHERE principal_id=@UserId",
+        "sys.database_principals WHERE owning_principal_id=@UserId",
+        "sys.database_permissions WHERE grantee_principal_id=@UserId",
+        "SELECT COUNT(*) FROM sys.database_role_members WHERE member_principal_id=@UserId",
+        "role_principal_id=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime'')",
+    ):
+        assert precondition in statement
+        assert statement.index(precondition) < alter_index
+    assert parameters == ("EHFApplications", "ehf_app", "ehf_app")
+
+
+def test_production_mapping_is_atomic_and_rechecks_postcondition_without_test_mutations(monkeypatch) -> None:
+    """Break caught: production mapping could partially mutate or create, grant, or revoke like the test path."""
+    helper = load_helper()
+    connection = FakeConnection(FakeCursor())
+    monkeypatch.setattr(helper, "inspect_production", lambda *_: "UNMAPPED")
+    monkeypatch.setattr(helper, "require_no_effective_cross_database_access", lambda *_: None)
+
+    helper.map_production_user(
+        connection,
+        "EHFApplications",
+        "ehf_app",
+        "ehf_app",
+        Path("/protected/password"),
+    )
+
+    statement, _ = connection.cursor_instance.executions[0]
+    alter_index = statement.index("ALTER USER")
+    assert "SET XACT_ABORT ON" in statement
+    assert statement.index("BEGIN TRANSACTION") < alter_index
+    assert statement.index("BEGIN TRY") < alter_index
+    assert statement.count("authentication_type_desc") >= 2
+    assert statement.count("sys.database_permissions WHERE grantee_principal_id=@UserId") >= 2
+    assert statement.index("COMMIT TRANSACTION") > alter_index
+    assert "BEGIN CATCH" in statement
+    assert "IF XACT_STATE()<>0 ROLLBACK TRANSACTION" in statement
+    assert "CREATE USER" not in statement
+    assert "ALTER ROLE" not in statement
+    assert "REVOKE CONNECT" not in statement
 
 
 def test_helper_executes_only_fixed_admin_sqlcmd_artifacts_without_exposing_secret(monkeypatch) -> None:

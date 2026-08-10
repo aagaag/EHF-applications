@@ -183,10 +183,7 @@ BEGIN TRY CREATE TABLE dbo.EhfDeniedProbe (Id int); END TRY BEGIN CATCH IF ERROR
 IF @Denied=0 THROW 51653,'Schema alteration succeeded.',1;
 SQL
 run_helper exercise-test-status --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --login "$login" --credential-file "$test_password_file" >/dev/null || fail "The real runtime status/audit probe failed."
-if run_runtime_sql "$peer_database" <<'SQL' >/dev/null 2>&1
-SELECT TOP (1) name FROM sys.tables;
-SQL
-then fail "The runtime login read the isolated peer database."; fi
+run_helper verify-peer-database-denial --server "$server" --database "$peer_database" --login "$login" --credential-file "$test_password_file" >/dev/null 2>&1 || fail "The exact isolated peer database denial was unavailable."
 run_helper verify-test-preference-rollback --server "$server" --admin-credential-file "$admin_password_file" --database "$database" >/dev/null || fail "The rollback audit probe failed."
 
 cleanup_owned_targets || exit 3

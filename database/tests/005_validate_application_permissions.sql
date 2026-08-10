@@ -27,99 +27,67 @@ INSERT @RequiredDmlDenies
 SELECT TableName, PermissionName
 FROM @ProtectedTables
 CROSS JOIN (VALUES (N'SELECT'), (N'INSERT'), (N'UPDATE'), (N'DELETE')) AS permission_name(PermissionName);
-
-IF NOT EXISTS
+DECLARE @ExpectedPermissions TABLE
 (
-    SELECT 1 FROM sys.database_permissions AS permission_row
-    WHERE permission_row.grantee_principal_id = @RuntimeRoleId
-      AND permission_row.class = 0
-      AND permission_row.major_id = 0
-      AND permission_row.minor_id = 0
-      AND permission_row.permission_name = N'CONNECT'
-      AND permission_row.state_desc = N'GRANT'
-)
-    THROW 51505, 'A required runtime CONNECT grant is missing.', 1;
+    ClassId tinyint NOT NULL,
+    MajorId int NOT NULL,
+    MinorId int NOT NULL,
+    PermissionName sysname COLLATE DATABASE_DEFAULT NOT NULL,
+    StateDesc nvarchar(60) COLLATE DATABASE_DEFAULT NOT NULL,
+    PRIMARY KEY (ClassId, MajorId, MinorId, PermissionName)
+);
+INSERT @ExpectedPermissions (ClassId, MajorId, MinorId, PermissionName, StateDesc) VALUES
+    (0, 0, 0, N'CONNECT', N'GRANT'),
+    (0, 0, 0, N'VIEW DEFINITION', N'DENY'),
+    (0, 0, 0, N'CREATE TABLE', N'DENY'),
+    (0, 0, 0, N'CREATE PROCEDURE', N'DENY'),
+    (0, 0, 0, N'CREATE VIEW', N'DENY'),
+    (0, 0, 0, N'ALTER ANY SCHEMA', N'DENY'),
+    (0, 0, 0, N'ALTER ANY USER', N'DENY'),
+    (0, 0, 0, N'ALTER ANY ROLE', N'DENY'),
+    (3, SCHEMA_ID(N'dbo'), 0, N'ALTER', N'DENY'),
+    (4, DATABASE_PRINCIPAL_ID(N'EHFPreferenceProcedureExecutor'), 0, N'IMPERSONATE', N'DENY');
+INSERT @ExpectedPermissions (ClassId, MajorId, MinorId, PermissionName, StateDesc)
+SELECT 1, OBJECT_ID(N'dbo.' + approved.ProcedureName, N'P'), 0, N'EXECUTE', N'GRANT'
+FROM @ApprovedProcedures AS approved;
+INSERT @ExpectedPermissions (ClassId, MajorId, MinorId, PermissionName, StateDesc)
+SELECT 1, OBJECT_ID(N'dbo.' + required_deny.TableName, N'U'), 0, required_deny.PermissionName, N'DENY'
+FROM @RequiredDmlDenies AS required_deny;
 
 IF EXISTS
 (
-    SELECT 1 FROM @ApprovedProcedures AS approved
+    SELECT 1
+    FROM @ExpectedPermissions AS expected_permission
     WHERE NOT EXISTS
     (
-        SELECT 1 FROM sys.database_permissions AS permission_row
+        SELECT 1
+        FROM sys.database_permissions AS permission_row
         WHERE permission_row.grantee_principal_id = @RuntimeRoleId
-          AND permission_row.class = 1
-          AND permission_row.major_id = OBJECT_ID(N'dbo.' + approved.ProcedureName, N'P')
-          AND permission_row.minor_id = 0
-          AND permission_row.permission_name = N'EXECUTE'
-          AND permission_row.state_desc = N'GRANT'
+          AND permission_row.class = expected_permission.ClassId
+          AND permission_row.major_id = expected_permission.MajorId
+          AND permission_row.minor_id = expected_permission.MinorId
+          AND permission_row.permission_name COLLATE DATABASE_DEFAULT = expected_permission.PermissionName
+          AND permission_row.state_desc COLLATE DATABASE_DEFAULT = expected_permission.StateDesc
     )
 )
-    THROW 51506, 'A required runtime procedure grant is missing.', 1;
+    THROW 51505, 'The runtime role has a missing or altered permission row.', 1;
 IF EXISTS
 (
-    SELECT 1 FROM sys.database_permissions AS permission_row
+    SELECT 1
+    FROM sys.database_permissions AS permission_row
     WHERE permission_row.grantee_principal_id = @RuntimeRoleId
-      AND permission_row.permission_name = N'EXECUTE'
-      AND permission_row.state_desc = N'GRANT'
-      AND NOT
-      (
-          permission_row.class = 1
-          AND permission_row.major_id IN
-              (OBJECT_ID(N'dbo.RuntimeHealth', N'P'), OBJECT_ID(N'dbo.SetUserPreference', N'P'), OBJECT_ID(N'dbo.SetApplicationStatus', N'P'))
-          AND permission_row.minor_id = 0
-      )
-)
-    THROW 51507, 'The runtime role has an unapproved procedure grant.', 1;
-IF EXISTS
-(
-    SELECT 1 FROM @RequiredDmlDenies AS required_deny
-    WHERE NOT EXISTS
-    (
-        SELECT 1 FROM sys.database_permissions AS permission_row
-        WHERE permission_row.grantee_principal_id = @RuntimeRoleId
-          AND permission_row.class = 1
-          AND permission_row.major_id = OBJECT_ID(N'dbo.' + required_deny.TableName, N'U')
-          AND permission_row.minor_id = 0
-          AND permission_row.permission_name COLLATE DATABASE_DEFAULT = required_deny.PermissionName
-          AND permission_row.state_desc = N'DENY'
-    )
-)
-    THROW 51508, 'A required runtime table DML deny is missing.', 1;
-IF EXISTS
-(
-    SELECT 1 FROM sys.database_permissions AS permission_row
-    WHERE permission_row.grantee_principal_id = @RuntimeRoleId
-      AND permission_row.permission_name IN (N'SELECT', N'INSERT', N'UPDATE', N'DELETE')
       AND NOT EXISTS
       (
-          SELECT 1 FROM @RequiredDmlDenies AS required_deny
-          WHERE permission_row.class = 1
-            AND permission_row.major_id = OBJECT_ID(N'dbo.' + required_deny.TableName, N'U')
-            AND permission_row.minor_id = 0
-            AND permission_row.permission_name COLLATE DATABASE_DEFAULT = required_deny.PermissionName
-            AND permission_row.state_desc = N'DENY'
+          SELECT 1
+          FROM @ExpectedPermissions AS expected_permission
+          WHERE permission_row.class = expected_permission.ClassId
+            AND permission_row.major_id = expected_permission.MajorId
+            AND permission_row.minor_id = expected_permission.MinorId
+            AND permission_row.permission_name COLLATE DATABASE_DEFAULT = expected_permission.PermissionName
+            AND permission_row.state_desc COLLATE DATABASE_DEFAULT = expected_permission.StateDesc
       )
 )
-    THROW 51509, 'The runtime role has an unapproved table DML permission.', 1;
-IF EXISTS
-(
-    SELECT 1 FROM sys.database_permissions AS permission_row
-    WHERE permission_row.grantee_principal_id = @RuntimeRoleId
-      AND permission_row.state_desc = N'GRANT'
-      AND NOT
-      (
-          permission_row.class = 0 AND permission_row.major_id = 0
-          AND permission_row.minor_id = 0 AND permission_row.permission_name = N'CONNECT'
-      )
-      AND NOT
-      (
-          permission_row.class = 1 AND permission_row.minor_id = 0
-          AND permission_row.permission_name = N'EXECUTE'
-          AND permission_row.major_id IN
-              (OBJECT_ID(N'dbo.RuntimeHealth', N'P'), OBJECT_ID(N'dbo.SetUserPreference', N'P'), OBJECT_ID(N'dbo.SetApplicationStatus', N'P'))
-      )
-)
-    THROW 51510, 'The runtime role has an unapproved grant.', 1;
+    THROW 51506, 'The runtime role has an unapproved permission row or state.', 1;
 IF EXISTS (SELECT 1 FROM sys.database_permissions WHERE grantee_principal_id = @RuntimeUserId)
     THROW 51511, 'The runtime user has a direct permission.', 1;
 IF EXISTS
@@ -132,12 +100,26 @@ IF EXISTS
       AND role_row.name <> N'EHFApplicationRuntime'
 )
     THROW 51512, 'The runtime user has an unexpected role.', 1;
-IF NOT EXISTS
+IF
+(
+    SELECT COUNT(*) FROM sys.database_role_members
+    WHERE role_principal_id = @RuntimeRoleId
+) <> 1
+OR NOT EXISTS
 (
     SELECT 1 FROM sys.database_role_members
     WHERE role_principal_id = @RuntimeRoleId AND member_principal_id = @RuntimeUserId
 )
-    THROW 51513, 'The EHF runtime user is not assigned to its dedicated role.', 1;
+    THROW 51513, 'The runtime role must contain only ehf_app.', 1;
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.database_principals AS role_row
+    WHERE role_row.principal_id = @RuntimeRoleId
+      AND role_row.type_desc = N'DATABASE_ROLE'
+      AND role_row.owning_principal_id = DATABASE_PRINCIPAL_ID(N'dbo')
+)
+    THROW 51516, 'The runtime role must be owned by dbo.', 1;
 IF EXISTS
 (
     SELECT 1 FROM sys.database_role_members

@@ -79,6 +79,7 @@ COMMANDS = (
     "verify-test-cleanup",
     "verify-no-test-leftovers",
     "verify-test-targets-preserved",
+    "verify-peer-database-denial",
     "run-admin-sqlcmd",
     "verify-test-preference-rollback",
 )
@@ -158,6 +159,17 @@ def validate_command_arguments(
         if database is None or login is None:
             raise PrincipalError("Unexpected principal target")
         validate_target_names(database, login, login)
+        return
+    if command == "verify-peer-database-denial":
+        peer_match = TEST_PEER_DATABASE.fullmatch(database or "")
+        login_match = TEST_LOGIN.fullmatch(login or "")
+        if (
+            not peer_match
+            or not login_match
+            or peer_match.group(1) != login_match.group(1)
+            or any(value is not None for value in (peer_database, user, run_token))
+        ):
+            raise PrincipalError("Unexpected principal target")
         return
     if database is None:
         raise PrincipalError("Unexpected principal target")
@@ -414,14 +426,53 @@ DECLARE @Ddl nvarchar(max)=N'CREATE LOGIN '+QUOTENAME(@LoginName)+N' WITH PASSWO
 
 def _map_user(connection, database: str, login: str, user: str, production: bool) -> None:
     connection.autocommit = True
+    if production:
+        _execute(connection, """
+DECLARE @DatabaseName sysname=?; DECLARE @LoginName sysname=?; DECLARE @UserName sysname=?;
+DECLARE @Sql nvarchar(max)=N'USE '+QUOTENAME(@DatabaseName)+N';
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+BEGIN TRY
+  DECLARE @UserId int,@ExistingSid varbinary(85),@Auth nvarchar(60);
+  SELECT @UserId=principal_id,@ExistingSid=sid,@Auth=authentication_type_desc
+  FROM sys.database_principals WHERE name=@UserName AND type_desc=N''SQL_USER'';
+  IF @UserId IS NULL OR @Auth<>N''NONE''
+     OR EXISTS (SELECT 1 FROM sys.schemas WHERE principal_id=@UserId)
+     OR EXISTS (SELECT 1 FROM sys.objects WHERE principal_id=@UserId)
+     OR EXISTS (SELECT 1 FROM sys.database_principals WHERE owning_principal_id=@UserId)
+     OR EXISTS (SELECT 1 FROM sys.database_permissions WHERE grantee_principal_id=@UserId)
+     OR (SELECT COUNT(*) FROM sys.database_role_members WHERE member_principal_id=@UserId)<>1
+     OR NOT EXISTS (SELECT 1 FROM sys.database_role_members WHERE member_principal_id=@UserId AND role_principal_id=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime''))
+    THROW 51727,''Expected unmapped production user has an unsafe shape.'',1;
+  DECLARE @Map nvarchar(max)=N''ALTER USER ''+QUOTENAME(@UserName)+N'' WITH LOGIN = ''+QUOTENAME(@LoginName)+N'';'';
+  EXEC(@Map);
+  SET @UserId=NULL; SET @ExistingSid=NULL; SET @Auth=NULL;
+  SELECT @UserId=principal_id,@ExistingSid=sid,@Auth=authentication_type_desc
+  FROM sys.database_principals WHERE name=@UserName AND type_desc=N''SQL_USER'';
+  IF @UserId IS NULL OR @Auth<>N''INSTANCE'' OR @ExistingSid<>SUSER_SID(@LoginName)
+     OR EXISTS (SELECT 1 FROM sys.schemas WHERE principal_id=@UserId)
+     OR EXISTS (SELECT 1 FROM sys.objects WHERE principal_id=@UserId)
+     OR EXISTS (SELECT 1 FROM sys.database_principals WHERE owning_principal_id=@UserId)
+     OR EXISTS (SELECT 1 FROM sys.database_permissions WHERE grantee_principal_id=@UserId)
+     OR (SELECT COUNT(*) FROM sys.database_role_members WHERE member_principal_id=@UserId)<>1
+     OR NOT EXISTS (SELECT 1 FROM sys.database_role_members WHERE member_principal_id=@UserId AND role_principal_id=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime''))
+    THROW 51728,''Mapped production user has an unsafe shape.'',1;
+  COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+  IF XACT_STATE()<>0 ROLLBACK TRANSACTION;
+  THROW;
+END CATCH;';
+EXEC sys.sp_executesql @Sql,N'@LoginName sysname,@UserName sysname',@LoginName,@UserName;
+""", (database, login, user))
+        return
     _execute(connection, """
-DECLARE @DatabaseName sysname=?; DECLARE @LoginName sysname=?; DECLARE @UserName sysname=?; DECLARE @AllowCreate bit=?;
+DECLARE @DatabaseName sysname=?; DECLARE @LoginName sysname=?; DECLARE @UserName sysname=?;
 DECLARE @Sql nvarchar(max)=N'USE '+QUOTENAME(@DatabaseName)+N';
 DECLARE @ExistingSid varbinary(85), @Auth nvarchar(60);
 SELECT @ExistingSid=sid,@Auth=authentication_type_desc FROM sys.database_principals WHERE name=@UserName AND type_desc=N''SQL_USER'';
 IF @ExistingSid IS NULL
 BEGIN
-  IF @AllowCreate=0 THROW 51722,''Expected database user is unavailable.'',1;
   DECLARE @Create nvarchar(max)=N''CREATE USER ''+QUOTENAME(@UserName)+N'' FOR LOGIN ''+QUOTENAME(@LoginName)+N'';''; EXEC(@Create);
 END
 ELSE IF @Auth=N''NONE''
@@ -429,16 +480,13 @@ BEGIN
   DECLARE @Map nvarchar(max)=N''ALTER USER ''+QUOTENAME(@UserName)+N'' WITH LOGIN = ''+QUOTENAME(@LoginName)+N'';''; EXEC(@Map);
 END
 ELSE IF @ExistingSid<>SUSER_SID(@LoginName) THROW 51723,''Expected database user maps to another login.'',1;
-IF @AllowCreate=1
-BEGIN
-  DECLARE @Revoke nvarchar(max)=N''REVOKE CONNECT FROM ''+QUOTENAME(@UserName)+N'';''; EXEC(@Revoke);
-END;
-IF @AllowCreate=1 AND NOT EXISTS (SELECT 1 FROM sys.database_role_members WHERE role_principal_id=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime'') AND member_principal_id=DATABASE_PRINCIPAL_ID(@UserName))
+DECLARE @Revoke nvarchar(max)=N''REVOKE CONNECT FROM ''+QUOTENAME(@UserName)+N'';''; EXEC(@Revoke);
+IF NOT EXISTS (SELECT 1 FROM sys.database_role_members WHERE role_principal_id=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime'') AND member_principal_id=DATABASE_PRINCIPAL_ID(@UserName))
 BEGIN DECLARE @Role nvarchar(max)=N''ALTER ROLE [EHFApplicationRuntime] ADD MEMBER ''+QUOTENAME(@UserName)+N'';''; EXEC(@Role); END;
 IF EXISTS (SELECT 1 FROM sys.database_role_members AS m INNER JOIN sys.database_principals AS r ON r.principal_id=m.role_principal_id WHERE m.member_principal_id=DATABASE_PRINCIPAL_ID(@UserName) AND r.name<>N''EHFApplicationRuntime'') THROW 51724,''Expected database user has an unexpected role.'',1;
 IF EXISTS (SELECT 1 FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID(@UserName)) THROW 51726,''Expected database user has direct permissions.'',1;';
-EXEC sys.sp_executesql @Sql,N'@LoginName sysname,@UserName sysname,@AllowCreate bit',@LoginName,@UserName,@AllowCreate;
-""", (database, login, user, 0 if production else 1))
+EXEC sys.sp_executesql @Sql,N'@LoginName sysname,@UserName sysname',@LoginName,@UserName;
+""", (database, login, user))
 
 
 def map_production_user(connection, database: str, login: str, user: str, credential_file: Path) -> None:
@@ -543,6 +591,25 @@ def require_no_effective_cross_database_access(
         finally:
             if runtime is not None:
                 runtime.close()
+
+
+def verify_peer_database_denial(
+    server: str, database: str, login: str, credential_file: Path
+) -> None:
+    """Accept only SQL Server's exact native denial for one suffix-bound test peer."""
+    validate_command_arguments(
+        "verify-peer-database-denial", server, database, login, None
+    )
+    password = read_credential(credential_file, "test")
+    _require_safe_password(password)
+    try:
+        connection = _connect(server, database, login, password)
+    except pyodbc.Error as error:
+        if _expected_cannot_open_database_for_login(error):
+            return
+        raise PrincipalError("Expected peer database denial was unavailable") from None
+    connection.close()
+    raise PrincipalError("Expected login has effective peer database access")
 
 
 def authenticate_login(server: str, database: str, login: str, credential_file: Path, kind: str) -> None:
@@ -745,6 +812,8 @@ def dispatch(arguments) -> None:
     validate_command_arguments(command, arguments.server, getattr(arguments, "database", None), getattr(arguments, "login", None), getattr(arguments, "peer_database", None), getattr(arguments, "user", None), getattr(arguments, "run_token", None))
     if command == "authenticate-login":
         authenticate_login(arguments.server, arguments.database, arguments.login, Path(arguments.credential_file), arguments.credential_kind); return
+    if command == "verify-peer-database-denial":
+        verify_peer_database_denial(arguments.server, arguments.database, arguments.login, Path(arguments.credential_file)); return
     if command == "run-admin-sqlcmd":
         run_admin_sqlcmd(arguments.server, arguments.database, Path(arguments.admin_credential_file), arguments.sql_file); return
     connection = _admin_connection(arguments)
@@ -774,11 +843,11 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(add_help=False); subparsers = result.add_subparsers(dest="command", required=True)
     for command in COMMANDS:
         item = subparsers.add_parser(command, add_help=False); item.add_argument("--server", required=True)
-        if command != "authenticate-login": item.add_argument("--admin-credential-file", required=True)
+        if command not in {"authenticate-login", "verify-peer-database-denial"}: item.add_argument("--admin-credential-file", required=True)
         if command != "verify-no-test-leftovers": item.add_argument("--database", required=True)
         if command in {"inspect-production", "map-production-user", "map-test-user"}: item.add_argument("--user", required=True)
-        if command in {"inspect-production", "authenticate-login", "create-production-login", "map-production-user", "create-test-login", "map-test-user", "exercise-test-status", "cleanup-test-targets", "verify-test-cleanup", "verify-test-targets-preserved"}: item.add_argument("--login", required=True)
-        if command in {"authenticate-login", "create-production-login", "map-production-user", "create-test-login", "exercise-test-status"}: item.add_argument("--credential-file", required=True)
+        if command in {"inspect-production", "authenticate-login", "create-production-login", "map-production-user", "create-test-login", "map-test-user", "exercise-test-status", "cleanup-test-targets", "verify-test-cleanup", "verify-test-targets-preserved", "verify-peer-database-denial"}: item.add_argument("--login", required=True)
+        if command in {"authenticate-login", "create-production-login", "map-production-user", "create-test-login", "exercise-test-status", "verify-peer-database-denial"}: item.add_argument("--credential-file", required=True)
         elif command == "inspect-production": item.add_argument("--credential-file")
         if command == "authenticate-login": item.add_argument("--credential-kind", choices=("application", "test"), required=True)
         if command in {"cleanup-test-targets", "verify-test-cleanup"}: item.add_argument("--peer-database", required=True)

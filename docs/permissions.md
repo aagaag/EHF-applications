@@ -50,6 +50,19 @@ or schema grant and has explicit table DML/read denials. `SetUserPreference`
 retains its migration-004 execution principal, so preference and audit writes
 remain one transaction despite direct DML being denied.
 
+Validator 005 treats the runtime role's database permissions as an exact set:
+every grant and denial must have its intended class, major/minor scope, name,
+and state. `GRANT_WITH_GRANT_OPTION`, a missing metadata/schema/user denial, or
+any additional permission row fails validation. The role is owned by `dbo`,
+contains exactly the `ehf_app` member, is not nested in another role, and owns
+no schema, object, or principal.
+
+Production user mapping revalidates the complete unmapped-user shape inside the
+same explicit transaction that executes `ALTER USER`, then rechecks the mapped
+postcondition before commit. That production batch never creates a user, adds a
+role membership, or revokes a permission. The earlier lifecycle and effective
+cross-database checks remain additional preconditions.
+
 SQL Server permits a login that knows its old password to rotate its own
 password; this is not `ALTER ANY LOGIN` and is not treated as an elevation
 failure. If that happens, the protected file no longer authenticates and setup
@@ -82,3 +95,9 @@ auditable. The verifier seeds a separate test-shaped peer/login with different
 suffix-bound markers, proves current-run cleanup preserves it, then removes it
 only with its own evidence. Cleanup is explicit and globally verified before
 `PASS`; the EXIT trap remains as failure safety.
+
+The peer-database isolation probe uses a fixed helper command with a
+suffix-matched randomized peer database and login plus the protected test
+credential. Only SQL Server's native error 4060 (“cannot open database requested
+by the login”) proves isolation; successful connections and authentication,
+TLS, timeout, driver, query, or other ODBC errors fail closed.

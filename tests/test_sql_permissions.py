@@ -57,7 +57,7 @@ def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
         "dbo.SetApplicationStatus",
         "EHFApplicationRuntime",
         "sys.database_permissions",
-        "A required runtime procedure grant is missing.",
+        "The runtime role has a missing or altered permission row.",
     ):
         assert fragment in validator
     assert "SET XACT_ABORT OFF;" in validator
@@ -97,7 +97,7 @@ def test_permission_validator_leaves_real_login_checks_to_the_isolated_verifier(
     for fragment in (
         "sys.database_permissions",
         "EHFApplicationRuntime",
-        "A required runtime procedure grant is missing.",
+        "The runtime role has a missing or altered permission row.",
         "infra/test-sql-login.sh",
     ):
         assert fragment in validator
@@ -117,29 +117,58 @@ def test_permission_validator_rejects_direct_runtime_user_grants_and_unexpected_
 def test_permission_validator_rejects_unapproved_runtime_grants_and_ownership() -> None:
     """Break caught: the runtime role could inherit object access or own a database object."""
     validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(encoding="utf-8")
-    assert "The runtime role has an unapproved grant." in validator
+    assert "The runtime role has an unapproved permission row or state." in validator
     assert "The runtime role owns a database object." in validator
 
 
-def test_permission_validator_requires_each_table_dml_deny_and_rejects_database_execute() -> None:
-    """Break caught: a database-scoped EXECUTE or a missing table DML deny could bypass the role boundary."""
+def test_permission_validator_requires_the_exact_permission_rows_and_states() -> None:
+    """Break caught: GRANT_WITH_GRANT_OPTION or a missing scoped DENY could broaden the runtime role."""
     validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(encoding="utf-8")
 
     assert "@ProtectedTables" in validator
     assert "@RequiredDmlDenies" in validator
-    assert "permission_row.major_id = OBJECT_ID" in validator
-    assert "permission_row.major_id = 0" in validator
-    assert "sys.objects" in validator
-    assert "runtime role is nested" in validator.casefold()
-    assert "A required runtime CONNECT grant is missing." in validator
+    assert "@ExpectedPermissions" in validator
+    for permission_row in (
+        "(0, 0, 0, N'CONNECT', N'GRANT')",
+        "(0, 0, 0, N'VIEW DEFINITION', N'DENY')",
+        "(0, 0, 0, N'CREATE TABLE', N'DENY')",
+        "(0, 0, 0, N'CREATE PROCEDURE', N'DENY')",
+        "(0, 0, 0, N'CREATE VIEW', N'DENY')",
+        "(0, 0, 0, N'ALTER ANY SCHEMA', N'DENY')",
+        "(0, 0, 0, N'ALTER ANY USER', N'DENY')",
+        "(0, 0, 0, N'ALTER ANY ROLE', N'DENY')",
+        "(3, SCHEMA_ID(N'dbo'), 0, N'ALTER', N'DENY')",
+        "(4, DATABASE_PRINCIPAL_ID(N'EHFPreferenceProcedureExecutor'), 0, N'IMPERSONATE', N'DENY')",
+    ):
+        assert permission_row in validator
+    assert "permission_row.class = expected_permission.ClassId" in validator
+    assert "permission_row.major_id = expected_permission.MajorId" in validator
+    assert "permission_row.minor_id = expected_permission.MinorId" in validator
+    assert "permission_row.permission_name COLLATE DATABASE_DEFAULT = expected_permission.PermissionName" in validator
+    assert "permission_row.state_desc COLLATE DATABASE_DEFAULT = expected_permission.StateDesc" in validator
+    assert "The runtime role has a missing or altered permission row." in validator
+    assert "The runtime role has an unapproved permission row or state." in validator
 
 
-def test_permission_validator_normalizes_catalog_permission_collation_in_both_dml_checks() -> None:
-    """Break caught: SQL Server catalog collation can conflict with the table-variable collation in either DML comparison."""
+def test_permission_validator_normalizes_catalog_collation_in_both_exact_set_comparisons() -> None:
+    """Break caught: either side of the exact-set comparison could fail on SQL Server catalog collation."""
     validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(encoding="utf-8")
 
-    expected_comparison = "permission_row.permission_name COLLATE DATABASE_DEFAULT = required_deny.PermissionName"
+    expected_comparison = "permission_row.permission_name COLLATE DATABASE_DEFAULT = expected_permission.PermissionName"
     assert validator.count(expected_comparison) == 2
+
+
+def test_permission_validator_requires_one_runtime_member_and_dbo_role_owner() -> None:
+    """Break caught: an extra role member or non-dbo role owner could inherit the runtime boundary."""
+    validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(encoding="utf-8")
+
+    assert "SELECT COUNT(*) FROM sys.database_role_members" in validator
+    assert "role_principal_id = @RuntimeRoleId" in validator
+    assert "<> 1" in validator
+    assert "member_principal_id = @RuntimeUserId" in validator
+    assert "role_row.owning_principal_id = DATABASE_PRINCIPAL_ID(N'dbo')" in validator
+    assert "The runtime role must be owned by dbo." in validator
+    assert "The runtime role must contain only ehf_app." in validator
 
 
 @pytest.mark.parametrize(
@@ -253,7 +282,8 @@ def test_isolated_verifier_uses_a_second_database_and_fails_when_cleanup_fails()
     assert "create-test-database" in source
     assert "run_token=" in source
     assert "Cleanup failed; isolated EHF SQL verification is unsuccessful." in source
-    assert "run_runtime_sql \"$peer_database\"" in source
+    assert "run_helper verify-peer-database-denial" in source
+    assert "run_runtime_sql \"$peer_database\"" not in source
     assert "verify-test-cleanup" in source
     assert "verify-no-test-leftovers" in source
     assert "Cleanup stage: global zero verify." in source
