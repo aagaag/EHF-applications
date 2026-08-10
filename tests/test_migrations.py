@@ -1,0 +1,435 @@
+from __future__ import annotations
+
+import hashlib
+import importlib
+import re
+import subprocess
+import sys
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
+from typing import Any
+
+import pytest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MIGRATION_DIRECTORY = ROOT / "database" / "migrations"
+VALIDATION_DIRECTORY = ROOT / "database" / "tests"
+DATABASE_SCRIPT = ROOT / "scripts" / "test-database.ps1"
+PYTHON = Path(
+    r"C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime"
+    r"\dependencies\python\python.exe"
+)
+
+
+def migrations_module() -> ModuleType:
+    return importlib.import_module("app.migrations")
+
+
+class FakeCursor:
+    def __init__(self, connection: "FakeConnection") -> None:
+        self.connection = connection
+        self.rows: list[tuple[Any, ...]] = []
+
+    def execute(self, statement: str, *parameters: Any) -> "FakeCursor":
+        normalized = " ".join(statement.split())
+        if "SELECT OBJECT_ID" in normalized:
+            table_exists = self.connection.table_exists or self.connection.pending_table_exists
+            self.rows = [(1 if table_exists else None,)]
+        elif "SELECT MigrationVersion" in normalized:
+            records = self.connection.records | self.connection.pending_records
+            self.rows = [
+                (version, name, checksum)
+                for version, (name, checksum) in sorted(records.items())
+            ]
+        elif "INSERT dbo.SchemaMigration" in normalized:
+            version, name, checksum = parameters
+            self.connection.pending_records[int(version)] = (str(name), bytes(checksum))
+            self.rows = []
+        else:
+            if self.connection.failure_marker and self.connection.failure_marker in statement:
+                raise RuntimeError(self.connection.failure_message)
+            self.connection.executed_batches.append(statement)
+            if "CREATE TABLE dbo.SchemaMigration" in statement:
+                self.connection.pending_table_exists = True
+            self.rows = []
+        return self
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self.rows[0] if self.rows else None
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        return list(self.rows)
+
+
+class FakeConnection:
+    def __init__(self) -> None:
+        self.table_exists = False
+        self.pending_table_exists = False
+        self.records: dict[int, tuple[str, bytes]] = {}
+        self.pending_records: dict[int, tuple[str, bytes]] = {}
+        self.executed_batches: list[str] = []
+        self.commit_count = 0
+        self.rollback_count = 0
+        self.failure_marker: str | None = None
+        self.failure_message = ""
+
+    def cursor(self) -> FakeCursor:
+        return FakeCursor(self)
+
+    def commit(self) -> None:
+        self.table_exists = self.table_exists or self.pending_table_exists
+        self.records.update(self.pending_records)
+        self.pending_table_exists = False
+        self.pending_records.clear()
+        self.commit_count += 1
+
+    def rollback(self) -> None:
+        self.pending_table_exists = False
+        self.pending_records.clear()
+        self.rollback_count += 1
+
+
+def write_migration(directory: Path, filename: str, sql: str) -> Path:
+    path = directory / filename
+    path.write_bytes(sql.encode("utf-8"))
+    return path
+
+
+def test_discovers_numbered_migrations_in_version_order_with_sha256(tmp_path: Path) -> None:
+    """Break caught: filesystem order or a non-SHA-256 digest could define schema history."""
+    module = migrations_module()
+    later = write_migration(tmp_path, "010_later.sql", "SELECT 10;\n")
+    first = write_migration(tmp_path, "001_first.sql", "SELECT 1;\n")
+    write_migration(tmp_path, "notes.sql", "SELECT 99;\n")
+
+    discovered = module.discover_migrations(tmp_path)
+
+    assert [migration.version for migration in discovered] == [1, 10]
+    assert [migration.name for migration in discovered] == ["first", "later"]
+    assert discovered[0].path == first
+    assert discovered[1].path == later
+    assert discovered[0].checksum == hashlib.sha256(b"SELECT 1;\n").digest()
+
+
+def test_applies_all_pending_migrations_and_records_checksums_in_one_transaction(
+    tmp_path: Path,
+) -> None:
+    """Break caught: partial commits could record schema history without all pending DDL."""
+    module = migrations_module()
+    write_migration(
+        tmp_path,
+        "001_contract.sql",
+        "CREATE TABLE dbo.SchemaMigration (MigrationVersion int);\n",
+    )
+    write_migration(tmp_path, "002_core.sql", "-- APPLY CORE\nSELECT 2;\n")
+    migrations = module.discover_migrations(tmp_path)
+    connection = FakeConnection()
+
+    applied = module.apply_migrations(connection, migrations)
+
+    assert applied == 2
+    assert connection.commit_count == 1
+    assert connection.rollback_count == 0
+    assert connection.records == {
+        migration.version: (migration.name, migration.checksum) for migration in migrations
+    }
+
+
+def test_refuses_checksum_drift_before_applying_any_pending_migration(tmp_path: Path) -> None:
+    """Break caught: editing applied history could silently redefine a deployed schema."""
+    module = migrations_module()
+    write_migration(tmp_path, "001_contract.sql", "SELECT N'changed';\n")
+    write_migration(tmp_path, "002_pending.sql", "-- MUST NOT RUN\nSELECT 2;\n")
+    migrations = module.discover_migrations(tmp_path)
+    connection = FakeConnection()
+    connection.table_exists = True
+    connection.records[1] = ("contract", hashlib.sha256(b"SELECT N'original';\n").digest())
+
+    with pytest.raises(module.MigrationError, match="checksum"):
+        module.apply_migrations(connection, migrations)
+
+    assert connection.executed_batches == []
+    assert connection.commit_count == 0
+
+
+def test_refuses_non_prefix_history_before_replaying_an_earlier_gap(tmp_path: Path) -> None:
+    """Break caught: an older missing migration could run after a recorded newer version."""
+    module = migrations_module()
+    write_migration(tmp_path, "001_contract.sql", "SELECT 1;\n")
+    write_migration(tmp_path, "002_core.sql", "SELECT 2;\n")
+    migrations = module.discover_migrations(tmp_path)
+    connection = FakeConnection()
+    connection.table_exists = True
+    connection.records[2] = ("core", migrations[1].checksum)
+
+    with pytest.raises(module.MigrationError, match="prefix"):
+        module.apply_migrations(connection, migrations)
+
+    assert connection.executed_batches == []
+    assert connection.commit_count == 0
+
+
+def test_failed_migration_rolls_back_once_and_redacts_sql_credentials_and_parameters(
+    tmp_path: Path,
+) -> None:
+    """Break caught: an exception could leak sensitive SQL/input or leave a partial schema."""
+    module = migrations_module()
+    synthetic_password = "synthetic-password-never-log"
+    raw_parameter = "synthetic-applicant-value-never-log"
+    write_migration(
+        tmp_path,
+        "001_contract.sql",
+        "CREATE TABLE dbo.SchemaMigration (MigrationVersion int);\n",
+    )
+    write_migration(
+        tmp_path,
+        "002_failure.sql",
+        f"-- FAIL HERE {synthetic_password}\nSELECT 2;\n",
+    )
+    connection = FakeConnection()
+    connection.failure_marker = "FAIL HERE"
+    connection.failure_message = f"driver exposed {synthetic_password} and {raw_parameter}"
+
+    with pytest.raises(module.MigrationError) as raised:
+        module.apply_migrations(connection, module.discover_migrations(tmp_path))
+
+    message = str(raised.value)
+    assert synthetic_password not in message
+    assert raw_parameter not in message
+    assert "SELECT" not in message
+    assert connection.records == {}
+    assert connection.commit_count == 0
+    assert connection.rollback_count == 1
+
+
+def test_second_run_is_an_idempotent_noop(tmp_path: Path) -> None:
+    """Break caught: rerunning an unchanged release could replay DDL or duplicate history."""
+    module = migrations_module()
+    write_migration(
+        tmp_path,
+        "001_contract.sql",
+        "CREATE TABLE dbo.SchemaMigration (MigrationVersion int);\n",
+    )
+    write_migration(tmp_path, "002_core.sql", "SELECT 2;\n")
+    migrations = module.discover_migrations(tmp_path)
+    connection = FakeConnection()
+
+    assert module.apply_migrations(connection, migrations) == 2
+    first_batches = list(connection.executed_batches)
+    assert module.apply_migrations(connection, migrations) == 0
+
+    assert connection.executed_batches == first_batches
+    assert connection.commit_count == 1
+
+
+def test_connection_string_uses_only_ehf_names_and_task_2_secret_reader() -> None:
+    """Break caught: EHF could inherit the Finances 2 database identity or credential path."""
+    module = importlib.import_module("app.db")
+
+    class SyntheticSettings:
+        def read_sql_credential(self) -> str:
+            return "synthetic-secret"
+
+    value = module.connection_string(
+        SyntheticSettings(),
+        {
+            "EHF_SQL_SERVER": "tcp:ehf-db.invalid,1433",
+            "EHF_SQL_DATABASE": "EHFApplications_Test_Unit",
+            "EHF_SQL_USER": "ehf_test",
+            "FINANCES2_DB_NAME": "must-not-be-used",
+        },
+    )
+
+    assert "SERVER=tcp:ehf-db.invalid,1433" in value
+    assert "DATABASE=EHFApplications_Test_Unit" in value
+    assert "UID=ehf_test" in value
+    assert "PWD=synthetic-secret" in value
+    assert "must-not-be-used" not in value
+
+
+def test_connection_string_brace_escapes_password_delimiters() -> None:
+    """Break caught: password punctuation could inject an ODBC connection-string field."""
+    module = importlib.import_module("app.db")
+
+    class SyntheticSettings:
+        def read_sql_credential(self) -> str:
+            return "synthetic;secret}value"
+
+    value = module.connection_string(SyntheticSettings(), {})
+
+    assert "PWD={synthetic;secret}}value};" in value
+    assert "PWD=synthetic;secret}value;" not in value
+
+
+def test_connection_session_error_is_redacted_and_connection_is_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Break caught: driver text from session setup could expose the connection secret."""
+    module = importlib.import_module("app.db")
+    synthetic_password = "session-secret-never-log"
+
+    class SyntheticSettings:
+        def read_sql_credential(self) -> str:
+            return synthetic_password
+
+    class SyntheticDriverError(Exception):
+        pass
+
+    class BrokenConnection:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def execute(self, _statement: str) -> None:
+            raise SyntheticDriverError(f"driver echoed {synthetic_password}")
+
+        def close(self) -> None:
+            self.closed = True
+
+    connection = BrokenConnection()
+    fake_pyodbc = SimpleNamespace(
+        Error=SyntheticDriverError,
+        connect=lambda *_args, **_kwargs: connection,
+    )
+    monkeypatch.setitem(sys.modules, "pyodbc", fake_pyodbc)
+
+    with pytest.raises(module.DatabaseError) as raised:
+        with module.connect(SyntheticSettings(), environ={}):
+            pass
+
+    assert synthetic_password not in str(raised.value)
+    assert connection.closed is True
+
+
+def sql_table_blocks() -> dict[str, str]:
+    blocks: dict[str, str] = {}
+    for path in sorted(MIGRATION_DIRECTORY.glob("[0-9][0-9][0-9]_*.sql")):
+        source = path.read_text(encoding="utf-8")
+        for match in re.finditer(
+            r"CREATE TABLE dbo\.(\w+)\s*\((.*?)^\);",
+            source,
+            flags=re.MULTILINE | re.DOTALL | re.IGNORECASE,
+        ):
+            blocks[match.group(1)] = match.group(2)
+    return blocks
+
+
+def test_sql_contract_files_and_validators_exist() -> None:
+    """Break caught: a release could omit one ordered schema or validation artifact."""
+    assert [path.name for path in sorted(MIGRATION_DIRECTORY.glob("*.sql"))] == [
+        "001_database_contract.sql",
+        "002_application_core.sql",
+        "003_audit_and_preferences.sql",
+    ]
+    assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
+        "001_validate_database_contract.sql",
+        "002_validate_application_core.sql",
+        "003_validate_audit_and_preferences.sql",
+    ]
+
+
+def test_every_table_has_a_primary_key_and_database_generated_utc_timestamp() -> None:
+    """Break caught: a core entity could lack stable identity or auditable UTC creation time."""
+    blocks = sql_table_blocks()
+
+    assert set(blocks) == {
+        "SchemaMigration",
+        "FellowshipCall",
+        "Applicant",
+        "ApplicantContact",
+        "Application",
+        "EmploymentAffiliation",
+        "Qualification",
+        "EligibilityDeclaration",
+        "Bibliometrics",
+        "ContributionStatement",
+        "FieldProvenance",
+        "ApplicationSectionVersion",
+        "AuditEvent",
+        "UserPreference",
+    }
+    for table_name, block in blocks.items():
+        assert re.search(r"\bPRIMARY KEY\b", block, flags=re.IGNORECASE), table_name
+        assert re.search(
+            r"\b(?:Applied|Created|Recorded|Occurred)AtUtc\s+datetime2\(7\)",
+            block,
+            flags=re.IGNORECASE,
+        ), table_name
+        assert "SYSUTCDATETIME()" in block, table_name
+
+
+def test_mutable_tables_have_rowversion_and_immutable_tables_reject_update_delete() -> None:
+    """Break caught: concurrent writes or historical-record mutation could go undetected."""
+    blocks = sql_table_blocks()
+    mutable_tables = {
+        "FellowshipCall",
+        "Applicant",
+        "ApplicantContact",
+        "Application",
+        "EmploymentAffiliation",
+        "Qualification",
+        "EligibilityDeclaration",
+        "Bibliometrics",
+        "ContributionStatement",
+        "UserPreference",
+    }
+    for table_name in mutable_tables:
+        assert re.search(r"\bRowVersion\s+rowversion\b", blocks[table_name], re.IGNORECASE)
+
+    all_sql = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(MIGRATION_DIRECTORY.glob("*.sql"))
+    )
+    for table_name in {
+        "SchemaMigration",
+        "FieldProvenance",
+        "ApplicationSectionVersion",
+        "AuditEvent",
+    }:
+        assert re.search(
+            rf"CREATE TRIGGER .*?\s+ON\s+dbo\.{table_name}.*?"
+            r"INSTEAD\s+OF\s+UPDATE,\s*DELETE",
+            all_sql,
+            flags=re.IGNORECASE | re.DOTALL,
+        ), table_name
+
+
+def test_provenance_and_section_history_have_independent_versions() -> None:
+    """Break caught: field history could depend on section versions or timestamp uniqueness."""
+    blocks = sql_table_blocks()
+
+    for table_name in {"FieldProvenance", "ApplicationSectionVersion"}:
+        assert re.search(
+            r"\bVersionNumber\s+int\s+NOT NULL\b",
+            blocks[table_name],
+            flags=re.IGNORECASE,
+        ), table_name
+        assert re.search(
+            r"\bCHECK\s*\(VersionNumber\s*>\s*0\)",
+            blocks[table_name],
+            flags=re.IGNORECASE,
+        ), table_name
+
+
+def test_database_script_rejects_a_non_test_database_before_connecting() -> None:
+    """Break caught: the integration harness could target a production database name."""
+    completed = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-File",
+            str(DATABASE_SCRIPT),
+            "-DatabaseName",
+            "EHFApplications",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+
+    assert completed.returncode != 0
+    assert "must start exactly with EHFApplications_Test" in (
+        completed.stdout + completed.stderr
+    )
