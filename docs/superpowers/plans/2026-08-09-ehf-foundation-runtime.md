@@ -135,8 +135,8 @@ Commit message: `feat: establish EHF database core`
 
 **Files:**
 
-- Create: `database/migrations/004_application_permissions.sql`
-- Create: `database/tests/004_validate_application_permissions.sql`
+- Create: `database/migrations/005_application_permissions.sql`
+- Create: `database/tests/005_validate_application_permissions.sql`
 - Create: `infra/setup-sql-login.sh`
 - Create: `infra/test-sql-login.sh`
 - Create: `tests/test_sql_permissions.py`
