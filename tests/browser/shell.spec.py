@@ -63,22 +63,27 @@ def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_ov
             pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
         try:
             page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.goto(f"{base_url}/internal/", wait_until="networkidle")
+            assert not page_errors, page_errors
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
             assert page.locator(".shell-card").count() >= 1
-            assert page.locator("text=Preview only").count() == 1
+            assert page.locator(".preview-notice").count() == 1
+            assert "Preview only" in page.locator(".preview-notice").inner_text()
             assert page.locator("text=Authorizations:").count() == 1
 
             if viewport[0] <= 720:
+                assert page.evaluate("matchMedia('(max-width: 720px)').matches")
                 toggle = page.get_by_role("button", name="Open application navigation")
                 toggle.focus()
-                page.keyboard.press("Enter")
+                toggle.press("Enter")
                 assert page.get_by_role("complementary", name="Application navigation").get_attribute("data-open") == "true"
                 page.keyboard.press("Escape")
                 assert toggle.get_attribute("aria-expanded") == "false"
                 assert page.evaluate("document.activeElement === document.querySelector('.app-nav-toggle')")
 
-            results = Axe(page).run()
-            assert results.violations == []
+            results = Axe().run(page)
+            assert results.violations_count == 0, results.generate_report()
         finally:
             browser.close()

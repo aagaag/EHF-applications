@@ -11,6 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import Settings
@@ -103,6 +104,13 @@ def create_app(
     application.add_exception_handler(StarletteHTTPException, http_exception_handler)
     application.add_exception_handler(RequestValidationError, validation_exception_handler)
     application.add_exception_handler(Exception, unhandled_exception_handler)
+
+    public_root = Path(__file__).resolve().parents[1] / "public"
+    application.mount("/assets", StaticFiles(directory=public_root / "assets"), name="assets")
+    application.mount("/internal", StaticFiles(directory=public_root / "internal", html=True), name="internal")
+    application.mount(
+        "/applicant", StaticFiles(directory=public_root / "applicant", html=True), name="applicant"
+    )
 
     @application.get("/health/live", response_model=None)
     def live() -> dict[str, str]:

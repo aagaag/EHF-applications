@@ -6,7 +6,8 @@ from collections.abc import Mapping
 
 
 CONTENT_SECURITY_POLICY = (
-    "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
+    "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 )
 _SECURITY_HEADER_NAMES = frozenset(
     {
