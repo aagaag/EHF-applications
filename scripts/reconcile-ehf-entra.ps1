@@ -85,6 +85,11 @@ function Invoke-GraphWrite {
     if (-not $PSCmdlet.ShouldProcess($Target, $Action)) {
         return
     }
+    $BodyIndex = [Array]::IndexOf($Arguments, '--body')
+    if ($BodyIndex -lt 0 -or $BodyIndex + 1 -ge $Arguments.Count) {
+        throw 'A bounded Microsoft Graph write is missing its JSON body.'
+    }
+    $Arguments[$BodyIndex + 1] = $Arguments[$BodyIndex + 1].Replace('"', '\"')
     $Output = @(& $script:AzPath @Arguments 2>&1)
     if ($LASTEXITCODE -ne 0) {
         throw 'A bounded Microsoft Graph write failed.'

@@ -56,4 +56,5 @@ def test_dry_run_never_invokes_a_graph_write() -> None:
     assert "Invoke-GraphWrite" in source
     write_function = source[source.index("function Invoke-GraphWrite") :]
     assert "if (-not $Apply)" in write_function
+    assert "Replace('\"', '\\\"')" in write_function
     assert "return" in write_function
