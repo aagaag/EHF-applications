@@ -44,20 +44,6 @@ BEGIN TRY
     INSERT dbo.ImportRun (ImportRunId, FellowshipCallId, ImportFingerprintSha256, ImporterVersion, RunStatus, StartedByIdentity)
     VALUES (@RunId, @CallId, HASHBYTES('SHA2_256', N'provenance-run'), 'validator', 'PLANNED', N'validator');
 
-    -- ISOLATED EXPECTED FAILURE: linked version belongs to another application
-    BEGIN TRY
-        INSERT dbo.SourceOccurrence
-            (SourceOccurrenceId, ImportRunId, ApplicationId, DocumentVersionId,
-             SourceLocatorSha256, SourceContentSha256, SourceByteSize, ImportDisposition)
-        VALUES
-            (NEWID(), @RunId, @ApplicationBId, @VersionId,
-             HASHBYTES('SHA2_256', N'wrong-owner-locator'), HASHBYTES('SHA2_256', N'wrong-owner-content'), 1, 'INGESTED');
-        THROW 51814, 'A source occurrence linked a version owned by another application.', 1;
-    END TRY
-    BEGIN CATCH
-        IF ERROR_NUMBER() <> 51712 THROW;
-    END CATCH;
-
     -- SUCCESSFUL VALIDATOR WRITE: non-document occurrence permits null version
     INSERT dbo.SourceOccurrence
         (SourceOccurrenceId, ImportRunId, ApplicationId, DocumentVersionId,
@@ -72,7 +58,22 @@ BEGIN TRY
         (@RunId, HASHBYTES('SHA2_256', N'internal-locator'), HASHBYTES('SHA2_256', N'internal-content'), 1,
          'REVIEWED_INTERNAL_EXCLUSION');
 
-    ROLLBACK TRANSACTION;
+    -- ISOLATED EXPECTED FAILURE: linked version belongs to another application
+    BEGIN TRY
+        INSERT dbo.SourceOccurrence
+            (SourceOccurrenceId, ImportRunId, ApplicationId, DocumentVersionId,
+             SourceLocatorSha256, SourceContentSha256, SourceByteSize, ImportDisposition)
+        VALUES
+            (NEWID(), @RunId, @ApplicationBId, @VersionId,
+             HASHBYTES('SHA2_256', N'wrong-owner-locator'), HASHBYTES('SHA2_256', N'wrong-owner-content'), 1, 'INGESTED');
+        THROW 51814, 'A source occurrence linked a version owned by another application.', 1;
+    END TRY
+    BEGIN CATCH
+        DECLARE @OwnershipError int = ERROR_NUMBER();
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+        IF @OwnershipError <> 51712 THROW;
+    END CATCH;
+    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
 END TRY
 BEGIN CATCH
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;

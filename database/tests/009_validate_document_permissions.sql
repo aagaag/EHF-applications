@@ -75,16 +75,6 @@ BEGIN TRY
         (@OccurrenceId, @RunId, @ApplicationId, @VersionId,
          HASHBYTES('SHA2_256', N'permissions-locator'), HASHBYTES('SHA2_256', N'permissions-content'), 1, 'INGESTED');
 
-    -- ISOLATED EXPECTED FAILURE: linked recommendation cannot be applicant-visible
-    BEGIN TRY
-        INSERT dbo.ClassificationDecision (SourceOccurrenceId, Classification, DecidedByIdentity)
-        VALUES (@OccurrenceId, 'APPLICANT_VISIBLE', N'validator');
-        THROW 51825, 'A linked recommendation was classified applicant-visible.', 1;
-    END TRY
-    BEGIN CATCH
-        IF ERROR_NUMBER() <> 51721 THROW;
-    END CATCH;
-
     INSERT dbo.ClassificationDecision (SourceOccurrenceId, Classification, Reason, DecidedByIdentity)
     VALUES (@OccurrenceId, 'CONFIDENTIAL_RECOMMENDATION', N'Confidential recommendation test fixture.', N'validator');
 
@@ -97,7 +87,18 @@ BEGIN TRY
     )
         THROW 51826, 'A linked recommendation appeared in the applicant projection.', 1;
 
-    ROLLBACK TRANSACTION;
+    -- ISOLATED EXPECTED FAILURE: linked recommendation cannot be applicant-visible
+    BEGIN TRY
+        INSERT dbo.ClassificationDecision (SourceOccurrenceId, Classification, DecidedByIdentity)
+        VALUES (@OccurrenceId, 'APPLICANT_VISIBLE', N'validator');
+        THROW 51825, 'A linked recommendation was classified applicant-visible.', 1;
+    END TRY
+    BEGIN CATCH
+        DECLARE @RecommendationVisibilityError int = ERROR_NUMBER();
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+        IF @RecommendationVisibilityError <> 51721 THROW;
+    END CATCH;
+    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
 END TRY
 BEGIN CATCH
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
