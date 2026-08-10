@@ -95,12 +95,12 @@ run_helper create-test-login --server "$server" --admin-credential-file "$admin_
 
 run_helper create-test-database --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --run-token "$run_token" >/dev/null || fail "The isolated primary database creation failed."
 run_helper create-test-database --server "$server" --admin-credential-file "$admin_password_file" --database "$peer_database" --run-token "$run_token" >/dev/null || fail "The isolated peer database creation failed."
-for migration_file in 001_database_contract.sql 002_application_core.sql 003_audit_and_preferences.sql 004_audit_and_preference_hardening.sql 005_application_permissions.sql 006_user_preference_read.sql; do
+for migration_file in 001_database_contract.sql 002_application_core.sql 003_audit_and_preferences.sql 004_audit_and_preference_hardening.sql 005_application_permissions.sql 006_user_preference_read.sql 007_document_store.sql 008_import_provenance.sql 009_document_permissions.sql; do
   [[ -f "$migration_directory/$migration_file" ]] || fail "The isolated EHF migration set is incomplete."
   run_admin_sql "$database" "$migration_file" >/dev/null 2>&1 || fail "The isolated EHF migration failed without credential details."
   run_helper record-test-migration --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --migration-file "$migration_file" >/dev/null || fail "The isolated EHF migration record failed."
 done
-for validation_file in 001_validate_database_contract.sql 002_validate_application_core.sql 003_validate_audit_and_preferences.sql 004_validate_audit_and_preference_hardening.sql 005_validate_application_permissions.sql 006_validate_user_preference_read.sql; do
+for validation_file in 001_validate_database_contract.sql 002_validate_application_core.sql 003_validate_audit_and_preferences.sql 004_validate_audit_and_preference_hardening.sql 005_validate_application_permissions.sql 006_validate_user_preference_read.sql 007_validate_document_store.sql 008_validate_import_provenance.sql 009_validate_document_permissions.sql; do
   run_admin_sql "$database" "$validation_file" >/dev/null 2>&1 || fail "The isolated EHF SQL validator failed without credential details."
 done
 run_helper create-test-login --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --login "$login" --credential-file "$test_password_file" >/dev/null || fail "The isolated test login creation failed."
@@ -126,7 +126,11 @@ INSERT @DmlTargets VALUES
  (N'ApplicantContact',N'ApplicantId'),(N'Application',N'ApplicationStatus'),(N'EmploymentAffiliation',N'ApplicationId'),
  (N'Qualification',N'ApplicationId'),(N'EligibilityDeclaration',N'ApplicationId'),(N'Bibliometrics',N'ApplicationId'),
  (N'ContributionStatement',N'ApplicationId'),(N'FieldProvenance',N'EntityType'),(N'ApplicationSectionVersion',N'ApplicationId'),
- (N'AuditEvent',N'EventType'),(N'UserPreference',N'IdentityKey');
+ (N'AuditEvent',N'EventType'),(N'UserPreference',N'IdentityKey'),
+ (N'DocumentSlot',N'SlotCode'),(N'Document',N'DocumentType'),(N'StoredObject',N'ObjectKey'),
+ (N'DocumentVersion',N'VersionNumber'),(N'Recommendation',N'ArrivalChannel'),
+ (N'ImportRun',N'ImporterVersion'),(N'ImportRow',N'SourceRowNumber'),(N'SourceOccurrence',N'SourceLocatorSha256'),
+ (N'ImportException',N'ExceptionCode'),(N'ClassificationDecision',N'Classification');
 DECLARE @TableName sysname,@ColumnName sysname,@Sql nvarchar(max),@Denied bit;
 DECLARE dml_cursor CURSOR LOCAL FAST_FORWARD FOR SELECT TableName,ColumnName FROM @DmlTargets;
 OPEN dml_cursor; FETCH NEXT FROM dml_cursor INTO @TableName,@ColumnName;

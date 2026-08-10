@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import base64
+import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,6 +17,8 @@ SERVICE = ROOT / "infra" / "ehf.service"
 NGINX = ROOT / "infra" / "ehf.nginx.conf"
 DEPLOY = ROOT / "scripts" / "deploy-isab01.ps1"
 VERIFY = ROOT / "scripts" / "verify-isab01.ps1"
+PWSH = shutil.which("pwsh") or shutil.which("powershell") or "powershell"
+SQL_LOGIN_TEST = ROOT / "infra" / "test-sql-login.sh"
 
 
 def test_service_uses_systemd_credentials_and_hardens_a_loopback_only_runtime() -> None:
@@ -53,6 +61,24 @@ def test_nginx_only_serves_the_exact_ehf_host_and_loopback_upstream() -> None:
     assert "0.0.0.0:8086" not in source
 
 
+def test_sql_dml_denial_probe_uses_columns_declared_by_current_import_migrations() -> None:
+    """Break caught: the isolated permission probe could stop at a nonexistent migration column."""
+    source = SQL_LOGIN_TEST.read_text(encoding="utf-8")
+    migration_source = (ROOT / "database" / "migrations" / "008_import_provenance.sql").read_text(
+        encoding="utf-8"
+    )
+
+    for table, column in (
+        ("ImportRun", "ImporterVersion"),
+        ("ImportRow", "SourceRowNumber"),
+        ("SourceOccurrence", "SourceLocatorSha256"),
+    ):
+        assert f"(N'{table}',N'{column}')" in source
+        assert f"CREATE TABLE dbo.{table}" in migration_source
+        assert f"    {column} " in migration_source
+
+
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell deployment contracts run on the Windows controller")
 def test_deploy_whatif_names_the_exact_commit_without_starting_remote_mutation() -> None:
     """Break caught: a dry run could connect to ISAB01 or hide the release revision it would deploy."""
     completed = subprocess.run(
@@ -71,11 +97,12 @@ def test_deploy_whatif_names_the_exact_commit_without_starting_remote_mutation()
     assert "scp.exe" not in completed.stdout
 
 
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell deployment contracts run on the Windows controller")
 def test_deploy_and_verify_scripts_parse_without_executing_a_live_deployment() -> None:
     """Break caught: a syntax error could be discovered only after a release archive has been staged remotely."""
     for script in (DEPLOY, VERIFY):
         completed = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", f"[void][scriptblock]::Create((Get-Content -Raw '{script}'))"],
+            [PWSH, "-NoProfile", "-Command", f"[void][scriptblock]::Create((Get-Content -Raw '{script}'))"],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -83,3 +110,52 @@ def test_deploy_and_verify_scripts_parse_without_executing_a_live_deployment() -
             timeout=30,
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell deployment contracts run on the Windows controller")
+def test_verify_whatif_never_invokes_ssh_and_names_its_read_only_checks() -> None:
+    """Break caught: verification preview could contact ISAB01 despite being requested as a dry run."""
+    command = (
+        "function ssh.exe { throw 'SSH_CALLED' }; "
+        f"& '{VERIFY}' -WhatIf"
+    )
+    completed = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", command],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "WhatIf: would verify" in completed.stdout
+    assert "SSH_CALLED" not in completed.stdout + completed.stderr
+
+
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell deployment contracts run on the Windows controller")
+def test_verify_transports_a_base64_decoded_remote_script_without_nested_shell_quotes(
+    tmp_path: Path,
+) -> None:
+    """Break caught: a quoted ss filter could terminate the remote shell command before verification runs."""
+    captured = tmp_path / "ssh-arguments.txt"
+    command = (
+        f"function ssh.exe {{ $args | Set-Content -LiteralPath '{captured}'; $global:LASTEXITCODE = 0 }}; "
+        f"& '{VERIFY}'"
+    )
+    completed = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", command],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    remote_command = captured.read_text(encoding="utf-8")
+    encoded = re.search(r"'([A-Za-z0-9+/=]+)'\s*\|\s*/usr/bin/base64", remote_command)
+    assert encoded is not None
+    decoded = base64.b64decode(encoded.group(1)).decode("utf-8")
+    assert "ss -ltn '( sport = :8086 )'" in decoded
+    assert "Host: ehf.isab.science" in decoded

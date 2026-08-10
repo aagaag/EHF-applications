@@ -19,12 +19,12 @@ EXPECTED_RUNTIME_REQUIREMENTS = [
     "Pillow==12.3.0",
     "PyJWT[crypto]==2.13.0",
     "cryptography==49.0.0",
+    "httpx==0.28.1",
     "openpyxl==3.1.5",
 ]
 
 EXPECTED_DEV_REQUIREMENTS = [
     "pytest==9.1.1",
-    "httpx==0.28.1",
     "playwright==1.62.0",
     "axe-playwright-python==0.1.8",
 ]

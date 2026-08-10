@@ -78,6 +78,23 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .shell-card strong { font-size: 1.05rem; }
 .shell-card span { color: var(--muted); line-height: 1.4; overflow-wrap: anywhere; }
 .shell-card em { color: var(--accent); font-style: normal; font-weight: 800; }
+.application-register { display: grid; width: 100%; min-width: 0; gap: .65rem; margin-top: 1rem; }
+.application-row { display: grid; width: 100%; min-width: 0; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .7rem; align-items: start; border: 1px solid var(--line); border-radius: 1rem; padding: 1rem; background: var(--surface); box-shadow: 0 6px 20px rgba(32,41,38,.07); color: var(--text); text-decoration: none; }
+.application-row:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.application-name, .application-field { display: grid; min-width: 0; gap: .18rem; overflow-wrap: anywhere; }
+.application-name { grid-column: span 2; }
+.application-name small, .application-field small { color: var(--muted); font-size: .68rem; font-weight: 800; letter-spacing: .035em; text-transform: uppercase; }
+.application-name strong { font-size: 1rem; line-height: 1.25; }
+.application-name em { color: var(--accent-dark); font-size: .72rem; font-style: normal; font-weight: 700; }
+.application-field > span { font-size: .86rem; line-height: 1.35; }
+.application-empty, .report-empty { margin-top: 1rem; border: 1px dashed var(--line); border-radius: 1rem; padding: 1.2rem; background: var(--surface); color: var(--muted); }
+.report-grid { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.report-card { min-width: 0; border: 1px solid var(--line); border-radius: 1rem; padding: 1rem; background: var(--surface); box-shadow: var(--shadow); }
+.report-card h3 { margin: 0 0 .7rem; font-size: 1rem; }
+.report-card svg { display: block; width: 100%; height: auto; overflow: visible; }
+.report-card circle { fill: var(--accent); fill-opacity: .75; stroke: var(--surface); stroke-width: 2; }
+.report-card .plot-axis { fill: none; stroke: var(--text); stroke-width: 1.2; }
+.report-card text { fill: var(--muted); font: 14px Aptos, "Segoe UI", system-ui, sans-serif; text-anchor: middle; }
 .appearance-controls { display: grid; gap: .7rem; margin-top: 1rem; border: 1px solid var(--line); border-radius: 1rem; padding: 1rem; background: var(--surface); box-shadow: var(--shadow); }
 .appearance-control-row { display: flex; flex-wrap: wrap; gap: .55rem; }
 .appearance-control-row button { min-height: 44px; border: 1px solid var(--line); border-radius: .55rem; padding: .55rem .8rem; background: var(--surface-soft); color: var(--text); cursor: pointer; font: inherit; font-weight: 700; }
@@ -86,6 +103,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .app-nav-backdrop { display: none; }
 
 @media (max-width: 1024px) { .shell-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1500px) { .application-row { grid-template-columns: repeat(4, minmax(0, 1fr)); } .application-name { grid-column: span 2; } }
+@media (max-width: 980px) { .application-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .application-name { grid-column: 1 / -1; } .report-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 720px) {
   body { padding-left: 0; }
   .app-nav-toggle { position: fixed; z-index: 100; top: 10px; left: 10px; display: inline-flex; min-height: 44px; align-items: center; gap: .45rem; border: 1px solid var(--line); border-radius: .6rem; padding: .55rem .8rem; background: var(--surface); color: var(--text); font: inherit; font-weight: 800; }
@@ -95,5 +114,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .site-main { width: 94%; margin-inline: 3%; padding-top: 5rem; }
   .site-footer { width: 94%; margin: 0 3%; }
   .shell-grid { grid-template-columns: minmax(0, 1fr); }
+  .application-row { grid-template-columns: minmax(0, 1fr); padding: .9rem; }
+  .application-name, .application-field { grid-column: 1; grid-template-columns: minmax(7rem, .9fr) minmax(0, 1.5fr); align-items: baseline; }
+  .application-name strong { font-size: .95rem; }
+  .application-name em { grid-column: 2; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; } }

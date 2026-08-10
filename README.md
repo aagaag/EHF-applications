@@ -32,14 +32,16 @@ $Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies
 
 ## Import
 
-The bootstrap does not import production records. Once the approved import workflow is present, preview an import before writing anything:
+The root-mediated 2026 workflow is PlanOnly unless `-Apply` is explicit. It requires private reviewed identity and folder-alias maps outside Git, reconciles all 36 rows before writing, and preserves every register observation for later applicant confirmation. See [import-2026.md](docs/import-2026.md) for the exact commands.
+
+Use the pinned local runtime for preparation and tests:
 
 ```powershell
 $Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
-& $Python -m app.importer --source '<approved-source-directory>' --database EHFApplications --dry-run
+& $Python -m pytest tests\test_source_inventory.py tests\test_register_parser.py tests\test_applicant_matching.py -q
 ```
 
-Proceed only after the preview reconciles every expected applicant and document classification. The original source directory must remain unchanged; the importer must write only controlled application storage and an auditable result.
+Imported PDFs are scanned and encrypted. Every document begins `UNREVIEWED`; recommendation signals also receive an immutable confidential recommendation link. Import and deployment never make a document applicant-visible and never send an invitation.
 
 ## Deploy and rollback
 
@@ -78,7 +80,10 @@ powershell -NoProfile -File scripts\verify-isab01.ps1 -ExpectedCommit $PreviousC
 ```
 
 The deployment path does not configure Cloudflare, DNS, Access, invitations,
-production mail, applicant data, or outbound communications.
+production mail, applicant data, or outbound communications. Applicant data is
+loaded only by the separate root-mediated import procedure.
+It creates and checksum-migrates only the exact `EHFApplications` database when
+it is absent; it never creates, imports, or modifies any other database.
 
 ## Production invitation gate
 

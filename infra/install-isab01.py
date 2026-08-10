@@ -7,6 +7,7 @@ import argparse
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -44,9 +45,29 @@ REQUIRED_RELEASE_FILES = (
     "app/requirements-dev.txt",
     "infra/ehf.service",
     "infra/ehf.nginx.conf",
+    "infra/bootstrap-ehf-database.py",
     "infra/setup-sql-login.sh",
+    "infra/sql-principal.py",
     "infra/test-sql-login.sh",
     "infra/test-install-isab01.py",
+    "database/migrations/001_database_contract.sql",
+    "database/migrations/002_application_core.sql",
+    "database/migrations/003_audit_and_preferences.sql",
+    "database/migrations/004_audit_and_preference_hardening.sql",
+    "database/migrations/005_application_permissions.sql",
+    "database/migrations/006_user_preference_read.sql",
+    "database/migrations/007_document_store.sql",
+    "database/migrations/008_import_provenance.sql",
+    "database/migrations/009_document_permissions.sql",
+    "database/tests/001_validate_database_contract.sql",
+    "database/tests/002_validate_application_core.sql",
+    "database/tests/003_validate_audit_and_preferences.sql",
+    "database/tests/004_validate_audit_and_preference_hardening.sql",
+    "database/tests/005_validate_application_permissions.sql",
+    "database/tests/006_validate_user_preference_read.sql",
+    "database/tests/007_validate_document_store.sql",
+    "database/tests/008_validate_import_provenance.sql",
+    "database/tests/009_validate_document_permissions.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",
@@ -62,6 +83,75 @@ PREACTIVATION_CREDENTIALS = tuple(
 
 class DeploymentError(RuntimeError):
     """Raised without embedding credential values or command output."""
+
+
+class PathSnapshot:
+    __slots__ = ("kind", "payload", "mode", "uid", "gid")
+
+    def __init__(
+        self,
+        kind: str,
+        payload: bytes | str | None = None,
+        mode: int | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
+    ) -> None:
+        self.kind = kind
+        self.payload = payload
+        self.mode = mode
+        self.uid = uid
+        self.gid = gid
+
+
+def _snapshot_path(path: Path) -> PathSnapshot:
+    if path.is_symlink():
+        return PathSnapshot("symlink", os.readlink(path))
+    if path.exists():
+        details = path.stat()
+        if not path.is_file():
+            raise DeploymentError("A managed configuration path has an unsafe shape.")
+        return PathSnapshot(
+            "file",
+            path.read_bytes(),
+            stat.S_IMODE(details.st_mode),
+            details.st_uid,
+            details.st_gid,
+        )
+    return PathSnapshot("absent")
+
+
+def _restore_path(path: Path, snapshot: PathSnapshot) -> None:
+    if path.exists() or path.is_symlink():
+        if path.is_dir() and not path.is_symlink():
+            raise DeploymentError("A managed configuration path became a directory.")
+        path.unlink()
+    if snapshot.kind == "absent":
+        return
+    path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    if snapshot.kind == "symlink":
+        path.symlink_to(str(snapshot.payload))
+        return
+    if snapshot.kind != "file" or not isinstance(snapshot.payload, bytes):
+        raise DeploymentError("A configuration snapshot is invalid.")
+    temporary = path.with_name(f".{path.name}.ehf-restore")
+    temporary.write_bytes(snapshot.payload)
+    if hasattr(os, "chown"):
+        os.chown(temporary, int(snapshot.uid), int(snapshot.gid))
+    os.chmod(temporary, int(snapshot.mode))
+    os.replace(temporary, path)
+
+
+def _configuration_snapshot() -> dict[Path, PathSnapshot]:
+    return {
+        SERVICE_FILE: _snapshot_path(SERVICE_FILE),
+        NGINX_AVAILABLE: _snapshot_path(NGINX_AVAILABLE),
+        NGINX_ENABLED: _snapshot_path(NGINX_ENABLED),
+    }
+
+
+def _restore_configuration(snapshot: dict[Path, PathSnapshot]) -> None:
+    for path in (NGINX_ENABLED, NGINX_AVAILABLE, SERVICE_FILE):
+        _restore_path(path, snapshot[path])
 
 
 def _run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
@@ -242,10 +332,14 @@ def _require_protected_file(path: Path, *, group_id: int | None = None) -> None:
     if path.is_symlink() or not path.is_file():
         raise DeploymentError("A required protected EHF configuration file is unavailable.")
     stat_result = path.stat()
-    if stat_result.st_uid != 0 or stat_result.st_mode & 0o022:
+    expected_group = 0 if group_id is None else group_id
+    allowed_modes = {0o600, 0o640} if group_id is None else {0o640}
+    if (
+        stat_result.st_uid != 0
+        or stat_result.st_gid != expected_group
+        or stat.S_IMODE(stat_result.st_mode) not in allowed_modes
+    ):
         raise DeploymentError("A required protected EHF configuration file is unsafe.")
-    if group_id is not None and stat_result.st_gid != group_id:
-        raise DeploymentError("A required protected EHF credential has an unexpected group.")
 
 
 def _install_configuration(release: Path, account: pwd.struct_passwd) -> None:
@@ -306,6 +400,15 @@ def _preactivation_tests(
     )
     _run([str(python), "-m", "pytest", "infra/test-install-isab01.py", "-q"], cwd=release)
     _run([str(python), "-m", "pytest", "-q"], cwd=release)
+    _run(
+        [
+            str(python),
+            "infra/bootstrap-ehf-database.py",
+            "--admin-credential-file",
+            str(sql_admin_credential),
+        ],
+        cwd=release,
+    )
     _run(["/bin/bash", "infra/test-sql-login.sh"], cwd=release, env=environment)
     _run(["/bin/bash", "infra/setup-sql-login.sh"], cwd=release, env=environment)
     _require_protected_file(CONFIG_ROOT / "sql-app-password", group_id=account.pw_gid)
@@ -327,14 +430,23 @@ def _ready() -> None:
     )
 
 
-def _restore(previous: Path | None, service_was_active: bool) -> None:
-    if previous is None:
-        if CURRENT.is_symlink():
-            CURRENT.unlink()
-    else:
-        rollback_to_previous(previous)
+def _restore(
+    previous: Path | None,
+    service_was_active: bool,
+    configuration: dict[Path, PathSnapshot] | None = None,
+    *,
+    switched: bool = True,
+) -> None:
+    if switched:
+        if previous is None:
+            if CURRENT.is_symlink():
+                CURRENT.unlink()
+        else:
+            rollback_to_previous(previous)
+    if configuration is not None:
+        _restore_configuration(configuration)
     _run(["/usr/bin/systemctl", "daemon-reload"])
-    if service_was_active and previous is not None:
+    if service_was_active:
         _run(["/usr/bin/systemctl", "restart", SERVICE_NAME])
     else:
         _run(["/usr/bin/systemctl", "stop", SERVICE_NAME])
@@ -349,11 +461,15 @@ def deploy(archive: Path, commit: str, sql_admin_credential: Path) -> None:
     _ensure_directory(DOCUMENT_ROOT, account)
     _ensure_directory(QUARANTINE_ROOT, account)
     release = prepare_release(archive, commit)
-    _install_configuration(release, account)
-    _preactivation_tests(release, sql_admin_credential, account)
     service_was_active = _service_active()
-    previous = switch_current(release)
+    configuration = _configuration_snapshot()
+    previous: Path | None = None
+    switched = False
     try:
+        _install_configuration(release, account)
+        _preactivation_tests(release, sql_admin_credential, account)
+        previous = switch_current(release)
+        switched = True
         _run(["/usr/bin/systemctl", "daemon-reload"])
         _run(["/usr/bin/systemctl", "enable", SERVICE_NAME])
         _run(["/usr/bin/systemctl", "restart", SERVICE_NAME])
@@ -367,7 +483,7 @@ def deploy(archive: Path, commit: str, sql_admin_credential: Path) -> None:
             raise DeploymentError("The EHF service did not become active.")
         _run(["/usr/bin/systemctl", "reload", "nginx.service"])
     except Exception:
-        _restore(previous, service_was_active)
+        _restore(previous, service_was_active, configuration, switched=switched)
         raise
 
 
@@ -375,15 +491,26 @@ def rollback(commit: str) -> None:
     _require_root()
     release = release_path(commit)
     _release_commit(release)
+    account = _ensure_account()
     previous_service_state = _service_active()
-    rollback_to_previous(release)
+    configuration = _configuration_snapshot()
+    previous: Path | None = None
+    switched = False
     try:
+        _install_configuration(release, account)
+        previous = switch_current(release)
+        switched = True
         _run(["/usr/bin/systemctl", "daemon-reload"])
         _run(["/usr/bin/systemctl", "restart", SERVICE_NAME])
         _ready()
+        _run(["/usr/bin/systemctl", "reload", "nginx.service"])
     except Exception:
-        if previous_service_state:
-            _run(["/usr/bin/systemctl", "restart", SERVICE_NAME])
+        _restore(
+            previous,
+            previous_service_state,
+            configuration,
+            switched=switched,
+        )
         raise
 
 

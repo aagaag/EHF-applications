@@ -65,6 +65,9 @@ MIGRATIONS = {
     "004_audit_and_preference_hardening.sql": (4, "audit_and_preference_hardening"),
     "005_application_permissions.sql": (5, "application_permissions"),
     "006_user_preference_read.sql": (6, "user_preference_read"),
+    "007_document_store.sql": (7, "document_store"),
+    "008_import_provenance.sql": (8, "import_provenance"),
+    "009_document_permissions.sql": (9, "document_permissions"),
 }
 COMMANDS = (
     "inspect-production",
@@ -95,6 +98,9 @@ SQLCMD_ARTIFACTS = frozenset(
         "004_validate_audit_and_preference_hardening.sql",
         "005_validate_application_permissions.sql",
         "006_validate_user_preference_read.sql",
+        "007_validate_document_store.sql",
+        "008_validate_import_provenance.sql",
+        "009_validate_document_permissions.sql",
     }
 )
 

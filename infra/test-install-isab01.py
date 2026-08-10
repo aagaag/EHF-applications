@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+from types import SimpleNamespace
 import tarfile
 from pathlib import Path
 
@@ -32,6 +33,27 @@ def _release_archive(path: Path, required_files: tuple[str, ...]) -> None:
             archive.addfile(entry, io.BytesIO(payload))
 
 
+class ProtectedFile:
+    def __init__(self, *, owner: int, group: int, mode: int) -> None:
+        self.details = SimpleNamespace(st_uid=owner, st_gid=group, st_mode=mode)
+
+    def is_symlink(self) -> bool:
+        return False
+
+    def is_file(self) -> bool:
+        return True
+
+    def stat(self) -> SimpleNamespace:
+        return self.details
+
+
+def _immutable_release(path: Path, commit: str) -> Path:
+    release = path / commit
+    release.mkdir(parents=True)
+    (release / ".commit").write_text(f"{commit}\n", encoding="ascii")
+    return release
+
+
 def test_release_paths_bind_an_exact_40_character_commit() -> None:
     """Break caught: a truncated or malformed revision could share an immutable release path."""
     installer = load_installer()
@@ -42,6 +64,27 @@ def test_release_paths_bind_an_exact_40_character_commit() -> None:
         installer.release_path("a" * 12)
     with pytest.raises(installer.DeploymentError):
         installer.release_path("g" * 40)
+
+
+def test_release_bundle_requires_the_scoped_sql_bootstrap_and_every_migration_artifact() -> None:
+    """Break caught: a release could activate without the exact database bootstrap or checksum inputs it needs."""
+    installer = load_installer()
+
+    assert "infra/sql-principal.py" in installer.REQUIRED_RELEASE_FILES
+    assert "infra/bootstrap-ehf-database.py" in installer.REQUIRED_RELEASE_FILES
+    for name in (
+        "001_database_contract.sql",
+        "002_application_core.sql",
+        "003_audit_and_preferences.sql",
+        "004_audit_and_preference_hardening.sql",
+        "005_application_permissions.sql",
+        "006_user_preference_read.sql",
+        "007_document_store.sql",
+        "008_import_provenance.sql",
+        "009_document_permissions.sql",
+    ):
+        assert f"database/migrations/{name}" in installer.REQUIRED_RELEASE_FILES
+        assert f"database/tests/{name.replace('_', '_validate_', 1)}" in installer.REQUIRED_RELEASE_FILES
 
 
 def test_prepare_release_is_idempotent_and_rejects_a_conflicting_commit(tmp_path: Path) -> None:
@@ -95,3 +138,140 @@ def test_atomic_activation_and_rollback_only_switch_the_current_symlink(tmp_path
     installer.rollback_to_previous(recorded_previous)
     assert installer.CURRENT.is_symlink()
     assert installer.CURRENT.resolve() == previous
+
+
+def test_configuration_snapshot_restores_exact_previous_bytes_and_absence(tmp_path: Path) -> None:
+    installer = load_installer()
+    existing = tmp_path / "existing.conf"
+    newly_created = tmp_path / "new.conf"
+    existing.write_bytes(b"approved previous bytes\n")
+    snapshot = {
+        existing: installer._snapshot_path(existing),
+        newly_created: installer._snapshot_path(newly_created),
+    }
+    existing.write_bytes(b"candidate bytes\n")
+    newly_created.write_bytes(b"candidate new file\n")
+
+    installer._restore_path(existing, snapshot[existing])
+    installer._restore_path(newly_created, snapshot[newly_created])
+
+    assert existing.read_bytes() == b"approved previous bytes\n"
+    assert not newly_created.exists()
+
+
+def test_explicit_rollback_restores_the_prior_symlink_when_target_readiness_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Break caught: a failed explicit rollback could leave current on the unreadable target release."""
+    installer = load_installer()
+    installer.APP_ROOT = tmp_path / "opt" / "ehf"
+    installer.RELEASE_ROOT = installer.APP_ROOT / "r"
+    installer.CURRENT = installer.APP_ROOT / "current"
+    prior = _immutable_release(installer.RELEASE_ROOT, "d" * 40)
+    target = _immutable_release(installer.RELEASE_ROOT, "e" * 40)
+    installer.APP_ROOT.mkdir(parents=True, exist_ok=True)
+    installer.CURRENT.symlink_to(prior)
+    commands: list[tuple[str, ...]] = []
+
+    monkeypatch.setattr(installer, "_require_root", lambda: None)
+    monkeypatch.setattr(installer, "_service_active", lambda: True)
+    monkeypatch.setattr(installer, "_ensure_account", lambda: SimpleNamespace(pw_gid=4242))
+    monkeypatch.setattr(installer, "_configuration_snapshot", lambda: {})
+    monkeypatch.setattr(installer, "_install_configuration", lambda *_args: None)
+    monkeypatch.setattr(installer, "_restore_configuration", lambda _snapshot: None)
+    monkeypatch.setattr(installer, "_run", lambda command: commands.append(tuple(command)))
+    monkeypatch.setattr(
+        installer,
+        "_ready",
+        lambda: (_ for _ in ()).throw(installer.DeploymentError("readiness failed")),
+    )
+
+    with pytest.raises(installer.DeploymentError, match="readiness failed"):
+        installer.rollback("e" * 40)
+
+    assert installer.CURRENT.resolve() == prior
+    assert commands.count(("/usr/bin/systemctl", "restart", installer.SERVICE_NAME)) == 2
+
+
+def test_explicit_rollback_restores_a_previously_inactive_service_when_target_readiness_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Break caught: a failed explicit rollback could leave a previously stopped service running."""
+    installer = load_installer()
+    installer.APP_ROOT = tmp_path / "opt" / "ehf"
+    installer.RELEASE_ROOT = installer.APP_ROOT / "r"
+    installer.CURRENT = installer.APP_ROOT / "current"
+    prior = _immutable_release(installer.RELEASE_ROOT, "d" * 40)
+    _immutable_release(installer.RELEASE_ROOT, "e" * 40)
+    installer.APP_ROOT.mkdir(parents=True, exist_ok=True)
+    installer.CURRENT.symlink_to(prior)
+    commands: list[tuple[str, ...]] = []
+
+    monkeypatch.setattr(installer, "_require_root", lambda: None)
+    monkeypatch.setattr(installer, "_service_active", lambda: False)
+    monkeypatch.setattr(installer, "_ensure_account", lambda: SimpleNamespace(pw_gid=4242))
+    monkeypatch.setattr(installer, "_configuration_snapshot", lambda: {})
+    monkeypatch.setattr(installer, "_install_configuration", lambda *_args: None)
+    monkeypatch.setattr(installer, "_restore_configuration", lambda _snapshot: None)
+    monkeypatch.setattr(installer, "_run", lambda command: commands.append(tuple(command)))
+    monkeypatch.setattr(
+        installer,
+        "_ready",
+        lambda: (_ for _ in ()).throw(installer.DeploymentError("readiness failed")),
+    )
+
+    with pytest.raises(installer.DeploymentError, match="readiness failed"):
+        installer.rollback("e" * 40)
+
+    assert installer.CURRENT.resolve() == prior
+    assert commands[-1] == ("/usr/bin/systemctl", "stop", installer.SERVICE_NAME)
+
+
+@pytest.mark.parametrize(
+    ("owner", "group", "mode", "accepted"),
+    (
+        (0, 4242, 0o640, True),
+        (0, 4242, 0o600, False),
+        (0, 4242, 0o644, False),
+        (0, 4242, 0o660, False),
+        (0, 99, 0o640, False),
+        (99, 4242, 0o640, False),
+    ),
+)
+def test_application_and_environment_credentials_require_exact_root_ehf_0640(
+    owner: int, group: int, mode: int, accepted: bool
+) -> None:
+    """Break caught: the runtime could load a credential readable by an unintended account."""
+    installer = load_installer()
+    credential = ProtectedFile(owner=owner, group=group, mode=mode)
+
+    if accepted:
+        installer._require_protected_file(credential, group_id=4242)
+    else:
+        with pytest.raises(installer.DeploymentError, match="unsafe|group"):
+            installer._require_protected_file(credential, group_id=4242)
+
+
+@pytest.mark.parametrize(
+    ("owner", "group", "mode", "accepted"),
+    (
+        (0, 0, 0o600, True),
+        (0, 0, 0o640, True),
+        (0, 0, 0o644, False),
+        (0, 99, 0o600, False),
+        (99, 0, 0o600, False),
+        (0, 0, 0o660, False),
+    ),
+)
+def test_sql_admin_credential_requires_root_root_safe_mode(
+    owner: int, group: int, mode: int, accepted: bool
+) -> None:
+    """Break caught: SQL administrator credentials could be exposed beyond root."""
+    installer = load_installer()
+    credential = ProtectedFile(owner=owner, group=group, mode=mode)
+
+    if accepted:
+        installer._require_protected_file(credential)
+    else:
+        with pytest.raises(installer.DeploymentError, match="unsafe|group"):
+            installer._require_protected_file(credential)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,10 +22,17 @@ from app.errors import (
     unhandled_exception_handler,
     validation_exception_handler,
 )
-from app.identity import AuthenticatedIdentity, IdentityResolver, deny_identity
+from app.identity import (
+    AuthenticatedIdentity,
+    CloudflareAccessIdentityResolver,
+    IdentityResolver,
+    deny_identity,
+)
 from app.internal_preview import render_internal_preview
+from app.metrics import EmptyMetricRepository, MetricRepository, SqlMetricRepository
 from app.navigation import INTERNAL_GROUPS
 from app.preferences import AppearancePreference, Identity, PreferenceRepository, SqlPreferenceRepository
+from app.preview_register import load_preview_register
 from app.http import SecurityMiddleware
 
 
@@ -97,6 +105,7 @@ def create_app(
     readiness_checks: ReadinessChecks | None = None,
     identity_resolver: IdentityResolver | None = None,
     preference_repository: PreferenceRepository | None = None,
+    metric_repository: MetricRepository | None = None,
 ) -> FastAPI:
     """Create the HTTP service without starting application workflows."""
     resolved_settings = settings or Settings.from_environment()
@@ -104,8 +113,13 @@ def create_app(
         sql_probe=lambda timeout: _probe_sql(resolved_settings, timeout),
         storage_probe=lambda timeout: _probe_storage(resolved_settings, timeout),
     )
-    resolve_identity = identity_resolver or deny_identity
+    resolve_identity = identity_resolver or _production_identity_resolver(resolved_settings)
     preferences = preference_repository or SqlPreferenceRepository(lambda: connect(resolved_settings))
+    metrics = metric_repository or (
+        SqlMetricRepository(lambda: connect(resolved_settings))
+        if resolved_settings.environment == "production"
+        else EmptyMetricRepository()
+    )
     readiness_gate = ReadinessGate(resolved_checks)
     application = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     application.add_middleware(SecurityMiddleware, settings=resolved_settings)
@@ -130,7 +144,12 @@ def create_app(
         principal = authenticated(request)
         if not principal.groups & {INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}:
             raise HTTPException(status_code=404)
-        return HTMLResponse(render_internal_preview(principal))
+        role = (
+            INTERNAL_GROUPS.administrators
+            if INTERNAL_GROUPS.administrators in principal.groups
+            else INTERNAL_GROUPS.trustees
+        )
+        return HTMLResponse(render_internal_preview(principal, records=metrics.load(role)))
 
     @application.get("/api/preferences")
     def get_preferences(request: Request) -> dict[str, str | bool]:
@@ -157,6 +176,17 @@ def create_app(
         return _preference_response(preferences.save(principal.identity, preference))
 
     if resolved_settings.environment == "development":
+        preview_real_data_enabled = (
+            os.environ.get("EHF_PREVIEW_REAL_DATA_ENABLED", "").strip().lower() == "true"
+        )
+        preview_register_path = (
+            os.environ.get("EHF_PREVIEW_REGISTER_PATH", "").strip()
+            if preview_real_data_enabled
+            else ""
+        )
+        preview_records = (
+            load_preview_register(Path(preview_register_path)) if preview_register_path else ()
+        )
         simulation = AuthenticatedIdentity(
             identity=Identity(
                 "development:administrator", "preview@example.invalid", "Development preview"
@@ -165,8 +195,12 @@ def create_app(
         )
 
         @application.get("/__preview/internal/administrator/", response_class=HTMLResponse)
-        def development_administrator_preview() -> HTMLResponse:
-            return HTMLResponse(render_internal_preview(simulation, simulation=True))
+        def development_administrator_preview(request: Request) -> HTMLResponse:
+            if not _is_loopback_preview_request(request):
+                raise HTTPException(status_code=404)
+            return HTMLResponse(
+                render_internal_preview(simulation, simulation=True, records=preview_records)
+            )
 
     @application.get("/health/live", response_model=None)
     def live() -> dict[str, str]:
@@ -190,6 +224,25 @@ def _preference_response(preference: AppearancePreference) -> dict[str, str | bo
     }
 
 
+def _production_identity_resolver(settings: Settings) -> IdentityResolver:
+    if settings.environment != "production":
+        return deny_identity
+    required = (
+        settings.cloudflare_access_issuer,
+        settings.cloudflare_access_audience,
+        settings.administrator_group_id,
+        settings.trustee_group_id,
+    )
+    if not all(required):
+        return deny_identity
+    return CloudflareAccessIdentityResolver(
+        issuer=str(settings.cloudflare_access_issuer),
+        audience=str(settings.cloudflare_access_audience),
+        administrator_group_id=str(settings.administrator_group_id),
+        trustee_group_id=str(settings.trustee_group_id),
+    )
+
+
 def _probe_sql(settings: Settings, timeout_seconds: float) -> None:
     """Run a bounded constant SQL statement without retrieving application data."""
     bounded_seconds = max(1, math.ceil(timeout_seconds))
@@ -210,3 +263,14 @@ def _probe_storage(settings: Settings, timeout_seconds: float) -> None:
 
 
 app = create_app()
+
+
+def _is_loopback_preview_request(request: Request) -> bool:
+    """Keep development simulation and any loaded register off proxied/public hosts."""
+    hostname = (request.url.hostname or "").casefold()
+    client = request.client.host.casefold() if request.client else ""
+    return hostname in {"localhost", "127.0.0.1", "::1"} and client in {
+        "127.0.0.1",
+        "::1",
+        "testclient",
+    }

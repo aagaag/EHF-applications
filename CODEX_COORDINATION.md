@@ -5,7 +5,7 @@
 - Repository: `aagaag/EHF-applications`
 - Branch: `main`
 - Bootstrap baseline: `7752e40b2126dd4b636f42e5e982537c79779b25`
-- Current work: Foundation Task 6 complete; Task 7 atomic ISAB01 deployment is next
+- Current work: Tasks 7–9 add atomic deployment, confidential document storage, and the reviewed 2026 import
 
 ## Working agreements
 
@@ -19,4 +19,4 @@ Foundation Tasks 1–5 are complete. The repository now includes the accepted SQ
 
 Foundation Task 6 is complete. The inspectable applicant and development-only internal previews use the official ISAB logo and shared responsive shell. Internal navigation, Help, cards, and authorization pills derive from one fail-closed role inventory with the exact EHF Entra group names; trustee rendering omits administrator operations. Appearance preferences are identity-scoped and SQL-backed through a narrow read procedure without direct table access. The accepted correction passed 205 tests, five browser/accessibility scenarios, syntax checks, and independent final review with no findings.
 
-Foundation Task 7 adds an immutable `/opt/ehf/r/<40-hex-commit>` deployment path, an atomic `/opt/ehf/current` symlink, a locked loopback-only service, and exact EHF Nginx site. The deploy helper runs release, repository, and isolated SQL checks before activation, then restores the prior validated release/service state on activation failure. It keeps Cloudflare/DNS/Access unchanged and leaves invitations and production mail false. A live first installation still requires the approved root-only SQL administrator credential path and prepared non-secret production configuration/credential-file metadata; do not add values or applicant data to this handoff.
+Foundation Tasks 7–9 add an immutable `/opt/ehf/r/<40-hex-commit>` deployment path, an atomic `/opt/ehf/current` symlink, a locked loopback-only service, exact EHF Nginx site, encrypted PDF storage, immutable recommendation confidentiality, import provenance, and a root-mediated PlanOnly/Apply workflow for the 2026 legacy call. The importer reconciles 36 reviewed folder aliases, preserves all register observations, leaves every document `UNREVIEWED`, and cannot send mail or invitations. Applicant source files, identity maps, reports, call identifiers, and credentials remain outside Git. Deployment still keeps Cloudflare/DNS/Access unchanged and invitations/production mail false.
