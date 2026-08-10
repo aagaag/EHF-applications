@@ -302,24 +302,104 @@ def test_isolated_verifier_cleans_explicitly_before_pass_and_preserves_adverse_p
     assert source.index("verify-no-test-leftovers") < pass_index
 
 
-def test_setup_converges_an_authenticated_unmapped_login_without_creating_a_password() -> None:
-    """Break caught: a safe interrupted setup could not converge on its next root-run."""
+@pytest.mark.parametrize(
+    ("initial_state", "expected_commands"),
+    (
+        (
+            "ready",
+            ("inspect", "authenticate", "inspect-effective", "inspect-effective"),
+        ),
+        (
+            "unmapped",
+            ("inspect", "inspect-effective", "map", "authenticate", "inspect-effective"),
+        ),
+        (
+            "absent",
+            ("inspect", "create", "inspect-effective", "map", "authenticate", "inspect-effective"),
+        ),
+    ),
+)
+def test_setup_lifecycle_executes_mapping_before_expected_database_authentication(
+    tmp_path: Path, initial_state: str, expected_commands: tuple[str, ...]
+) -> None:
+    """Break caught: UNMAPPED could authenticate against EHFApplications before ALTER USER."""
     source = SETUP_SCRIPT.read_text(encoding="utf-8")
+    lifecycle = source[
+        source.index("verified_state() {") : source.index('app_password="$(<"$password_file")"')
+    ]
+    command_log = tmp_path / "commands.log"
+    state_file = tmp_path / "state"
+    password_file = tmp_path / "sql-app-password"
+    state_file.write_text(initial_state, encoding="utf-8")
+    password_file.write_text("Aa1._~" + "a" * 42, encoding="utf-8")
+    harness = tmp_path / "setup-lifecycle.sh"
+    harness.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+export EHF_SQL_TEST_MODE=1
+database=EHFApplications
+login=ehf_app
+user=ehf_app
+server=tcp:127.0.0.1,1433
+admin_password_file=/protected/admin
+credential_directory="$(dirname "$4")"
+password_file="$4"
+command_log="$2"
+state_file="$3"
+fail() { printf '%s\n' "$1" >&2; exit 2; }
+getent() { return 0; }
+groupadd() { return 0; }
+install() { return 0; }
+stat() { printf '%s\n' 'root:ehf:640'; }
+chown() { return 0; }
+chmod() { return 0; }
+openssl() { printf '%s\n' '0123456789abcdef0123456789abcdef0123456789'; }
+run_helper() {
+  local helper_command="$1" label current_state
+  shift
+  current_state="$(<"$state_file")"
+  label="$helper_command"
+  if [[ "$helper_command" == inspect-production ]]; then
+    label=inspect
+    [[ " $* " != *" --credential-file "* ]] || label=inspect-effective
+  elif [[ "$helper_command" == create-production-login ]]; then
+    label=create
+    printf '%s' unmapped >"$state_file"
+  elif [[ "$helper_command" == map-production-user ]]; then
+    label=map
+    printf '%s' ready >"$state_file"
+  elif [[ "$helper_command" == authenticate-login ]]; then
+    label=authenticate
+    [[ "$current_state" == ready ]] || return 1
+  fi
+  if [[ "$label" == inspect-effective || "$label" == map || "$label" == authenticate ]]; then
+    [[ " $* " == *" --credential-file $password_file "* ]] || return 1
+  fi
+  printf '%s\n' "$label" >>"$command_log"
+  [[ "$helper_command" != inspect-production ]] || printf '%s\n' "$(<"$state_file")"
+}
+"""
+        + lifecycle,
+        encoding="utf-8",
+        newline="\n",
+    )
 
-    assert 'ready|unmapped)' in source
-    assert '[[ "$inspect_state" == "ready" ]] || fail' not in source
-    assert 'map-production-user' in source
-    assert "/opt/ehf/current/venv/bin/python" in source
+    completed = subprocess.run(
+        [str(GIT_BASH), str(harness), initial_state, str(command_log), str(state_file), str(password_file)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
 
-
-def test_setup_proves_effective_cross_database_denial_before_mapping_an_unmapped_user() -> None:
-    """Break caught: an unmapped login could gain a database user before its effective cross-database access was rejected."""
-    source = SETUP_SCRIPT.read_text(encoding="utf-8")
-
-    assert "verified_state=" in source
-    assert source.index("verified_state=") < source.index('if [[ "$inspect_state" == unmapped ]]')
-    effective_helper = source[source.index("verified_state() {") : source.index("inspect_state=")]
-    assert '--credential-file "$password_file"' in effective_helper
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert tuple(command_log.read_text(encoding="utf-8").splitlines()) == expected_commands
+    assert password_file.read_text(encoding="utf-8") == "Aa1._~" + "a" * 42
+    if initial_state in {"unmapped", "absent"}:
+        commands = command_log.read_text(encoding="utf-8").splitlines()
+        assert commands.index("inspect-effective") < commands.index("map")
+        assert commands.index("map") < commands.index("authenticate")
 
 
 def test_isolated_sqlcmd_wrapper_forwards_static_migration_and_validator_files() -> None:

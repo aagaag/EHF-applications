@@ -59,9 +59,12 @@ no schema, object, or principal.
 
 Production user mapping revalidates the complete unmapped-user shape inside the
 same explicit transaction that executes `ALTER USER`, then rechecks the mapped
-postcondition before commit. That production batch never creates a user, adds a
-role membership, or revokes a permission. The earlier lifecycle and effective
-cross-database checks remain additional preconditions.
+postcondition before commit. Both checks include the enabled SQL login,
+default database, password-policy flags, five-denial direct server-permission
+shape, absence of server roles and database ownership, and the complete
+dbo-owned sole-member runtime-role topology. That production batch never
+creates a user, adds a role membership, or revokes a permission. The earlier
+lifecycle and effective cross-database checks remain additional preconditions.
 
 SQL Server permits a login that knows its old password to rotate its own
 password; this is not `ALTER ANY LOGIN` and is not treated as an elevation
@@ -98,6 +101,17 @@ only with its own evidence. Cleanup is explicit and globally verified before
 
 The peer-database isolation probe uses a fixed helper command with a
 suffix-matched randomized peer database and login plus the protected test
-credential. Only SQL Server's native error 4060 (“cannot open database requested
-by the login”) proves isolation; successful connections and authentication,
-TLS, timeout, driver, query, or other ODBC errors fail closed.
+credential. A denial is accepted only when the pyodbc diagnostic has exactly
+SQLSTATE 42000, names the exact requested database in SQL Server's
+“cannot open database … requested by the login” sentence, and carries native
+code (4060). Successful connections, malformed diagnostics, wrong database
+names, and authentication, TLS, timeout, driver, query, or other ODBC errors
+fail closed. The same classifier and database binding protect production
+ordinary-user-database isolation checks.
+
+For setup convergence, an UNMAPPED login first completes credential-bearing
+effective cross-database verification, then maps through the fail-closed helper,
+and only afterward authenticates directly to EHFApplications. READY may
+authenticate directly. A newly created ABSENT login likewise reaches UNMAPPED,
+is verified and mapped, and authenticates to the expected database only after
+mapping.

@@ -74,13 +74,16 @@ verified_state() {
 
 inspect_state="$(run_helper inspect-production --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --login "$login" --user "$user")" || fail "EHF SQL principal inspection failed."
 case "$inspect_state" in
-  ready|unmapped)
+  ready)
     run_helper authenticate-login --server "$server" --database "$database" --login "$login" --credential-file "$password_file" --credential-kind application >/dev/null || fail "The existing EHF SQL login did not authenticate from its protected password file."
     verified_state="$(verified_state)" || fail "The EHF SQL login effective-access inspection failed."
     [[ "$verified_state" == "$inspect_state" ]] || fail "The EHF SQL login changed during effective-access inspection."
-    if [[ "$inspect_state" == unmapped ]]; then
-      run_helper map-production-user --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --login "$login" --user "$user" --credential-file "$password_file" >/dev/null || fail "The authenticated EHF SQL login could not be mapped safely."
-    fi
+    ;;
+  unmapped)
+    verified_state="$(verified_state)" || fail "The EHF SQL login effective-access inspection failed."
+    [[ "$verified_state" == unmapped ]] || fail "The EHF SQL login changed during effective-access inspection."
+    run_helper map-production-user --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --login "$login" --user "$user" --credential-file "$password_file" >/dev/null || fail "The EHF SQL login could not be mapped safely."
+    run_helper authenticate-login --server "$server" --database "$database" --login "$login" --credential-file "$password_file" --credential-kind application >/dev/null || fail "The mapped EHF SQL login did not authenticate from its protected password file."
     ;;
   absent)
     getent group ehf >/dev/null || groupadd --system ehf

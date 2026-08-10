@@ -291,10 +291,21 @@ def test_cross_database_probe_accepts_only_sql_servers_cannot_open_database_logi
     assert "DATABASE={Finances2}" in driver.calls[0][0]
 
 
-def test_cross_database_probe_rejects_non_access_denial_odbc_errors(monkeypatch) -> None:
-    """Break caught: an unavailable driver or TLS failure could look like a denied database."""
+@pytest.mark.parametrize("sqlstate", ("08001", "HYT00", "28000"))
+def test_cross_database_probe_rejects_fabricated_4060_text_under_other_sqlstates(
+    monkeypatch, sqlstate: str
+) -> None:
+    """Break caught: TLS, timeout, or authentication errors could carry fabricated 4060 text."""
     helper = load_helper()
-    driver = ProbePyodbc(FakeConnection(FakeCursor()), FakePyodbc.Error("08001", "TLS negotiation failed"))
+    driver = ProbePyodbc(
+        FakeConnection(FakeCursor()),
+        FakePyodbc.Error(
+            sqlstate,
+            "[42000] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
+            "Cannot open database 'Finances2' requested by the login. "
+            "The login failed. (4060) (SQLDriverConnect)",
+        ),
+    )
     monkeypatch.setattr(helper, "pyodbc", driver)
     monkeypatch.setattr(helper, "read_credential", lambda *_: "Aa1._~" + "a" * 42)
     monkeypatch.setattr(helper, "_rows", lambda *_: [("Finances2",)])
@@ -303,6 +314,62 @@ def test_cross_database_probe_rejects_non_access_denial_odbc_errors(monkeypatch)
         helper.require_no_effective_cross_database_access(
             FakeConnection(FakeCursor()), helper.SERVER, "EHFApplications", "ehf_app", Path("/protected/password")
         )
+
+
+def test_cross_database_probe_rejects_4060_for_the_wrong_database(monkeypatch) -> None:
+    """Break caught: a denial for another database could be accepted for the enumerated target."""
+    helper = load_helper()
+    driver = ProbePyodbc(
+        FakeConnection(FakeCursor()),
+        FakePyodbc.Error(
+            "42000",
+            "[42000] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
+            "Cannot open database 'WrongDatabase' requested by the login. "
+            "The login failed. (4060) (SQLDriverConnect)",
+        ),
+    )
+    monkeypatch.setattr(helper, "pyodbc", driver)
+    monkeypatch.setattr(helper, "read_credential", lambda *_: "Aa1._~" + "a" * 42)
+    monkeypatch.setattr(helper, "_rows", lambda *_: [("Finances2",)])
+
+    with pytest.raises(helper.PrincipalError, match="effective cross-database"):
+        helper.require_no_effective_cross_database_access(
+            FakeConnection(FakeCursor()), helper.SERVER, "EHFApplications", "ehf_app", Path("/protected/password")
+        )
+
+
+@pytest.mark.parametrize(
+    "diagnostic",
+    (
+        (),
+        ("42000",),
+        (42000, "Cannot open database 'Finances2' requested by the login. The login failed. (4060)"),
+        ("42000", 4060),
+        ("42000", "Cannot open database 'Finances2' requested by the login. The login failed."),
+        ("42000", "Cannot open database Finances2 requested by the login. The login failed. (4060)"),
+    ),
+)
+def test_4060_classifier_rejects_malformed_driver_diagnostics(diagnostic) -> None:
+    """Break caught: partial or structurally invalid pyodbc args could be accepted as authentic."""
+    helper = load_helper()
+
+    assert not helper._expected_cannot_open_database_for_login(
+        FakePyodbc.Error(*diagnostic), "Finances2"
+    )
+
+
+@pytest.mark.parametrize("expected_database", (None, 4060, "", "a" * 129, "bad\x00name"))
+def test_4060_classifier_rejects_malformed_expected_database(expected_database) -> None:
+    """Break caught: malformed database targets must fail closed rather than raise."""
+    helper = load_helper()
+    error = FakePyodbc.Error(
+        "42000",
+        "[42000] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
+        "Cannot open database 'Finances2' requested by the login. "
+        "The login failed. (4060) (SQLDriverConnect)",
+    )
+
+    assert not helper._expected_cannot_open_database_for_login(error, expected_database)
 
 
 def test_peer_database_denial_accepts_only_native_4060_for_the_exact_test_pair(monkeypatch) -> None:
@@ -345,6 +412,31 @@ def test_peer_database_denial_fails_closed_for_every_non_4060_odbc_error(monkeyp
     helper = load_helper()
     suffix = "0123456789abcdef01234567"
     driver = ProbePyodbc(FakeConnection(FakeCursor()), driver_error)
+    monkeypatch.setattr(helper, "pyodbc", driver)
+    monkeypatch.setattr(helper, "read_credential", lambda *_: "Aa1._~" + "a" * 42)
+
+    with pytest.raises(helper.PrincipalError, match="peer database denial"):
+        helper.verify_peer_database_denial(
+            helper.SERVER,
+            f"EHFApplications_Test_sqlperm_peer_{suffix}",
+            f"ehf_app_test_{suffix}",
+            Path("/protected/test-password"),
+        )
+
+
+def test_peer_database_denial_rejects_authentic_4060_for_the_wrong_peer(monkeypatch) -> None:
+    """Break caught: the peer helper could accept a 4060 diagnostic naming another database."""
+    helper = load_helper()
+    suffix = "0123456789abcdef01234567"
+    driver = ProbePyodbc(
+        FakeConnection(FakeCursor()),
+        FakePyodbc.Error(
+            "42000",
+            "[42000] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
+            "Cannot open database 'EHFApplications_Test_sqlperm_peer_ffffffffffffffffffffffff' "
+            "requested by the login. The login failed. (4060) (SQLDriverConnect)",
+        ),
+    )
     monkeypatch.setattr(helper, "pyodbc", driver)
     monkeypatch.setattr(helper, "read_credential", lambda *_: "Aa1._~" + "a" * 42)
 
@@ -486,6 +578,51 @@ def test_production_mapping_is_atomic_and_rechecks_postcondition_without_test_mu
     assert "CREATE USER" not in statement
     assert "ALTER ROLE" not in statement
     assert "REVOKE CONNECT" not in statement
+
+
+def test_production_mapping_revalidates_complete_topology_before_and_after_alter(monkeypatch) -> None:
+    """Break caught: server-login or runtime-role drift could escape the mapping transaction."""
+    helper = load_helper()
+    connection = FakeConnection(FakeCursor())
+    monkeypatch.setattr(helper, "inspect_production", lambda *_: "UNMAPPED")
+    monkeypatch.setattr(helper, "require_no_effective_cross_database_access", lambda *_: None)
+
+    helper.map_production_user(
+        connection,
+        "EHFApplications",
+        "ehf_app",
+        "ehf_app",
+        Path("/protected/password"),
+    )
+
+    statement, _ = connection.cursor_instance.executions[0]
+    alter_index = statement.index("ALTER USER")
+    commit_index = statement.index("COMMIT TRANSACTION")
+    for topology_check in (
+        "INNER JOIN sys.sql_logins AS login_row",
+        "principal_row.is_disabled=0",
+        "principal_row.default_database_name=@DatabaseName",
+        "login_row.is_policy_checked=1",
+        "login_row.is_expiration_checked=0",
+        "sys.server_permissions AS permission_row",
+        "permission_row.permission_name=N''CONNECT SQL'' AND permission_row.state_desc=N''GRANT''",
+        "permission_row.state_desc=N''DENY'' AND permission_row.permission_name IN",
+        "SELECT COUNT(*) FROM sys.server_permissions",
+        "sys.server_role_members AS membership",
+        "sys.databases WHERE owner_sid=SUSER_SID(@LoginName)",
+        "role_row.owning_principal_id=DATABASE_PRINCIPAL_ID(N''dbo'')",
+        "SELECT COUNT(*) FROM sys.database_role_members WHERE role_principal_id=@RuntimeRoleId",
+        "member_principal_id=@RuntimeRoleId",
+        "sys.schemas WHERE principal_id=@RuntimeRoleId",
+        "sys.objects WHERE principal_id=@RuntimeRoleId",
+        "sys.database_principals WHERE owning_principal_id=@RuntimeRoleId",
+    ):
+        assert statement.count(topology_check) >= 2, topology_check
+        assert statement.index(topology_check) < alter_index, topology_check
+        assert alter_index < statement.rindex(topology_check) < commit_index, topology_check
+    for denied_permission in helper.EXPECTED_SERVER_DENIES:
+        assert statement.count(f"N''{denied_permission}''") >= 4
+    assert statement.count(")<>5") >= 2
 
 
 def test_helper_executes_only_fixed_admin_sqlcmd_artifacts_without_exposing_secret(monkeypatch) -> None:

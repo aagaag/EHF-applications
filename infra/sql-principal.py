@@ -325,13 +325,30 @@ def connect_admin(server: str, credential_file: Path, database: str = "master"):
     return _connect(server, database, "sa", read_credential(credential_file, "admin"))
 
 
-def _expected_cannot_open_database_for_login(error: Exception) -> bool:
-    """Accept only SQL Server's native 4060 login/database boundary response."""
-    details = " ".join(str(value) for value in getattr(error, "args", ())).casefold()
+def _expected_cannot_open_database_for_login(
+    error: Exception, expected_database: str
+) -> bool:
+    """Accept only an authentic Driver 18 SQLSTATE/native 4060 for one database."""
+    diagnostics = getattr(error, "args", None)
+    if (
+        not isinstance(diagnostics, tuple)
+        or len(diagnostics) != 2
+        or diagnostics[0] != "42000"
+        or not isinstance(diagnostics[1], str)
+        or not isinstance(expected_database, str)
+        or not (0 < len(expected_database) <= 128)
+        or "\x00" in expected_database
+    ):
+        return False
+    message = diagnostics[1]
+    database_pattern = (
+        r"Cannot open database (?P<quote>['\"])"
+        + re.escape(expected_database)
+        + r"(?P=quote) requested by the login\. The login failed\."
+    )
     return (
-        "cannot open database" in details
-        and "requested by the login" in details
-        and re.search(r"\b4060\b", details) is not None
+        re.search(database_pattern, message) is not None
+        and re.search(r"(?<!\d)\(4060\)(?!\d)", message) is not None
     )
 
 
@@ -433,9 +450,39 @@ DECLARE @Sql nvarchar(max)=N'USE '+QUOTENAME(@DatabaseName)+N';
 SET XACT_ABORT ON;
 BEGIN TRANSACTION;
 BEGIN TRY
-  DECLARE @UserId int,@ExistingSid varbinary(85),@Auth nvarchar(60);
+  DECLARE @UserId int,@RuntimeRoleId int,@ExistingSid varbinary(85),@Auth nvarchar(60);
+  IF NOT EXISTS
+     (
+       SELECT 1
+       FROM sys.server_principals AS principal_row
+       INNER JOIN sys.sql_logins AS login_row ON login_row.principal_id=principal_row.principal_id
+       WHERE principal_row.name=@LoginName AND principal_row.type_desc=N''SQL_LOGIN''
+         AND principal_row.is_disabled=0 AND principal_row.default_database_name=@DatabaseName
+         AND login_row.is_policy_checked=1 AND login_row.is_expiration_checked=0
+     )
+     OR EXISTS (SELECT 1 FROM sys.databases WHERE owner_sid=SUSER_SID(@LoginName))
+     OR EXISTS (SELECT 1 FROM sys.server_role_members AS membership WHERE membership.member_principal_id=SUSER_ID(@LoginName))
+     OR EXISTS
+        (
+          SELECT 1 FROM sys.server_permissions AS permission_row
+          WHERE permission_row.grantee_principal_id=SUSER_ID(@LoginName)
+            AND NOT (permission_row.permission_name=N''CONNECT SQL'' AND permission_row.state_desc=N''GRANT'')
+            AND NOT (permission_row.state_desc=N''DENY'' AND permission_row.permission_name IN (N''ALTER ANY LOGIN'',N''ALTER ANY SERVER ROLE'',N''VIEW ANY DATABASE'',N''VIEW ANY DEFINITION'',N''VIEW SERVER STATE''))
+        )
+     OR (SELECT COUNT(*) FROM sys.server_permissions WHERE grantee_principal_id=SUSER_ID(@LoginName) AND state_desc=N''DENY'' AND permission_name IN (N''ALTER ANY LOGIN'',N''ALTER ANY SERVER ROLE'',N''VIEW ANY DATABASE'',N''VIEW ANY DEFINITION'',N''VIEW SERVER STATE''))<>5
+    THROW 51729,''Production login changed before user mapping.'',1;
   SELECT @UserId=principal_id,@ExistingSid=sid,@Auth=authentication_type_desc
   FROM sys.database_principals WHERE name=@UserName AND type_desc=N''SQL_USER'';
+  SET @RuntimeRoleId=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime'');
+  IF @RuntimeRoleId IS NULL
+     OR NOT EXISTS (SELECT 1 FROM sys.database_principals AS role_row WHERE role_row.principal_id=@RuntimeRoleId AND role_row.type_desc=N''DATABASE_ROLE'' AND role_row.owning_principal_id=DATABASE_PRINCIPAL_ID(N''dbo''))
+     OR (SELECT COUNT(*) FROM sys.database_role_members WHERE role_principal_id=@RuntimeRoleId)<>1
+     OR NOT EXISTS (SELECT 1 FROM sys.database_role_members WHERE role_principal_id=@RuntimeRoleId AND member_principal_id=@UserId)
+     OR EXISTS (SELECT 1 FROM sys.database_role_members WHERE member_principal_id=@RuntimeRoleId)
+     OR EXISTS (SELECT 1 FROM sys.schemas WHERE principal_id=@RuntimeRoleId)
+     OR EXISTS (SELECT 1 FROM sys.objects WHERE principal_id=@RuntimeRoleId)
+     OR EXISTS (SELECT 1 FROM sys.database_principals WHERE owning_principal_id=@RuntimeRoleId)
+    THROW 51730,''Runtime role topology changed before user mapping.'',1;
   IF @UserId IS NULL OR @Auth<>N''NONE''
      OR EXISTS (SELECT 1 FROM sys.schemas WHERE principal_id=@UserId)
      OR EXISTS (SELECT 1 FROM sys.objects WHERE principal_id=@UserId)
@@ -449,6 +496,36 @@ BEGIN TRY
   SET @UserId=NULL; SET @ExistingSid=NULL; SET @Auth=NULL;
   SELECT @UserId=principal_id,@ExistingSid=sid,@Auth=authentication_type_desc
   FROM sys.database_principals WHERE name=@UserName AND type_desc=N''SQL_USER'';
+  SET @RuntimeRoleId=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime'');
+  IF NOT EXISTS
+     (
+       SELECT 1
+       FROM sys.server_principals AS principal_row
+       INNER JOIN sys.sql_logins AS login_row ON login_row.principal_id=principal_row.principal_id
+       WHERE principal_row.name=@LoginName AND principal_row.type_desc=N''SQL_LOGIN''
+         AND principal_row.is_disabled=0 AND principal_row.default_database_name=@DatabaseName
+         AND login_row.is_policy_checked=1 AND login_row.is_expiration_checked=0
+     )
+     OR EXISTS (SELECT 1 FROM sys.databases WHERE owner_sid=SUSER_SID(@LoginName))
+     OR EXISTS (SELECT 1 FROM sys.server_role_members AS membership WHERE membership.member_principal_id=SUSER_ID(@LoginName))
+     OR EXISTS
+        (
+          SELECT 1 FROM sys.server_permissions AS permission_row
+          WHERE permission_row.grantee_principal_id=SUSER_ID(@LoginName)
+            AND NOT (permission_row.permission_name=N''CONNECT SQL'' AND permission_row.state_desc=N''GRANT'')
+            AND NOT (permission_row.state_desc=N''DENY'' AND permission_row.permission_name IN (N''ALTER ANY LOGIN'',N''ALTER ANY SERVER ROLE'',N''VIEW ANY DATABASE'',N''VIEW ANY DEFINITION'',N''VIEW SERVER STATE''))
+        )
+     OR (SELECT COUNT(*) FROM sys.server_permissions WHERE grantee_principal_id=SUSER_ID(@LoginName) AND state_desc=N''DENY'' AND permission_name IN (N''ALTER ANY LOGIN'',N''ALTER ANY SERVER ROLE'',N''VIEW ANY DATABASE'',N''VIEW ANY DEFINITION'',N''VIEW SERVER STATE''))<>5
+    THROW 51731,''Production login changed during user mapping.'',1;
+  IF @RuntimeRoleId IS NULL
+     OR NOT EXISTS (SELECT 1 FROM sys.database_principals AS role_row WHERE role_row.principal_id=@RuntimeRoleId AND role_row.type_desc=N''DATABASE_ROLE'' AND role_row.owning_principal_id=DATABASE_PRINCIPAL_ID(N''dbo''))
+     OR (SELECT COUNT(*) FROM sys.database_role_members WHERE role_principal_id=@RuntimeRoleId)<>1
+     OR NOT EXISTS (SELECT 1 FROM sys.database_role_members WHERE role_principal_id=@RuntimeRoleId AND member_principal_id=@UserId)
+     OR EXISTS (SELECT 1 FROM sys.database_role_members WHERE member_principal_id=@RuntimeRoleId)
+     OR EXISTS (SELECT 1 FROM sys.schemas WHERE principal_id=@RuntimeRoleId)
+     OR EXISTS (SELECT 1 FROM sys.objects WHERE principal_id=@RuntimeRoleId)
+     OR EXISTS (SELECT 1 FROM sys.database_principals WHERE owning_principal_id=@RuntimeRoleId)
+    THROW 51732,''Runtime role topology changed during user mapping.'',1;
   IF @UserId IS NULL OR @Auth<>N''INSTANCE'' OR @ExistingSid<>SUSER_SID(@LoginName)
      OR EXISTS (SELECT 1 FROM sys.schemas WHERE principal_id=@UserId)
      OR EXISTS (SELECT 1 FROM sys.objects WHERE principal_id=@UserId)
@@ -586,7 +663,7 @@ def require_no_effective_cross_database_access(
                 raise PrincipalError("Expected login has effective cross-database access")
             raise PrincipalError("Expected effective cross-database probe is invalid")
         except pyodbc.Error as error:
-            if not _expected_cannot_open_database_for_login(error):
+            if not _expected_cannot_open_database_for_login(error, candidate):
                 raise PrincipalError("Expected effective cross-database denial was unavailable") from None
         finally:
             if runtime is not None:
@@ -605,7 +682,7 @@ def verify_peer_database_denial(
     try:
         connection = _connect(server, database, login, password)
     except pyodbc.Error as error:
-        if _expected_cannot_open_database_for_login(error):
+        if _expected_cannot_open_database_for_login(error, database):
             return
         raise PrincipalError("Expected peer database denial was unavailable") from None
     connection.close()
