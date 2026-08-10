@@ -99,7 +99,9 @@ class CloudflareAccessIdentityResolver:
             idp = identity_payload.get("idp")
             if not isinstance(idp, dict):
                 return self._deny("missing-idp-payload")
-            group_values = _string_values(idp.get("groups"))
+            group_values = _string_values(idp.get("groups")) | _group_ids(
+                identity_payload.get("groups")
+            )
             groups = frozenset(
                 canonical
                 for identifier, canonical in self._group_map.items()
@@ -127,3 +129,13 @@ def _string_values(value: Any) -> frozenset[str]:
     if isinstance(value, list):
         return frozenset(str(item).casefold() for item in value if isinstance(item, str))
     return frozenset()
+
+
+def _group_ids(value: Any) -> frozenset[str]:
+    if not isinstance(value, list):
+        return frozenset()
+    return frozenset(
+        str(item["id"]).casefold()
+        for item in value
+        if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"].strip()
+    )

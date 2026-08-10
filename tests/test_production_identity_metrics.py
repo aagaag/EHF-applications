@@ -75,6 +75,46 @@ def test_access_resolver_requires_verified_full_entra_group_membership(monkeypat
     assert principal.groups == frozenset({"EHF-Applications-Administrators"})
 
 
+def test_access_resolver_accepts_cloudflare_group_objects_with_entra_ids(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    resolver = CloudflareAccessIdentityResolver(
+        issuer="https://team.cloudflareaccess.com",
+        audience="audience",
+        administrator_group_id="admin-id",
+        trustee_group_id="trustee-id",
+    )
+    resolver._keys = SimpleNamespace(  # type: ignore[attr-defined]
+        get_signing_key_from_jwt=lambda _token: SimpleNamespace(key="public-key")
+    )
+    monkeypatch.setattr(
+        "app.identity.jwt.decode",
+        lambda *_args, **_kwargs: {
+            "type": "app",
+            "email": "person@example.org",
+            "sub": "subject-1",
+        },
+    )
+    monkeypatch.setattr(
+        "app.identity.httpx.get",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {
+                "email": "person@example.org",
+                "name": "Example Person",
+                "idp": {"name": "Example Person"},
+                "groups": [
+                    {"id": "ADMIN-ID", "name": "EHF-Applications-Administrators"},
+                    {"id": "unrelated-id", "name": "Unrelated Group"},
+                ],
+            },
+        ),
+    )
+
+    principal = resolver(_request())
+
+    assert principal is not None
+    assert principal.groups == frozenset({"EHF-Applications-Administrators"})
+
+
 class _Connection:
     def __enter__(self):
         return self
