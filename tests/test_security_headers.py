@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 
+from fastapi import Response
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -102,3 +103,113 @@ def test_oversized_declared_and_streamed_bodies_are_rejected_before_routing() ->
 
     assert asyncio.run(exercise_stream()) == 413
 
+
+def test_misleading_content_length_cannot_bypass_streaming_body_limit() -> None:
+    """Break caught: a small claimed length could let an oversized body reach a route."""
+    app = create_app(
+        Settings.from_environment({"EHF_ALLOWED_HOST": "localhost"}),
+        readiness_checks=ReadinessChecks(lambda _: None, lambda _: None),
+    )
+
+    async def exercise_misleading_length() -> list[dict[str, object]]:
+        messages = iter(
+            [
+                {
+                    "type": "http.request",
+                    "body": b"x" * (MAX_REQUEST_BODY_BYTES + 1),
+                    "more_body": False,
+                }
+            ]
+        )
+        sent: list[dict[str, object]] = []
+
+        async def receive() -> dict[str, object]:
+            return next(messages)
+
+        async def send(message: dict[str, object]) -> None:
+            sent.append(message)
+
+        await app(
+            {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": "/not-a-route",
+                "raw_path": b"/not-a-route",
+                "query_string": b"",
+                "headers": [(b"host", b"localhost"), (b"content-length", b"1")],
+                "client": ("127.0.0.1", 50000),
+                "server": ("localhost", 80),
+            },
+            receive,
+            send,
+        )
+        return sent
+
+    sent = asyncio.run(exercise_misleading_length())
+
+    assert sent[0]["status"] == 413
+
+
+def test_declared_oversized_body_is_rejected_without_reading_the_stream() -> None:
+    """Break caught: a known oversized request could still consume upload bytes."""
+    app = create_app(
+        Settings.from_environment({"EHF_ALLOWED_HOST": "localhost"}),
+        readiness_checks=ReadinessChecks(lambda _: None, lambda _: None),
+    )
+
+    async def exercise_declared_oversize() -> list[dict[str, object]]:
+        sent: list[dict[str, object]] = []
+
+        async def receive() -> dict[str, object]:
+            raise AssertionError("known oversized request body must not be read")
+
+        async def send(message: dict[str, object]) -> None:
+            sent.append(message)
+
+        await app(
+            {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": "/not-a-route",
+                "raw_path": b"/not-a-route",
+                "query_string": b"",
+                "headers": [
+                    (b"host", b"localhost"),
+                    (b"content-length", str(MAX_REQUEST_BODY_BYTES + 1).encode()),
+                ],
+                "client": ("127.0.0.1", 50000),
+                "server": ("localhost", 80),
+            },
+            receive,
+            send,
+        )
+        return sent
+
+    sent = asyncio.run(exercise_declared_oversize())
+
+    assert sent[0]["status"] == 413
+
+
+def test_security_headers_preserve_multiple_set_cookie_headers() -> None:
+    """Break caught: header hardening could silently discard a future session cookie."""
+    app = create_app(
+        Settings.from_environment({"EHF_ALLOWED_HOST": "localhost"}),
+        readiness_checks=ReadinessChecks(lambda _: None, lambda _: None),
+    )
+
+    @app.get("/test-cookies")
+    def test_cookies() -> Response:
+        response = Response("ok")
+        response.set_cookie("first", "one", httponly=True)
+        response.set_cookie("second", "two", httponly=True)
+        return response
+
+    response = TestClient(app, base_url="http://localhost").get("/test-cookies")
+
+    assert len(response.headers.get_list("set-cookie")) == 2

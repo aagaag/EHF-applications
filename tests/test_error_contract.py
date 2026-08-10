@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.config import Settings
+from app.errors import correlation_id
+from app.http import is_safe_correlation_id
 from app.main import ReadinessChecks, create_app
 
 
@@ -83,3 +86,13 @@ def test_request_logging_excludes_authorization_cookies_and_bodies(caplog) -> No
     assert "cookie-not-for-logs" not in output
     assert "applicant-private-answer" not in output
     assert "correlation_id=" in output
+
+
+def test_error_fallback_correlation_id_is_safe_when_an_outer_boundary_is_missing() -> None:
+    """Break caught: an early framework error could emit an unusable fixed correlation ID."""
+    request = SimpleNamespace(scope={})
+
+    resolved = correlation_id(request)
+
+    assert is_safe_correlation_id(resolved)
+    assert resolved != "unknown"

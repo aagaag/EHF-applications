@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
 
@@ -82,3 +83,41 @@ def test_health_responses_are_never_cached() -> None:
 
     assert response.headers["cache-control"] == "no-store"
 
+
+def test_default_readiness_bounds_the_sql_connection_attempt(monkeypatch, tmp_path) -> None:
+    """Break caught: a failed SQL connect could outlive the health-check budget."""
+    import app.main as runtime
+
+    document_root = tmp_path / "documents"
+    quarantine_root = tmp_path / "quarantine"
+    document_root.mkdir()
+    quarantine_root.mkdir()
+    settings = Settings.from_environment(
+        {
+            "EHF_ALLOWED_HOST": "localhost",
+            "EHF_DOCUMENT_ROOT": str(document_root),
+            "EHF_QUARANTINE_ROOT": str(quarantine_root),
+        }
+    )
+    calls: list[int] = []
+
+    class FakeConnection:
+        timeout = 0
+
+        def execute(self, statement: str) -> None:
+            assert statement == "SELECT 1"
+
+    @contextmanager
+    def fake_connect(
+        supplied_settings: Settings, *, connect_timeout_seconds: int
+    ) -> Iterator[FakeConnection]:
+        assert supplied_settings is settings
+        calls.append(connect_timeout_seconds)
+        yield FakeConnection()
+
+    monkeypatch.setattr(runtime, "connect", fake_connect)
+
+    response = TestClient(create_app(settings), base_url="http://localhost").get("/health/ready")
+
+    assert response.status_code == 200
+    assert calls == [1]

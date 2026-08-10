@@ -45,8 +45,12 @@ def _password_component(value: str) -> str:
 def connection_string(
     settings: SqlCredentialSettings,
     environ: Mapping[str, str] | None = None,
+    *,
+    connect_timeout_seconds: int = 15,
 ) -> str:
     """Build the dedicated EHF connection string from EHF-prefixed settings."""
+    if not 1 <= connect_timeout_seconds <= 15:
+        raise DatabaseError("connection timeout is invalid")
     values = os.environ if environ is None else environ
     server = _component(values, "EHF_SQL_SERVER", "tcp:127.0.0.1,1433")
     database = _component(values, "EHF_SQL_DATABASE", "EHFApplications")
@@ -60,7 +64,7 @@ def connection_string(
         f"PWD={password};"
         "Encrypt=yes;"
         "TrustServerCertificate=yes;"
-        "Connection Timeout=15;"
+        f"Connection Timeout={connect_timeout_seconds};"
     )
 
 
@@ -70,6 +74,7 @@ def connect(
     *,
     environ: Mapping[str, str] | None = None,
     autocommit: bool = False,
+    connect_timeout_seconds: int = 15,
 ) -> Iterator[Any]:
     """Open one configured EHF connection and apply the standard session options."""
     try:
@@ -79,7 +84,11 @@ def connect(
     resolved_settings = settings or Settings.from_environment(environ)
     try:
         connection = pyodbc.connect(
-            connection_string(resolved_settings, environ),
+            connection_string(
+                resolved_settings,
+                environ,
+                connect_timeout_seconds=connect_timeout_seconds,
+            ),
             autocommit=autocommit,
         )
     except pyodbc.Error:
