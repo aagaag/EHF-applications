@@ -159,3 +159,5 @@ def test_verify_transports_a_base64_decoded_remote_script_without_nested_shell_q
     decoded = base64.b64decode(encoded.group(1)).decode("utf-8")
     assert "ss -ltn '( sport = :8086 )'" in decoded
     assert "Host: ehf.isab.science" in decoded
+    assert "^[[:space:]]*server_name" in decoded
+    assert "^[[:space:]]*proxy_pass" in decoded

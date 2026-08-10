@@ -29,8 +29,8 @@ systemctl show ehf.service --property=ProtectSystem --property=ProtectHome --pro
 /usr/bin/ss -ltn '( sport = :1433 )' | /usr/bin/grep -F '127.0.0.1:1433' >/dev/null
 /usr/bin/grep -qx 'EHF_INVITATIONS_ENABLED=false' /etc/ehf/ehf.env
 /usr/bin/grep -qx 'EHF_PRODUCTION_MAIL_ENABLED=false' /etc/ehf/ehf.env
-/usr/bin/grep -Fqx 'server_name ehf.isab.science;' /etc/nginx/sites-available/ehf
-/usr/bin/grep -Fqx 'proxy_pass http://127.0.0.1:8086;' /etc/nginx/sites-available/ehf
+/usr/bin/grep -Eq '^[[:space:]]*server_name[[:space:]]+ehf\.isab\.science;[[:space:]]*$' /etc/nginx/sites-available/ehf
+/usr/bin/grep -Eq '^[[:space:]]*proxy_pass[[:space:]]+http://127\.0\.0\.1:8086;[[:space:]]*$' /etc/nginx/sites-available/ehf
 printf 'EHF verification passed for %s\n' "$commit"
 '@.Replace('__EXPECTED_COMMIT_CHECK__', $ExpectedCommitCheck).Replace("`r`n", "`n")
 $EncodedRemoteCheck = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteCheck))
