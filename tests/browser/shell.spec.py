@@ -71,6 +71,8 @@ def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_ov
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
             assert page.locator(".shell-card").count() >= 1
             assert page.locator(".preview-notice").count() == 1
+            assert page.locator(".report-table").count() == 1
+            assert page.get_by_role("link", name="Download Excel").count() == 1
             assert "Preview only" in page.locator(".preview-notice").inner_text()
             assert page.locator("text=Authorizations:").count() == 1
 

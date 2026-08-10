@@ -160,11 +160,46 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
     return (
         '<section id="reports" aria-labelledby="reports-heading"><div class="section-heading">'
         '<h2 id="reports-heading">Reports</h2><p>Source citation counts plotted against the age observations in the 2026 register. The graph uses total citations where recorded and otherwise the Google Scholar count.</p></div>'
+        '<div class="report-actions"><a class="report-download" href="/internal/reports/metrics.xlsx">Download Excel</a></div>'
+        f'{_report_table(records)}'
         '<div class="report-grid">'
         f'{_scatterplot(records, "Citations by anagraphic age", "age")}'
         f'{_scatterplot(records, "Citations by academic age", "academic_age")}'
         "</div></section>"
     )
+
+
+def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
+    headers = (
+        "Applicant", "Degree", "Age", "Academic age (years)", "Gender",
+        "First-author papers", "Last-author papers", "Total papers", "h-index",
+        "Total citations", "ORCID", "Google Scholar citations", "GS identity certainty",
+    )
+    header = "".join(f'<span role="columnheader">{escape(label)}</span>' for label in headers)
+    rows = "".join(_report_row(record, headers) for record in records)
+    empty = (
+        '<p class="report-empty" role="status">No application metrics are available.</p>'
+        if not records else ""
+    )
+    return (
+        '<div class="report-table" role="table" aria-label="2026 applicant metrics">'
+        f'<div class="report-header" role="row">{header}</div>'
+        f'<div class="report-data" role="rowgroup">{rows}</div></div>{empty}'
+    )
+
+
+def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str:
+    values = (
+        record.applicant, record.degree, _number(record.age), _number(record.academic_age),
+        record.gender, record.first_author_papers, record.last_author_papers,
+        record.total_papers, record.h_index, record.total_citations, record.orcid,
+        record.google_scholar_citations, record.identity_certainty,
+    )
+    cells = "".join(
+        f'<span role="cell" data-label="{escape(label)}">{escape(_display(value))}</span>'
+        for label, value in zip(headers, values, strict=True)
+    )
+    return f'<div class="report-data-row" role="row">{cells}</div>'
 
 
 def _scatterplot(

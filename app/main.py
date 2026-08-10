@@ -7,11 +7,12 @@ import math
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -33,6 +34,7 @@ from app.metrics import EmptyMetricRepository, MetricRepository, SqlMetricReposi
 from app.navigation import INTERNAL_GROUPS
 from app.preferences import AppearancePreference, Identity, PreferenceRepository, SqlPreferenceRepository
 from app.preview_register import load_preview_register
+from app.report_exports import ReportExportMetadata, build_metrics_workbook
 from app.http import SecurityMiddleware
 
 
@@ -157,6 +159,33 @@ def create_app(
             else INTERNAL_GROUPS.trustees
         )
         return HTMLResponse(render_internal_preview(principal, records=metrics.load(role)))
+
+    @application.get("/internal/reports/metrics.xlsx")
+    def metrics_workbook(request: Request) -> Response:
+        principal = authenticated(request)
+        if not principal.groups & {INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}:
+            raise HTTPException(status_code=404)
+        role = (
+            INTERNAL_GROUPS.administrators
+            if INTERNAL_GROUPS.administrators in principal.groups
+            else INTERNAL_GROUPS.trustees
+        )
+        content = build_metrics_workbook(
+            metrics.load(role),
+            ReportExportMetadata(
+                actor_identity=principal.identity.key,
+                actor_group=role,
+                generated_at_utc=datetime.now(UTC),
+            ),
+        )
+        return Response(
+            content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": 'attachment; filename="ehf-2026.xlsx"',
+            },
+        )
 
     @application.get("/api/preferences")
     def get_preferences(request: Request) -> dict[str, str | bool]:

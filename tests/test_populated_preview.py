@@ -43,6 +43,10 @@ def test_populated_preview_renders_realistic_rows_and_two_accessible_scatterplot
     assert 'data-field="Gender"' in html
     assert "Missing" in html
     assert html.count('role="img"') == 2
+    assert 'class="report-table"' in html
+    assert html.count('class="report-data-row"') == len(records)
+    assert 'href="/internal/reports/metrics.xlsx"' in html
+    assert ">Download Excel<" in html
     assert "Citations by anagraphic age" in html
     assert "Citations by academic age" in html
     assert "No applicant records" not in html
@@ -53,3 +57,5 @@ def test_empty_preview_remains_honest() -> None:
 
     assert "No application records are loaded" in html
     assert 'class="application-row"' not in html
+    assert 'class="report-table"' in html
+    assert 'class="report-data-row"' not in html
