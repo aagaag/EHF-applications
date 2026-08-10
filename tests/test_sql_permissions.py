@@ -55,6 +55,8 @@ def test_permission_boundary_release_artifacts_exist() -> None:
     assert (ROOT / "infra" / "test-sql-login.sh").is_file()
     assert (ROOT / "infra" / "sql-principal.py").is_file()
     assert (ROOT / "docs" / "permissions.md").is_file()
+    assert (MIGRATIONS / "010_report_export_audit.sql").is_file()
+    assert (VALIDATORS / "010_validate_report_export_audit.sql").is_file()
 
 
 def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
@@ -70,6 +72,7 @@ def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
         "dbo.SetApplicationStatus",
         "dbo.ValidateApplicationInvitation",
         "dbo.GetInternalApplicationMetrics",
+        "dbo.RecordReportExportAudit",
         "EHFApplicationRuntime",
         "sys.database_permissions",
         "The runtime role has a missing or altered permission row.",
@@ -78,10 +81,16 @@ def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
     assert "SET XACT_ABORT OFF;" in validator
 
 
-def test_permission_migrations_deny_direct_table_access_and_publish_only_four_procedures() -> None:
+def test_permission_migrations_deny_direct_table_access_and_publish_only_approved_procedures() -> None:
     """Break caught: the runtime role could gain a table grant or unreviewed module access."""
     migration = MIGRATION.read_text(encoding="utf-8")
-    permission_migrations = migration + (MIGRATIONS / "009_document_permissions.sql").read_text(encoding="utf-8")
+    permission_migrations = "\n".join(
+        (
+            migration,
+            (MIGRATIONS / "009_document_permissions.sql").read_text(encoding="utf-8"),
+            (MIGRATIONS / "010_report_export_audit.sql").read_text(encoding="utf-8"),
+        )
+    )
 
     assert "CREATE ROLE EHFApplicationRuntime" in migration
     assert "CREATE USER ehf_app WITHOUT LOGIN" in migration
@@ -105,6 +114,32 @@ def test_permission_migrations_deny_direct_table_access_and_publish_only_four_pr
     assert "GRANT EXECUTE ON SCHEMA::dbo" not in migration
     assert "DENY ALTER, CONTROL ON SCHEMA::dbo" not in migration
     assert "REVOKE CONNECT FROM ehf_app;" in migration
+
+
+def test_report_export_audit_uses_a_procedure_only_execution_principal() -> None:
+    migration = (MIGRATIONS / "010_report_export_audit.sql").read_text(encoding="utf-8")
+    validator = (VALIDATORS / "010_validate_report_export_audit.sql").read_text(
+        encoding="utf-8"
+    )
+
+    for fragment in (
+        "CREATE USER EHFReportExportAuditExecutor WITHOUT LOGIN",
+        "CREATE PROCEDURE dbo.RecordReportExportAudit",
+        "WITH EXECUTE AS ''EHFReportExportAuditExecutor''",
+        "@ActorGroup NOT IN (N''EHF-Administrators'', N''EHF-Trustees'')",
+        "@Outcome NOT IN (N''COMPLETED'', N''FAILED'')",
+        "REPORT_EXPORT_COMPLETED",
+        "REPORT_EXPORT_FAILED",
+        "FOR JSON PATH, WITHOUT_ARRAY_WRAPPER, INCLUDE_NULL_VALUES",
+        "GRANT EXECUTE ON dbo.RecordReportExportAudit TO EHFApplicationRuntime",
+        "DENY IMPERSONATE ON USER::EHFReportExportAuditExecutor TO public",
+    ):
+        assert fragment in migration
+    for key in ("actorGroup", "rowCount", "format", "outcome", "failureStage"):
+        assert key in migration
+    assert "GRANT INSERT ON dbo.AuditEvent TO EHFApplicationRuntime" not in migration
+    assert "GRANT SELECT ON dbo.AuditEvent TO EHFApplicationRuntime" not in migration
+    assert "PASS 010 report export audit" in validator
 
 
 def test_permission_validator_leaves_real_login_checks_to_the_isolated_verifier() -> None:

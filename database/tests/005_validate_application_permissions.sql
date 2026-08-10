@@ -13,6 +13,8 @@ IF OBJECT_ID(N'dbo.ValidateApplicationInvitation', N'P') IS NULL
     THROW 51518, 'The invitation-validation procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.GetInternalApplicationMetrics', N'P') IS NULL
     THROW 51519, 'The internal-metrics procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.RecordReportExportAudit', N'P') IS NULL
+    THROW 51520, 'The report-export audit procedure is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'EHFApplicationRuntime') IS NULL
     THROW 51503, 'The EHF runtime role is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'ehf_app') IS NULL
@@ -24,7 +26,7 @@ DECLARE @ApprovedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
 INSERT @ApprovedProcedures VALUES
     (N'RuntimeHealth'), (N'SetUserPreference'), (N'GetUserPreference'),
     (N'SetApplicationStatus'), (N'ValidateApplicationInvitation'),
-    (N'GetInternalApplicationMetrics');
+    (N'GetInternalApplicationMetrics'), (N'RecordReportExportAudit');
 DECLARE @ProtectedTables TABLE (TableName sysname NOT NULL PRIMARY KEY);
 INSERT @ProtectedTables VALUES
     (N'SchemaMigration'), (N'FellowshipCall'), (N'Applicant'), (N'ApplicantContact'),
@@ -61,7 +63,8 @@ INSERT @ExpectedPermissions (ClassId, MajorId, MinorId, PermissionName, StateDes
     (0, 0, 0, N'ALTER ANY USER', N'DENY'),
     (0, 0, 0, N'ALTER ANY ROLE', N'DENY'),
     (3, SCHEMA_ID(N'dbo'), 0, N'ALTER', N'DENY'),
-    (4, DATABASE_PRINCIPAL_ID(N'EHFPreferenceProcedureExecutor'), 0, N'IMPERSONATE', N'DENY');
+    (4, DATABASE_PRINCIPAL_ID(N'EHFPreferenceProcedureExecutor'), 0, N'IMPERSONATE', N'DENY'),
+    (4, DATABASE_PRINCIPAL_ID(N'EHFReportExportAuditExecutor'), 0, N'IMPERSONATE', N'DENY');
 INSERT @ExpectedPermissions (ClassId, MajorId, MinorId, PermissionName, StateDesc)
 SELECT 1, OBJECT_ID(N'dbo.' + approved.ProcedureName, N'P'), 0, N'EXECUTE', N'GRANT'
 FROM @ApprovedProcedures AS approved;

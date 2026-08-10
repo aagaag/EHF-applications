@@ -44,11 +44,18 @@ narrower denials, and is checked by the isolated verifier. It has no user in
 `master` or another application database. The runtime user has no direct
 database grant and belongs only to `EHFApplicationRuntime`.
 
-The role receives `CONNECT` and `EXECUTE` only on `dbo.RuntimeHealth`,
-`dbo.SetUserPreference`, `dbo.GetUserPreference`, and `dbo.SetApplicationStatus`. It receives no table
-or schema grant and has explicit table DML/read denials. `SetUserPreference`
-retains its migration-004 execution principal, so preference and audit writes
-remain one transaction despite direct DML being denied.
+The role receives `CONNECT` and object-scoped `EXECUTE` only on
+`dbo.RuntimeHealth`, `dbo.SetUserPreference`, `dbo.GetUserPreference`,
+`dbo.SetApplicationStatus`, `dbo.ValidateApplicationInvitation`,
+`dbo.GetInternalApplicationMetrics`, and `dbo.RecordReportExportAudit`. It
+receives no table or schema grant and has explicit table DML/read denials.
+`SetUserPreference` retains its migration-004 execution principal, so
+preference and audit writes remain one transaction despite direct DML being
+denied. `RecordReportExportAudit` similarly executes as the dedicated
+`EHFReportExportAuditExecutor`, accepts only the two canonical EHF roles and
+fixed completed/failed outcomes, and appends only bounded XLSX export facts.
+The runtime cannot read or write `dbo.AuditEvent` directly and cannot
+impersonate either procedure execution principal.
 
 Validator 005 treats the runtime role's database permissions as an exact set:
 every grant and denial must have its intended class, major/minor scope, name,

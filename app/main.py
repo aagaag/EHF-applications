@@ -34,7 +34,13 @@ from app.metrics import EmptyMetricRepository, MetricRepository, SqlMetricReposi
 from app.navigation import INTERNAL_GROUPS
 from app.preferences import AppearancePreference, Identity, PreferenceRepository, SqlPreferenceRepository
 from app.preview_register import load_preview_register
-from app.report_exports import ReportExportMetadata, build_metrics_workbook
+from app.report_exports import (
+    EmptyReportAuditRepository,
+    ReportAuditRepository,
+    ReportExportMetadata,
+    SqlReportAuditRepository,
+    build_metrics_workbook,
+)
 from app.http import SecurityMiddleware
 
 
@@ -108,6 +114,7 @@ def create_app(
     identity_resolver: IdentityResolver | None = None,
     preference_repository: PreferenceRepository | None = None,
     metric_repository: MetricRepository | None = None,
+    report_audit_repository: ReportAuditRepository | None = None,
 ) -> FastAPI:
     """Create the HTTP service without starting application workflows."""
     resolved_settings = settings or Settings.from_environment()
@@ -121,6 +128,11 @@ def create_app(
         SqlMetricRepository(lambda: connect(resolved_settings))
         if resolved_settings.environment == "production"
         else EmptyMetricRepository()
+    )
+    report_audits = report_audit_repository or (
+        SqlReportAuditRepository(lambda: connect(resolved_settings))
+        if resolved_settings.environment == "production"
+        else EmptyReportAuditRepository()
     )
     readiness_gate = ReadinessGate(resolved_checks)
     application = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -170,14 +182,20 @@ def create_app(
             if INTERNAL_GROUPS.administrators in principal.groups
             else INTERNAL_GROUPS.trustees
         )
-        content = build_metrics_workbook(
-            metrics.load(role),
-            ReportExportMetadata(
-                actor_identity=principal.identity.key,
-                actor_group=role,
-                generated_at_utc=datetime.now(UTC),
-            ),
+        records = metrics.load(role)
+        metadata = ReportExportMetadata(
+            actor_identity=principal.identity.key,
+            actor_group=role,
+            generated_at_utc=datetime.now(UTC),
         )
+        try:
+            content = build_metrics_workbook(records, metadata)
+        except Exception:
+            report_audits.record(
+                metadata, len(records), "FAILED", failure_stage="workbook-generation"
+            )
+            raise
+        report_audits.record(metadata, len(records), "COMPLETED")
         return Response(
             content,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

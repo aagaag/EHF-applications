@@ -73,7 +73,7 @@ def test_bootstrap_creates_only_the_exact_database_then_uses_checksum_migrations
     migrations: list[str] = []
     validators: list[str] = []
     monkeypatch.setattr(helper, "connect_admin", connect)
-    monkeypatch.setattr(helper, "apply_checksum_migrations", lambda connection: migrations.append("applied") or 9)
+    monkeypatch.setattr(helper, "apply_checksum_migrations", lambda connection: migrations.append("applied") or 10)
     monkeypatch.setattr(
         helper,
         "run_validators",
@@ -82,7 +82,7 @@ def test_bootstrap_creates_only_the_exact_database_then_uses_checksum_migrations
 
     result = helper.bootstrap(Path("/protected/sql-admin-password"))
 
-    assert result == 9
+    assert result == 10
     assert connected_to == ["master", "EHFApplications"]
     assert master.cursor_instance.statements == [
         "IF DB_ID(N'EHFApplications') IS NULL CREATE DATABASE [EHFApplications];"

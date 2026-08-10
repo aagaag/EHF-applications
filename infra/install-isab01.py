@@ -60,6 +60,7 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/007_document_store.sql",
     "database/migrations/008_import_provenance.sql",
     "database/migrations/009_document_permissions.sql",
+    "database/migrations/010_report_export_audit.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -69,6 +70,7 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/007_validate_document_store.sql",
     "database/tests/008_validate_import_provenance.sql",
     "database/tests/009_validate_document_permissions.sql",
+    "database/tests/010_validate_report_export_audit.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",

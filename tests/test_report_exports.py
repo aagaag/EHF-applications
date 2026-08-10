@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
 from app.config import Settings
+from app import report_exports
 from app.identity import AuthenticatedIdentity
 from app.internal_preview import PreviewApplicantMetric
 from app.main import ReadinessChecks, create_app
@@ -107,7 +108,27 @@ class RecordingMetricRepository:
         return _records()
 
 
-def _client(group: str, repository: RecordingMetricRepository) -> TestClient:
+class RecordingAuditRepository:
+    def __init__(self) -> None:
+        self.events: list[tuple[ReportExportMetadata, int, str, str | None]] = []
+
+    def record(
+        self,
+        metadata: ReportExportMetadata,
+        row_count: int,
+        outcome: str,
+        failure_stage: str | None = None,
+    ) -> None:
+        self.events.append((metadata, row_count, outcome, failure_stage))
+
+
+def _client(
+    group: str,
+    repository: RecordingMetricRepository,
+    audit_repository: object | None = None,
+    *,
+    raise_server_exceptions: bool = True,
+) -> TestClient:
     principal = AuthenticatedIdentity(
         Identity("cloudflare:stable-subject", "person@example.org", "Example Person"),
         frozenset({group}),
@@ -118,14 +139,17 @@ def _client(group: str, repository: RecordingMetricRepository) -> TestClient:
             readiness_checks=ReadinessChecks(lambda _: None, lambda _: None),
             identity_resolver=lambda _request: principal,
             metric_repository=repository,
+            report_audit_repository=audit_repository,
         ),
         base_url="http://localhost",
+        raise_server_exceptions=raise_server_exceptions,
     )
 
 
 def test_authorized_download_uses_the_role_scoped_projection() -> None:
     repository = RecordingMetricRepository()
-    response = _client(INTERNAL_GROUPS.administrators, repository).get(
+    audit = RecordingAuditRepository()
+    response = _client(INTERNAL_GROUPS.administrators, repository, audit).get(
         "/internal/reports/metrics.xlsx"
     )
 
@@ -136,6 +160,7 @@ def test_authorized_download_uses_the_role_scoped_projection() -> None:
     assert response.headers["content-disposition"] == 'attachment; filename="ehf-2026.xlsx"'
     assert "no-store" in response.headers["cache-control"]
     assert repository.requested_roles == [INTERNAL_GROUPS.administrators]
+    assert [(event[2], event[3]) for event in audit.events] == [("COMPLETED", None)]
     workbook = load_workbook(BytesIO(response.content))
     assert workbook["Applicant metrics"].tables
     assert len(workbook["Charts"]._charts) == 2
@@ -149,3 +174,51 @@ def test_unauthenticated_download_fails_closed() -> None:
     assert TestClient(app, base_url="http://localhost").get(
         "/internal/reports/metrics.xlsx"
     ).status_code == 404
+
+
+def test_workbook_failure_is_audited_without_returning_bytes(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    repository = RecordingMetricRepository()
+    audit = RecordingAuditRepository()
+    monkeypatch.setattr(
+        "app.main.build_metrics_workbook",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("sensitive failure")),
+    )
+
+    response = _client(
+        INTERNAL_GROUPS.trustees,
+        repository,
+        audit,
+        raise_server_exceptions=False,
+    ).get("/internal/reports/metrics.xlsx")
+
+    assert response.status_code == 500
+    assert "sensitive failure" not in response.text
+    assert response.headers["content-type"].startswith("application/json")
+    assert [(event[1], event[2], event[3]) for event in audit.events] == [
+        (len(_records()), "FAILED", "workbook-generation")
+    ]
+
+
+def test_sql_audit_repository_calls_only_the_bounded_procedure() -> None:
+    calls: list[tuple[object, ...]] = []
+    commits: list[bool] = []
+
+    class Connection:
+        def execute(self, *arguments: object) -> None:
+            calls.append(arguments)
+
+        def commit(self) -> None:
+            commits.append(True)
+
+    repository = report_exports.SqlReportAuditRepository(lambda: Connection())
+    repository.record(_metadata(), 2, "COMPLETED")
+
+    assert len(calls) == 1
+    assert calls[0][0] == (
+        "EXEC dbo.RecordReportExportAudit @ActorIdentity=?, @ActorGroup=?, "
+        "@RowCount=?, @Outcome=?, @FailureStage=?"
+    )
+    assert calls[0][1:] == (
+        "cloudflare:stable-subject", "EHF-Trustees", 2, "COMPLETED", None
+    )
+    assert commits == [True]

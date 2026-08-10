@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
+from typing import Any, Callable, Protocol
 
 from openpyxl import Workbook
 from openpyxl.chart import Reference, ScatterChart, Series
@@ -54,6 +55,70 @@ class ReportExportMetadata:
     generated_at_utc: datetime
     call_code: str = "EHF-2026"
     filters: str = "None"
+
+
+class ReportAuditRepository(Protocol):
+    def record(
+        self,
+        metadata: ReportExportMetadata,
+        row_count: int,
+        outcome: str,
+        failure_stage: str | None = None,
+    ) -> None: ...
+
+
+class EmptyReportAuditRepository:
+    def record(
+        self,
+        metadata: ReportExportMetadata,
+        row_count: int,
+        outcome: str,
+        failure_stage: str | None = None,
+    ) -> None:
+        del metadata, row_count, outcome, failure_stage
+
+
+class SqlReportAuditRepository:
+    """Append export audit facts through the bounded SQL procedure only."""
+
+    def __init__(self, connection_factory: Callable[[], Any]) -> None:
+        self._connection_factory = connection_factory
+
+    def record(
+        self,
+        metadata: ReportExportMetadata,
+        row_count: int,
+        outcome: str,
+        failure_stage: str | None = None,
+    ) -> None:
+        connection = self._connection_factory()
+        execute = getattr(connection, "execute", None)
+        if execute is None:
+            with connection as opened_connection:
+                self._record_with_connection(
+                    opened_connection, metadata, row_count, outcome, failure_stage
+                )
+            return
+        self._record_with_connection(connection, metadata, row_count, outcome, failure_stage)
+
+    @staticmethod
+    def _record_with_connection(
+        connection: Any,
+        metadata: ReportExportMetadata,
+        row_count: int,
+        outcome: str,
+        failure_stage: str | None,
+    ) -> None:
+        connection.execute(
+            "EXEC dbo.RecordReportExportAudit @ActorIdentity=?, @ActorGroup=?, "
+            "@RowCount=?, @Outcome=?, @FailureStage=?",
+            metadata.actor_identity,
+            metadata.actor_group,
+            row_count,
+            outcome,
+            failure_stage,
+        )
+        connection.commit()
 
 
 def safe_excel_text(value: str) -> str:

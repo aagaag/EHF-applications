@@ -117,6 +117,7 @@ def run_validators(connection) -> None:
         "007_validate_document_store.sql",
         "008_validate_import_provenance.sql",
         "009_validate_document_permissions.sql",
+        "010_validate_report_export_audit.sql",
     ]:
         raise BootstrapError("The EHF validator set is incomplete or unexpected.")
     try:

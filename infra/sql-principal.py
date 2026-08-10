@@ -68,6 +68,7 @@ MIGRATIONS = {
     "007_document_store.sql": (7, "document_store"),
     "008_import_provenance.sql": (8, "import_provenance"),
     "009_document_permissions.sql": (9, "document_permissions"),
+    "010_report_export_audit.sql": (10, "report_export_audit"),
 }
 COMMANDS = (
     "inspect-production",
@@ -101,6 +102,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "007_validate_document_store.sql",
         "008_validate_import_provenance.sql",
         "009_validate_document_permissions.sql",
+        "010_validate_report_export_audit.sql",
     }
 )
 

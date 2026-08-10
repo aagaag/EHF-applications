@@ -17,7 +17,7 @@ def test_document_release_migrations_and_validators_are_discoverable() -> None:
     """Break caught: the document boundary could ship without an ordered SQL release."""
     migrations = discover_migrations(MIGRATIONS)
 
-    assert [migration.path.name for migration in migrations[-3:]] == [
+    assert [migration.path.name for migration in migrations[6:9]] == [
         "007_document_store.sql",
         "008_import_provenance.sql",
         "009_document_permissions.sql",

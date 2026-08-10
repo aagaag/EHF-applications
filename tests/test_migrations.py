@@ -243,8 +243,8 @@ def test_published_003_migration_and_current_validator_are_byte_stable() -> None
     assert hashlib.sha256(validator_payload).digest() == CURRENT_003_VALIDATOR_SHA256
 
 
-def test_original_003_prefix_upgrades_through_document_permissions() -> None:
-    """Break caught: an original-003 database could skip the document security release."""
+def test_original_003_prefix_upgrades_through_report_export_audit() -> None:
+    """Break caught: an original-003 database could skip the current security release."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
     connection = FakeConnection()
@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_document_permissions() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 6
-    assert sorted(connection.records) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert applied == 7
+    assert sorted(connection.records) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,16 +290,16 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_nine_migrations() -> None:
-    """Break caught: a new database could omit 009 or apply the release out of order."""
+def test_fresh_repository_run_applies_all_ten_migrations() -> None:
+    """Break caught: a new database could omit 010 or apply the release out of order."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
     connection = FakeConnection()
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    assert applied == 9
+    assert [migration.version for migration in migrations] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    assert applied == 10
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -410,6 +410,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "007_document_store.sql",
         "008_import_provenance.sql",
         "009_document_permissions.sql",
+        "010_report_export_audit.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -421,6 +422,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "007_validate_document_store.sql",
         "008_validate_import_provenance.sql",
         "009_validate_document_permissions.sql",
+        "010_validate_report_export_audit.sql",
     ]
 
 
@@ -631,8 +633,8 @@ def test_user_preference_guard_uses_unspoofable_module_execution_context() -> No
         assert contract_fragment.casefold() in validator.casefold(), contract_fragment
 
 
-def test_database_script_requires_and_applies_009() -> None:
-    """Break caught: the isolated harness could stop before the document boundary release."""
+def test_database_script_requires_and_applies_010() -> None:
+    """Break caught: the isolated harness could stop before report-export auditing."""
     script = DATABASE_SCRIPT.read_text(encoding="utf-8")
 
     assert "004_audit_and_preference_hardening.sql" in script
@@ -647,7 +649,9 @@ def test_database_script_requires_and_applies_009() -> None:
     assert "008_validate_import_provenance.sql" in script
     assert "009_document_permissions.sql" in script
     assert "009_validate_document_permissions.sql" in script
-    assert "Applied 9 migration\\(s\\)\\." in script
+    assert "010_report_export_audit.sql" in script
+    assert "010_validate_report_export_audit.sql" in script
+    assert "Applied 10 migration\\(s\\)\\." in script
 
 
 def test_database_script_enables_quoted_identifier_for_every_sqlcmd_session() -> None:
@@ -775,14 +779,14 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_nine() -> None:
+def test_database_contract_validator_reports_version_ten() -> None:
     """Break caught: post-upgrade validation could still require the old 005 tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 9" in validator
-    assert "WHERE MigrationCount = 9 AND CurrentVersion = 9" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 10" in validator
+    assert "WHERE MigrationCount = 10 AND CurrentVersion = 10" in validator
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")
