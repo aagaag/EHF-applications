@@ -202,7 +202,6 @@ def test_cleanup_only_accepts_exact_randomized_test_targets() -> None:
             "Finances2",
             "ehf_app",
             "0123456789abcdef0123456789abcdef",
-            Path("/protected/test-password"),
         )
 
 
@@ -287,7 +286,6 @@ def test_status_probe_uses_the_real_test_login_and_parameter_binding(monkeypatch
         "tcp:127.0.0.1,1433",
         f"EHFApplications_Test_sqlperm_{suffix}",
         f"ehf_app_test_{suffix}",
-        Path("/protected/test-password"),
     )
 
     runtime_sql, runtime_parameters = runtime_connection.cursor_instance.executions[0]
@@ -407,12 +405,13 @@ def test_helper_has_no_path_read_text_credential_race_and_validates_before_conne
     assert fake_driver.calls == []
 
 
-def test_cleanup_authenticates_the_owned_login_before_dropping_its_default_database() -> None:
-    """Break caught: cleanup could strand a current-run login after deleting its default DB."""
+def test_cleanup_uses_bound_markers_before_dropping_the_login() -> None:
+    """Break caught: interrupted cleanup could delete a peer without its bound evidence."""
     source = HELPER.read_text(encoding="utf-8")
     cleanup = source[source.index("def cleanup_test_targets") : source.index("def verify_test_cleanup")]
 
-    assert cleanup.index("authenticate_login(") < cleanup.index("_drop_owned_database(")
+    assert "marker_fallback" in cleanup
+    assert "_database_marker(connection, database) == run_token" in cleanup
 
 
 def test_test_login_cleanup_allows_only_the_implicit_connect_sql_grant() -> None:
@@ -444,3 +443,9 @@ def test_adverse_preservation_does_not_require_database_authentication() -> None
     source = HELPER.read_text(encoding="utf-8")
     section = source[source.index("def verify_test_targets_preserved") : source.index("def admin_connection_database")]
     assert "authenticate_login(" not in section
+
+
+def test_cleanup_does_not_accept_a_credential_argument() -> None:
+    """Break caught: cleanup must converge deterministically after credential loss."""
+    helper = load_helper()
+    assert "credential_file" not in helper.cleanup_test_targets.__annotations__

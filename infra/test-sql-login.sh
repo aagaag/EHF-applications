@@ -57,11 +57,11 @@ cleanup_owned_targets() {
   cleanup_attempted=1
   set +e
   [[ -n "$secret_directory" ]] || failed=1
-  run_helper cleanup-test-targets --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --peer-database "$peer_database" --login "$login" --run-token "$run_token" --credential-file "$test_password_file" >/dev/null || { printf '%s\n' 'Cleanup stage: current targets.' >&2; failed=1; }
+  run_helper cleanup-test-targets --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --peer-database "$peer_database" --login "$login" --run-token "$run_token" >/dev/null || { printf '%s\n' 'Cleanup stage: current targets.' >&2; failed=1; }
   run_helper verify-test-cleanup --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --peer-database "$peer_database" --login "$login" --run-token "$run_token" >/dev/null 2>&1 || failed=1
   # The seeded peer/login must survive the current-run cleanup before its own cleanup.
   run_helper verify-test-targets-preserved --server "$server" --admin-credential-file "$admin_password_file" --database "$adverse_database" --login "$adverse_login" --run-token "$adverse_token" --credential-file "$adverse_password_file" >/dev/null 2>&1 || failed=1
-  run_helper cleanup-test-targets --server "$server" --admin-credential-file "$admin_password_file" --database "$adverse_database" --peer-database "$adverse_peer_database" --login "$adverse_login" --run-token "$adverse_token" --credential-file "$adverse_password_file" >/dev/null 2>&1 || failed=1
+  run_helper cleanup-test-targets --server "$server" --admin-credential-file "$admin_password_file" --database "$adverse_database" --peer-database "$adverse_peer_database" --login "$adverse_login" --run-token "$adverse_token" >/dev/null 2>&1 || failed=1
   run_helper verify-test-cleanup --server "$server" --admin-credential-file "$admin_password_file" --database "$adverse_database" --peer-database "$adverse_peer_database" --login "$adverse_login" --run-token "$adverse_token" >/dev/null 2>&1 || failed=1
   set -e
   ((failed == 0)) || { printf '%s\n' 'Cleanup failed; isolated EHF SQL verification is unsuccessful.' >&2; return 1; }

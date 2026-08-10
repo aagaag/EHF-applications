@@ -557,7 +557,7 @@ SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.server_principals WHERE name=@LoginNa
     return len(rows) == 1 and int(rows[0][0]) == 1
 
 
-def cleanup_test_targets(connection, database: str, peer_database: str, login: str, run_token: str, credential_file: Path, server: str = SERVER) -> None:
+def cleanup_test_targets(connection, database: str, peer_database: str, login: str, run_token: str, server: str = SERVER) -> None:
     validate_command_arguments("cleanup-test-targets", server, database, login, peer_database, run_token=run_token)
     connection.autocommit = True
     marker_fallback = (
@@ -571,12 +571,7 @@ def cleanup_test_targets(connection, database: str, peer_database: str, login: s
         if not _test_login_shape(connection, database, login):
             login_state = "PRESERVED"
         else:
-            try:
-                authenticate_login(server, database, login, credential_file, "test")
-            except PrincipalError:
-                login_state = "REMOVED" if marker_fallback else "PRESERVED"
-            else:
-                login_state = "REMOVED"
+            login_state = "REMOVED" if marker_fallback else "PRESERVED"
             if login_state == "REMOVED":
                 _execute(connection, "DECLARE @LoginName sysname=?; DECLARE @Ddl nvarchar(max)=N'DROP LOGIN '+QUOTENAME(@LoginName)+N';'; EXEC(@Ddl);", (login,))
     peer = _drop_owned_database(connection, peer_database, run_token)
@@ -624,7 +619,7 @@ def dispatch(arguments) -> None:
         elif command == "map-test-user": map_test_user(connection, arguments.database, arguments.login, arguments.user)
         elif command == "record-test-migration": record_test_migration(connection, arguments.database, arguments.migration_file)
         elif command == "exercise-test-status": exercise_test_status(connection, arguments.server, arguments.database, arguments.login, Path(arguments.credential_file))
-        elif command == "cleanup-test-targets": cleanup_test_targets(connection, arguments.database, arguments.peer_database, arguments.login, arguments.run_token, Path(arguments.credential_file), arguments.server)
+        elif command == "cleanup-test-targets": cleanup_test_targets(connection, arguments.database, arguments.peer_database, arguments.login, arguments.run_token, arguments.server)
         elif command == "verify-test-cleanup": verify_test_cleanup(connection, arguments.database, arguments.peer_database, arguments.login, arguments.run_token)
         elif command == "verify-test-targets-preserved": verify_test_targets_preserved(connection, arguments.database, arguments.login, arguments.run_token, Path(arguments.credential_file), arguments.server)
     finally:
@@ -640,7 +635,7 @@ def parser() -> argparse.ArgumentParser:
         else: item.add_argument("--database", required=True)
         if command in {"inspect-production", "map-production-user", "map-test-user"}: item.add_argument("--user", required=True)
         if command in {"inspect-production", "authenticate-login", "create-production-login", "map-production-user", "create-test-login", "map-test-user", "exercise-test-status", "cleanup-test-targets", "verify-test-cleanup", "verify-test-targets-preserved"}: item.add_argument("--login", required=True)
-        if command in {"authenticate-login", "create-production-login", "create-test-login", "exercise-test-status", "cleanup-test-targets", "verify-test-targets-preserved"}: item.add_argument("--credential-file", required=True)
+        if command in {"authenticate-login", "create-production-login", "create-test-login", "exercise-test-status", "verify-test-targets-preserved"}: item.add_argument("--credential-file", required=True)
         elif command == "inspect-production": item.add_argument("--credential-file")
         if command == "authenticate-login": item.add_argument("--credential-kind", choices=("application", "test"), required=True)
         if command in {"cleanup-test-targets", "verify-test-cleanup"}: item.add_argument("--peer-database", required=True)
