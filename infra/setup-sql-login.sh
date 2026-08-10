@@ -8,10 +8,21 @@ readonly expected_user="ehf_app"
 readonly credential_directory="/etc/ehf"
 readonly password_file="${credential_directory}/sql-app-password"
 readonly sqlcmd="/opt/mssql-tools18/bin/sqlcmd"
+readonly helper="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/sql-principal.py"
+readonly helper_python="${EHF_SQL_PRINCIPAL_PYTHON:-/opt/ehf/venv/bin/python}"
+readonly server="tcp:127.0.0.1,1433"
 
 database="$expected_database"
 login="$expected_login"
 user="$expected_user"
+
+password_is_safe() {
+  [[ "$1" =~ ^[A-Za-z0-9._~-]{48}$ ]] \
+    && [[ "$1" =~ [A-Z] ]] \
+    && [[ "$1" =~ [a-z] ]] \
+    && [[ "$1" =~ [0-9] ]] \
+    && [[ "$1" =~ [._~-] ]]
+}
 
 fail() {
   printf '%s\n' "$1" >&2
@@ -20,6 +31,11 @@ fail() {
 
 while (($#)); do
   case "$1" in
+    --validate-password)
+      (($# == 2)) || fail "Unexpected EHF SQL password validation option."
+      password_is_safe "$2" && exit 0
+      fail "Unexpected EHF SQL password format."
+      ;;
     --database)
       (($# >= 2)) || fail "Unexpected incomplete EHF SQL database option."
       database="$2"
@@ -35,24 +51,17 @@ while (($#)); do
       user="$2"
       shift 2
       ;;
-    *)
-      fail "Unexpected EHF SQL setup option."
-      ;;
+    *) fail "Unexpected EHF SQL setup option." ;;
   esac
 done
 
 if [[ "$database" != "$expected_database" || "$login" != "$expected_login" || "$user" != "$expected_user" ]]; then
   fail "Unexpected EHF SQL database, login, or user name."
 fi
-if [[ "$EUID" -ne 0 ]]; then
-  fail "Run the EHF SQL setup as root."
-fi
-if [[ ! -x "$sqlcmd" ]]; then
-  fail "The required SQL command-line client is unavailable."
-fi
-if ! getent group ehf >/dev/null; then
-  groupadd --system ehf
-fi
+[[ "$EUID" -eq 0 ]] || fail "Run the EHF SQL setup as root."
+[[ -x "$sqlcmd" ]] || fail "The required SQL command-line client is unavailable."
+[[ -x "$helper_python" && -f "$helper" ]] || fail "The required pinned EHF SQL helper runtime is unavailable."
+"$helper_python" -c 'import pyodbc' >/dev/null 2>&1 || fail "The required pinned EHF SQL helper runtime is unavailable."
 
 admin_password_file="${EHF_SQL_ADMIN_PASSWORD_FILE:-}"
 if [[ -z "$admin_password_file" || -L "$admin_password_file" || ! -f "$admin_password_file" || ! -s "$admin_password_file" ]]; then
@@ -62,175 +71,45 @@ if [[ "$(stat -c '%U:%G:%a' "$admin_password_file")" != "root:root:600" ]]; then
   fail "The protected EHF SQL administrator credential file has an unexpected shape."
 fi
 
-admin_password="$(<"$admin_password_file")"
-app_password=""
-trap 'unset admin_password app_password EHF_SQL_APP_PASSWORD' EXIT
+trap 'unset app_password SQLCMDINI' EXIT
+unset SQLCMDINI
 
-run_admin_sql() {
-  local target_database="$1"
-  local output
-  if ! output="$(SQLCMDPASSWORD="$admin_password" "$sqlcmd" \
-    -S 127.0.0.1:1433 -U sa -C -d "$target_database" -b -V 11 -r 1 2>&1)"; then
-    unset output
-    fail "EHF SQL administration failed without credential details."
-  fi
-  unset output
+run_helper() {
+  "$helper_python" "$helper" "$@"
 }
 
-run_runtime_health() {
-  local output
-  if ! output="$(SQLCMDPASSWORD="$app_password" "$sqlcmd" \
-    -S 127.0.0.1:1433 -U "$login" -C -d "$database" -b -V 11 -r 1 \
-    -Q 'EXEC dbo.RuntimeHealth;' 2>&1)"; then
-    unset output
-    fail "The EHF runtime login verification failed without credential details."
-  fi
-  unset output
-}
+inspect_state="$(run_helper inspect-production --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --login "$login" --user "$user")" || fail "EHF SQL principal inspection failed."
+case "$inspect_state" in
+  ready|unmapped)
+    run_helper authenticate-login --server "$server" --database "$database" --login "$login" --credential-file "$password_file" --credential-kind application >/dev/null || fail "The existing EHF SQL login did not authenticate from its protected password file."
+    [[ "$inspect_state" == "ready" ]] || fail "The existing EHF SQL login has an unexpected principal state."
+    ;;
+  absent)
+    getent group ehf >/dev/null || groupadd --system ehf
+    install -d -o root -g ehf -m 0750 "$credential_directory"
+    if [[ -e "$password_file" ]]; then
+      [[ ! -L "$password_file" && -f "$password_file" && -s "$password_file" ]] || fail "The new EHF SQL password file has an unexpected shape."
+      [[ "$(stat -c '%U:%G:%a' "$password_file")" == "root:ehf:640" ]] || fail "The new EHF SQL password file has unexpected ownership or mode."
+    else
+      umask 0077
+      app_password="Aa1._~$(openssl rand -hex 21)"
+      password_is_safe "$app_password" || fail "EHF SQL password generation failed."
+      printf '%s' "$app_password" >"$password_file"
+      chown root:ehf "$password_file"
+      chmod 0640 "$password_file"
+    fi
+    run_helper create-production-login --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --login "$login" --credential-file "$password_file" >/dev/null || fail "EHF SQL login creation failed."
+    run_helper map-production-user --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --login "$login" --user "$user" >/dev/null || fail "EHF SQL user mapping failed."
+    run_helper authenticate-login --server "$server" --database "$database" --login "$login" --credential-file "$password_file" --credential-kind application >/dev/null || fail "The new EHF SQL login did not authenticate from its protected password file."
+    [[ "$(run_helper inspect-production --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --login "$login" --user "$user")" == "ready" ]] || fail "The new EHF SQL login has an unexpected principal state."
+    ;;
+  *) fail "The EHF SQL principal inspection result is unexpected." ;;
+esac
 
-run_admin_sql master <<'SQL'
-IF DB_ID(N'EHFApplications') IS NULL
-    THROW 51600, 'The EHF database is missing.', 1;
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM EHFApplications.dbo.SchemaMigration
-    WHERE MigrationVersion = 5
-      AND MigrationName = N'application_permissions'
-)
-    THROW 51601, 'The EHF permissions migration is not applied.', 1;
-IF SUSER_ID(N'ehf_app') IS NOT NULL
-AND
-(
-    NOT EXISTS
-    (
-        SELECT 1
-        FROM sys.server_principals
-        WHERE name = N'ehf_app'
-          AND type_desc = N'SQL_LOGIN'
-          AND is_disabled = 0
-          AND default_database_name = N'EHFApplications'
-    )
-    OR EXISTS
-    (
-        SELECT 1
-        FROM sys.server_role_members AS membership
-        INNER JOIN sys.server_principals AS member_row
-            ON member_row.principal_id = membership.member_principal_id
-        WHERE member_row.name = N'ehf_app'
-    )
-)
-    THROW 51602, 'The existing EHF SQL login has an unexpected shape.', 1;
-SQL
-
-install -d -m 0750 -o root -g ehf "$credential_directory"
-if [[ -e "$password_file" ]]; then
-  if [[ -L "$password_file" || ! -f "$password_file" || ! -s "$password_file" ]]; then
-    fail "The existing EHF SQL password file has an unexpected shape."
-  fi
-  if [[ "$(stat -c '%U:%G:%a' "$password_file")" != "root:ehf:640" ]]; then
-    fail "The existing EHF SQL password file has unexpected ownership or mode."
-  fi
-else
-  umask 0077
-  app_password="$(openssl rand -base64 48 | tr -d '\n')"
-  [[ -n "$app_password" ]] || fail "EHF SQL password generation failed."
-  printf '%s' "$app_password" >"$password_file"
-  chown root:ehf "$password_file"
-  chmod 0640 "$password_file"
-fi
 app_password="$(<"$password_file")"
-
-export EHF_SQL_APP_PASSWORD="$app_password"
-run_admin_sql master <<'SQL'
-DECLARE @LoginName sysname = N'ehf_app';
-DECLARE @Password nvarchar(256) = N'$(EHF_SQL_APP_PASSWORD)';
-DECLARE @LoginSid varbinary(85);
-
-IF NULLIF(@Password, N'') IS NULL
-    THROW 51603, 'The EHF SQL password is unavailable.', 1;
-
-IF SUSER_ID(@LoginName) IS NULL
-BEGIN
-    DECLARE @CreateLogin nvarchar(max) =
-        N'CREATE LOGIN ' + QUOTENAME(@LoginName) +
-        N' WITH PASSWORD = N' + QUOTENAME(@Password, N'''') +
-        N', CHECK_POLICY = ON, CHECK_EXPIRATION = OFF, '
-        + N'DEFAULT_DATABASE = [EHFApplications];';
-    EXEC (@CreateLogin);
-END;
-
-SELECT @LoginSid = sid
-FROM sys.server_principals
-WHERE name = @LoginName
-  AND type_desc = N'SQL_LOGIN'
-  AND is_disabled = 0
-  AND default_database_name = N'EHFApplications';
-IF @LoginSid IS NULL
-    THROW 51604, 'The EHF SQL login has an unexpected shape.', 1;
-IF EXISTS
-(
-    SELECT 1
-    FROM sys.server_role_members AS membership
-    INNER JOIN sys.server_principals AS member_row
-        ON member_row.principal_id = membership.member_principal_id
-    WHERE member_row.name = @LoginName
-)
-    THROW 51605, 'The EHF SQL login has a server role.', 1;
-
-IF USER_ID(@LoginName) IS NULL
-    EXEC(N'CREATE USER [ehf_app] FOR LOGIN [ehf_app];');
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.database_principals
-    WHERE name = @LoginName
-      AND sid = @LoginSid
-)
-    THROW 51606, 'The master EHF denial user has an unexpected shape.', 1;
-DENY CONNECT TO [ehf_app];
-DENY ALTER ANY LOGIN, ALTER ANY SERVER ROLE, VIEW ANY DATABASE,
-    VIEW SERVER STATE, VIEW ANY DEFINITION, CONTROL SERVER
-    TO [ehf_app];
-
-USE [EHFApplications];
-DECLARE @DatabaseUserSid varbinary(85);
-DECLARE @AuthenticationType nvarchar(60);
-SELECT
-    @DatabaseUserSid = sid,
-    @AuthenticationType = authentication_type_desc
-FROM sys.database_principals
-WHERE name = N'ehf_app'
-  AND type_desc = N'SQL_USER';
-IF @AuthenticationType IS NULL
-    THROW 51607, 'The EHF database user is missing or unexpected.', 1;
-IF @AuthenticationType = N'NONE'
-    ALTER USER [ehf_app] WITH LOGIN = [ehf_app];
-ELSE IF @DatabaseUserSid <> @LoginSid
-    THROW 51608, 'The EHF database user maps to another login.', 1;
-
-IF EXISTS
-(
-    SELECT 1
-    FROM sys.database_role_members AS membership
-    INNER JOIN sys.database_principals AS role_row
-        ON role_row.principal_id = membership.role_principal_id
-    INNER JOIN sys.database_principals AS member_row
-        ON member_row.principal_id = membership.member_principal_id
-    WHERE member_row.name = N'ehf_app'
-      AND role_row.name NOT IN (N'public', N'EHFApplicationRuntime')
-)
-    THROW 51609, 'The EHF database user has an unexpected role.', 1;
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.database_role_members AS membership
-    WHERE membership.role_principal_id = DATABASE_PRINCIPAL_ID(N'EHFApplicationRuntime')
-      AND membership.member_principal_id = DATABASE_PRINCIPAL_ID(N'ehf_app')
-)
-    THROW 51610, 'The EHF database user is missing its expected runtime role.', 1;
-SQL
-unset EHF_SQL_APP_PASSWORD
-run_runtime_health
+password_is_safe "$app_password" || fail "The EHF SQL password file has an unexpected format."
+if ! SQLCMDPASSWORD="$app_password" "$sqlcmd" -S "$server" -U "$login" -C -X -I -d "$database" -b -V 11 -r 1 -Q 'EXEC dbo.RuntimeHealth;' >/dev/null 2>&1; then
+  fail "The EHF runtime login verification failed without credential details."
+fi
 
 printf '%s\n' 'EHF SQL runtime login is configured.'

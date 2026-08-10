@@ -1,6 +1,10 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
+-- Application-layer authenticated identity and authorization must supply actor
+-- and application scope; this SQL role only enforces the object boundary.
+-- ALTER ANY LOGIN remains denied by the setup script at server scope.
+
 CREATE ROLE EHFApplicationRuntime;
 CREATE USER ehf_app WITHOUT LOGIN;
 ALTER ROLE EHFApplicationRuntime ADD MEMBER ehf_app;
@@ -23,7 +27,7 @@ DENY VIEW DEFINITION TO EHFApplicationRuntime;
 DENY CREATE TABLE, CREATE PROCEDURE, CREATE VIEW,
     ALTER ANY SCHEMA, ALTER ANY USER, ALTER ANY ROLE
     TO EHFApplicationRuntime;
-DENY ALTER, CONTROL ON SCHEMA::dbo TO EHFApplicationRuntime;
+DENY ALTER ON SCHEMA::dbo TO EHFApplicationRuntime;
 DENY IMPERSONATE ON USER::EHFPreferenceProcedureExecutor
     TO EHFApplicationRuntime;
 

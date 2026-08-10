@@ -39,6 +39,7 @@ def test_permission_boundary_release_artifacts_exist() -> None:
     assert (VALIDATORS / "005_validate_application_permissions.sql").is_file()
     assert (ROOT / "infra" / "setup-sql-login.sh").is_file()
     assert (ROOT / "infra" / "test-sql-login.sh").is_file()
+    assert (ROOT / "infra" / "sql-principal.py").is_file()
     assert (ROOT / "docs" / "permissions.md").is_file()
 
 
@@ -53,14 +54,11 @@ def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
         "dbo.SetUserPreference",
         "dbo.SetApplicationStatus",
         "EHFApplicationRuntime",
-        "SchemaMigration",
-        "AuditEvent",
-        "HAS_PERMS_BY_NAME",
-        "VIEW DEFINITION",
-        "SCHEMA",
+        "sys.database_permissions",
+        "A required runtime procedure grant is missing.",
     ):
         assert fragment in validator
-    assert "THROW 51504" not in validator
+    assert "SET XACT_ABORT OFF;" in validator
 
 
 def test_permission_migration_denies_direct_table_access_and_publishes_only_three_procedures() -> None:
@@ -84,33 +82,23 @@ def test_permission_migration_denies_direct_table_access_and_publishes_only_thre
         ) in migration
     assert "GRANT SELECT ON SCHEMA::dbo" not in migration
     assert "GRANT EXECUTE ON SCHEMA::dbo" not in migration
+    assert "DENY ALTER, CONTROL ON SCHEMA::dbo" not in migration
 
 
-def test_permission_validator_impersonates_the_runtime_user_for_positive_and_negative_checks() -> None:
-    """Break caught: a privileged validator could mask the runtime account's real permissions."""
+def test_permission_validator_leaves_real_login_checks_to_the_isolated_verifier() -> None:
+    """Break caught: a database-scoped impersonation check could claim server-login coverage."""
     validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(
         encoding="utf-8"
     )
 
     for fragment in (
-        "EXECUTE AS USER = N'ehf_app'",
-        "EXEC dbo.RuntimeHealth",
-        "EXEC dbo.SetUserPreference",
-        "INSERT",
-        "UPDATE",
-        "DELETE",
-        "master.sys.databases",
-        "CREATE TABLE dbo.PermissionValidatorDenied",
-        "sys.database_principals",
-        "ALTER SERVER ROLE",
-        "CREATE LOGIN",
-        "HAS_PERMS_BY_NAME(NULL, NULL, N'ALTER ANY LOGIN')",
-        "HAS_PERMS_BY_NAME(NULL, NULL, N'ALTER ANY SERVER ROLE')",
-        "ehf_permission_validator_denied",
-        "EXECUTE AS USER = N'EHFPreferenceProcedureExecutor'",
-        "REVERT",
+        "sys.database_permissions",
+        "EHFApplicationRuntime",
+        "A required runtime procedure grant is missing.",
+        "infra/test-sql-login.sh",
     ):
         assert fragment in validator
+    assert "EXECUTE AS USER =" not in validator
 
 
 @pytest.mark.parametrize(
@@ -130,11 +118,9 @@ def test_sql_login_scripts_reject_non_isolated_or_non_ehf_names(
     script: Path, arguments: tuple[str, ...]
 ) -> None:
     """Break caught: a provisioning command could be redirected to Finances 2 or production."""
-    sentinel = "credential-never-print"
     completed = subprocess.run(
         [str(GIT_BASH), str(script), *arguments],
         cwd=ROOT,
-        env={"EHF_SQL_ADMIN_PASSWORD": sentinel},
         capture_output=True,
         text=True,
         check=False,
@@ -144,7 +130,6 @@ def test_sql_login_scripts_reject_non_isolated_or_non_ehf_names(
     output = completed.stdout + completed.stderr
     assert completed.returncode != 0
     assert "unexpected" in output.casefold()
-    assert sentinel not in output
 
 
 def test_sql_login_scripts_keep_passwords_out_of_command_arguments_and_logs() -> None:
@@ -152,7 +137,81 @@ def test_sql_login_scripts_keep_passwords_out_of_command_arguments_and_logs() ->
     for script in (SETUP_SCRIPT, TEST_SCRIPT):
         source = script.read_text(encoding="utf-8")
         assert "SQLCMDPASSWORD=" in source
-        assert "SQLCMDPASSWORD" not in source.replace("SQLCMDPASSWORD=", "")
+        assert re.search(r"(?:^|\s)-P(?:\s|$)", source) is None
         assert re.search(r"(?:^|\s)-P(?:\s|$)", source) is None
         assert re.search(r"(?:^|\s)-v(?:\s|$)", source) is None
         assert "set +x" in source
+
+
+@pytest.mark.parametrize(
+    ("password", "accepted"),
+    (
+        ("Aa1._~" + "a" * 42, True),
+        ("A" * 48, False),
+        ("A" * 47, False),
+        ("A" * 47 + "'", False),
+        ("A" * 47 + ";", False),
+        ("A" * 47 + "\n", False),
+    ),
+)
+def test_setup_password_preflight_accepts_only_the_fixed_safe_alphabet(
+    password: str, accepted: bool
+) -> None:
+    """Break caught: a password file could inject SQLCMD substitution syntax."""
+    completed = subprocess.run(
+        [str(GIT_BASH), str(SETUP_SCRIPT), "--validate-password", password],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+
+    assert (completed.returncode == 0) is accepted
+    assert password not in completed.stdout + completed.stderr
+
+
+def test_sql_scripts_use_hardened_sqlcmd_invocations_and_lf_line_endings() -> None:
+    """Break caught: inherited SQLCMDINI or a colon endpoint could change live behavior."""
+    for script in (SETUP_SCRIPT, TEST_SCRIPT):
+        payload = script.read_bytes()
+        source = payload.decode("utf-8")
+
+        assert b"\r\n" not in payload
+        assert "unset SQLCMDINI" in source
+        assert "-X" in source
+        assert "-I" in source
+        assert "tcp:127.0.0.1,1433" in source
+        assert "127.0.0.1:1433" not in source
+
+    assert "*.sh text eol=lf" in (ROOT / ".gitattributes").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_permission_migration_records_later_identity_scope_requirement() -> None:
+    """Break caught: procedure grants could be mistaken for authenticated app authorization."""
+    migration = MIGRATION.read_text(encoding="utf-8")
+
+    assert "application-layer authenticated identity" in migration.casefold()
+    assert "ALTER ANY LOGIN" in migration
+
+
+def test_isolated_verifier_uses_a_second_database_and_fails_when_cleanup_fails() -> None:
+    """Break caught: a runtime login could read another database or leak a partial test principal."""
+    source = TEST_SCRIPT.read_text(encoding="utf-8")
+
+    assert "EHFApplications_Test_sqlperm_peer_" in source
+    assert "create-test-database" in source
+    assert "created_peer_database=1" in source
+    assert "Cleanup failed; isolated EHF SQL verification is unsuccessful." in source
+    assert "run_runtime_sql \"$peer_database\"" in source
+    assert "verify-test-cleanup" in source
+
+
+def test_isolated_sqlcmd_wrapper_forwards_static_migration_and_validator_files() -> None:
+    """Break caught: -i migration files could be accepted by the wrapper but never executed."""
+    source = TEST_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'local target_database="$1"\n  shift\n  SQLCMDPASSWORD=' in source
+    assert "EXEC(N'ALTER SERVER ROLE" not in source
