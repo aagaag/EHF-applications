@@ -599,14 +599,16 @@ def require_no_cross_database_access(rows: Iterable[object], _database: str) -> 
 
 def _cross_database_rows(connection, database: str, login: str) -> list[object]:
     return _rows(connection, """
+SET NOCOUNT ON;
 DECLARE @ExpectedDatabase sysname=?; DECLARE @LoginName sysname=?;
 CREATE TABLE #Finding (DatabaseName sysname NOT NULL, Finding varchar(48) NOT NULL);
 INSERT #Finding SELECT d.name,'DATABASE_OWNER' FROM sys.databases d INNER JOIN sys.server_principals p ON p.sid=d.owner_sid WHERE p.name=@LoginName;
 DECLARE @Sql nvarchar(max)=N'';
-SELECT @Sql += N'USE '+QUOTENAME(name)+N'; IF DB_NAME()<>@ExpectedDatabase AND EXISTS (SELECT 1 FROM sys.database_principals WHERE sid=SUSER_SID(@LoginName)) INSERT #Finding VALUES (DB_NAME(),''DATABASE_PRINCIPAL'');'
+SELECT @Sql += N'USE '+QUOTENAME(name)+N'; IF CONVERT(varbinary(256),DB_NAME())<>CONVERT(varbinary(256),@ExpectedDatabase) AND EXISTS (SELECT 1 FROM sys.database_principals WHERE sid=SUSER_SID(@LoginName)) INSERT #Finding VALUES (DB_NAME(),''DATABASE_PRINCIPAL'');'
 FROM sys.databases WHERE state_desc=N'ONLINE' AND source_database_id IS NULL;
 EXEC sys.sp_executesql @Sql,N'@ExpectedDatabase sysname,@LoginName sysname',@ExpectedDatabase,@LoginName;
-SELECT DatabaseName,Finding FROM #Finding WHERE DatabaseName<>@ExpectedDatabase;
+SELECT DatabaseName,Finding FROM #Finding
+WHERE CONVERT(varbinary(256),DatabaseName)<>CONVERT(varbinary(256),@ExpectedDatabase);
 """, (database, login))
 
 
@@ -632,13 +634,13 @@ ELSE IF @LoginExists=1 AND @Auth=N''NONE'' SELECT @Out=''UNMAPPED'';
 ELSE IF @LoginExists=1 AND @Auth=N''INSTANCE'' AND @Sid=SUSER_SID(@LoginName) SELECT @Out=''READY'';
 ELSE SELECT @Out=''INVALID'';';
 EXEC sys.sp_executesql @Sql,N'@LoginName sysname,@UserName sysname,@LoginExists bit,@Out varchar(12) OUTPUT',@LoginName,@UserName,@LoginExists,@UserState OUTPUT;
-IF @UserState=N''INVALID'' SELECT ''INVALID'' AS State;
-ELSE IF @LoginExists=0 SELECT ''ABSENT'' AS State;
-ELSE IF NOT EXISTS (SELECT 1 FROM sys.server_principals AS principal_row INNER JOIN sys.sql_logins AS login_row ON login_row.principal_id=principal_row.principal_id WHERE principal_row.name=@LoginName AND principal_row.type_desc=N''SQL_LOGIN'' AND principal_row.is_disabled=0 AND principal_row.default_database_name=@DatabaseName AND login_row.is_policy_checked=1 AND login_row.is_expiration_checked=0) SELECT ''INVALID'' AS State;
-ELSE IF EXISTS (SELECT 1 FROM sys.databases WHERE owner_sid=SUSER_SID(@LoginName)) SELECT ''INVALID'' AS State;
-ELSE IF EXISTS (SELECT 1 FROM sys.server_role_members m INNER JOIN sys.server_principals p ON p.principal_id=m.member_principal_id WHERE p.name=@LoginName) SELECT ''INVALID'' AS State;
-ELSE IF EXISTS (SELECT 1 FROM sys.server_permissions p WHERE p.grantee_principal_id=SUSER_ID(@LoginName) AND NOT (p.permission_name=N''CONNECT SQL'' AND p.state_desc=N''GRANT'') AND NOT (p.state_desc=N''DENY'' AND p.permission_name IN (N''ALTER ANY LOGIN'',N''ALTER ANY SERVER ROLE'',N''VIEW ANY DATABASE'',N''VIEW ANY DEFINITION'',N''VIEW SERVER STATE''))) SELECT ''INVALID'' AS State;
-ELSE IF (SELECT COUNT(*) FROM sys.server_permissions WHERE grantee_principal_id=SUSER_ID(@LoginName) AND state_desc=N''DENY'' AND permission_name IN (N''ALTER ANY LOGIN'',N''ALTER ANY SERVER ROLE'',N''VIEW ANY DATABASE'',N''VIEW ANY DEFINITION'',N''VIEW SERVER STATE''))<>5 SELECT ''INVALID'' AS State;
+IF @UserState=N'INVALID' SELECT 'INVALID' AS State;
+ELSE IF @LoginExists=0 SELECT 'ABSENT' AS State;
+ELSE IF NOT EXISTS (SELECT 1 FROM sys.server_principals AS principal_row INNER JOIN sys.sql_logins AS login_row ON login_row.principal_id=principal_row.principal_id WHERE principal_row.name=@LoginName AND principal_row.type_desc=N'SQL_LOGIN' AND principal_row.is_disabled=0 AND principal_row.default_database_name=@DatabaseName AND login_row.is_policy_checked=1 AND login_row.is_expiration_checked=0) SELECT 'INVALID' AS State;
+ELSE IF EXISTS (SELECT 1 FROM sys.databases WHERE owner_sid=SUSER_SID(@LoginName)) SELECT 'INVALID' AS State;
+ELSE IF EXISTS (SELECT 1 FROM sys.server_role_members m INNER JOIN sys.server_principals p ON p.principal_id=m.member_principal_id WHERE p.name=@LoginName) SELECT 'INVALID' AS State;
+ELSE IF EXISTS (SELECT 1 FROM sys.server_permissions p WHERE p.grantee_principal_id=SUSER_ID(@LoginName) AND NOT (p.permission_name=N'CONNECT SQL' AND p.state_desc=N'GRANT') AND NOT (p.state_desc=N'DENY' AND p.permission_name IN (N'ALTER ANY LOGIN',N'ALTER ANY SERVER ROLE',N'VIEW ANY DATABASE',N'VIEW ANY DEFINITION',N'VIEW SERVER STATE'))) SELECT 'INVALID' AS State;
+ELSE IF (SELECT COUNT(*) FROM sys.server_permissions WHERE grantee_principal_id=SUSER_ID(@LoginName) AND state_desc=N'DENY' AND permission_name IN (N'ALTER ANY LOGIN',N'ALTER ANY SERVER ROLE',N'VIEW ANY DATABASE',N'VIEW ANY DEFINITION',N'VIEW SERVER STATE'))<>5 SELECT 'INVALID' AS State;
 ELSE SELECT @UserState AS State;
 """, (login, database, user))
     if len(rows) != 1:

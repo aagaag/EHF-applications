@@ -191,6 +191,15 @@ def test_permission_validator_requires_one_runtime_member_and_dbo_role_owner() -
     assert "The runtime role must contain only ehf_app." in validator
 
 
+def test_production_principal_inspection_uses_valid_outer_sql_and_collation_safe_names() -> None:
+    source = HELPER.read_text(encoding="utf-8")
+
+    assert "IF @UserState=N'INVALID' SELECT 'INVALID' AS State;" in source
+    assert "IF @UserState=N''INVALID''" not in source
+    assert "SET NOCOUNT ON;" in source[source.index("def _cross_database_rows") : source.index("def _inspect_production_state")]
+    assert "CONVERT(varbinary(256),DB_NAME())" in source
+
+
 @pytest.mark.parametrize(
     ("script", "arguments"),
     (
