@@ -37,6 +37,7 @@ class Connection:
         self.cursor_instance = Cursor()
         self.committed = False
         self.closed = False
+        self.autocommit = False
 
     def cursor(self) -> Cursor:
         return self.cursor_instance
@@ -73,7 +74,11 @@ def test_bootstrap_creates_only_the_exact_database_then_uses_checksum_migrations
     validators: list[str] = []
     monkeypatch.setattr(helper, "connect_admin", connect)
     monkeypatch.setattr(helper, "apply_checksum_migrations", lambda connection: migrations.append("applied") or 9)
-    monkeypatch.setattr(helper, "run_validators", lambda connection: validators.append("validated"))
+    monkeypatch.setattr(
+        helper,
+        "run_validators",
+        lambda connection: validators.append("autocommit" if connection.autocommit else "transactional"),
+    )
 
     result = helper.bootstrap(Path("/protected/sql-admin-password"))
 
@@ -84,7 +89,7 @@ def test_bootstrap_creates_only_the_exact_database_then_uses_checksum_migrations
     ]
     assert master.committed and application.committed
     assert migrations == ["applied"]
-    assert validators == ["validated"]
+    assert validators == ["autocommit"]
 
 
 def test_master_creation_connection_is_autocommit_but_application_migration_is_not(monkeypatch) -> None:

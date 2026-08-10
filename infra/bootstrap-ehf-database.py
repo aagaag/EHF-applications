@@ -142,6 +142,7 @@ def bootstrap(credential_path: Path) -> int:
     application = connect_admin(DATABASE, credential_path)
     try:
         applied = apply_checksum_migrations(application)
+        application.autocommit = True
         run_validators(application)
         application.commit()
         return applied
