@@ -20,6 +20,12 @@ PYTHON = Path(
     r"C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime"
     r"\dependencies\python\python.exe"
 )
+PUBLISHED_003_MIGRATION_SHA256 = bytes.fromhex(
+    "472fdfb22cb2ea46f786059905e8c1f9491b7081e145bb8731f9b0c6dd4349ac"
+)
+PUBLISHED_003_VALIDATOR_SHA256 = bytes.fromhex(
+    "da5b321af3e99299181f0fe6cd7ad54236d8859ea44d4cbf9e6547a33df72d12"
+)
 
 
 def migrations_module() -> ModuleType:
@@ -223,6 +229,79 @@ def test_second_run_is_an_idempotent_noop(tmp_path: Path) -> None:
     assert connection.commit_count == 1
 
 
+def test_published_003_artifacts_remain_byte_stable() -> None:
+    """Break caught: editing published 003 would strand databases on checksum drift."""
+    migration_payload = (
+        MIGRATION_DIRECTORY / "003_audit_and_preferences.sql"
+    ).read_bytes()
+    validator_payload = (
+        VALIDATION_DIRECTORY / "003_validate_audit_and_preferences.sql"
+    ).read_bytes()
+
+    assert hashlib.sha256(migration_payload).digest() == PUBLISHED_003_MIGRATION_SHA256
+    assert hashlib.sha256(validator_payload).digest() == PUBLISHED_003_VALIDATOR_SHA256
+
+
+def test_original_003_prefix_upgrades_by_applying_only_004() -> None:
+    """Break caught: an original-003 database could reject or skip the hardening upgrade."""
+    module = migrations_module()
+    migrations = module.discover_migrations(MIGRATION_DIRECTORY)
+    connection = FakeConnection()
+    connection.table_exists = True
+    for migration in migrations[:2]:
+        connection.records[migration.version] = (migration.name, migration.checksum)
+    connection.records[3] = (
+        "audit_and_preferences",
+        PUBLISHED_003_MIGRATION_SHA256,
+    )
+
+    applied = module.apply_migrations(connection, migrations)
+
+    assert applied == 1
+    assert sorted(connection.records) == [1, 2, 3, 4]
+    assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
+    assert connection.records[4] == (
+        migrations[3].name,
+        migrations[3].checksum,
+    )
+    assert connection.executed_batches == ["SET XACT_ABORT ON;", migrations[3].sql]
+    assert connection.commit_count == 1
+
+
+def test_repository_003_drift_still_blocks_004() -> None:
+    """Break caught: a mismatched published 003 could be ignored when 004 is pending."""
+    module = migrations_module()
+    migrations = module.discover_migrations(MIGRATION_DIRECTORY)
+    connection = FakeConnection()
+    connection.table_exists = True
+    for migration in migrations[:2]:
+        connection.records[migration.version] = (migration.name, migration.checksum)
+    connection.records[3] = ("audit_and_preferences", bytes(32))
+
+    with pytest.raises(module.MigrationError, match="003 checksum"):
+        module.apply_migrations(connection, migrations)
+
+    assert connection.executed_batches == []
+    assert connection.commit_count == 0
+
+
+def test_fresh_repository_run_applies_all_four_migrations() -> None:
+    """Break caught: a new database could omit 004 or apply the release out of order."""
+    module = migrations_module()
+    migrations = module.discover_migrations(MIGRATION_DIRECTORY)
+    connection = FakeConnection()
+
+    applied = module.apply_migrations(connection, migrations)
+
+    assert [migration.version for migration in migrations] == [1, 2, 3, 4]
+    assert applied == 4
+    assert connection.records == {
+        migration.version: (migration.name, migration.checksum)
+        for migration in migrations
+    }
+    assert connection.commit_count == 1
+
+
 def test_connection_string_uses_only_ehf_names_and_task_2_secret_reader() -> None:
     """Break caught: EHF could inherit the Finances 2 database identity or credential path."""
     module = importlib.import_module("app.db")
@@ -320,11 +399,13 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "001_database_contract.sql",
         "002_application_core.sql",
         "003_audit_and_preferences.sql",
+        "004_audit_and_preference_hardening.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
         "002_validate_application_core.sql",
         "003_validate_audit_and_preferences.sql",
+        "004_validate_audit_and_preference_hardening.sql",
     ]
 
 
@@ -414,15 +495,15 @@ def test_provenance_and_section_history_have_independent_versions() -> None:
 def test_audit_payload_policy_normalizes_aliases_at_every_json_depth() -> None:
     """Break caught: casing, separators, aliases, or nesting could bypass redaction policy."""
     migration = (
-        MIGRATION_DIRECTORY / "003_audit_and_preferences.sql"
+        MIGRATION_DIRECTORY / "004_audit_and_preference_hardening.sql"
     ).read_text(encoding="utf-8")
     validator = (
-        VALIDATION_DIRECTORY / "003_validate_audit_and_preferences.sql"
+        VALIDATION_DIRECTORY / "004_validate_audit_and_preference_hardening.sql"
     ).read_text(encoding="utf-8")
 
     assert "CREATE FUNCTION dbo.IsAuditPayloadKeyProhibited" in migration
     assert re.search(
-        r"TR_AuditEvent_RejectSensitivePayload.*?UNION ALL.*?"
+        r"ALTER TRIGGER dbo\.TR_AuditEvent_RejectSensitivePayload.*?UNION ALL.*?"
         r"dbo\.IsAuditPayloadKeyProhibited\(JsonKey\)\s*=\s*1",
         migration,
         flags=re.IGNORECASE | re.DOTALL,
@@ -470,28 +551,44 @@ def test_audit_payload_policy_normalizes_aliases_at_every_json_depth() -> None:
 def test_user_preference_guard_uses_unspoofable_module_execution_context() -> None:
     """Break caught: a table-DML caller could forge session state and skip auditing."""
     migration = (
-        MIGRATION_DIRECTORY / "003_audit_and_preferences.sql"
+        MIGRATION_DIRECTORY / "004_audit_and_preference_hardening.sql"
     ).read_text(encoding="utf-8")
     validator = (
-        VALIDATION_DIRECTORY / "003_validate_audit_and_preferences.sql"
+        VALIDATION_DIRECTORY / "004_validate_audit_and_preference_hardening.sql"
     ).read_text(encoding="utf-8")
 
     assert "SESSION_CONTEXT" not in migration
+    assert "EXECUTE AS OWNER" not in migration
+    assert "CREATE USER EHFPreferenceProcedureExecutor WITHOUT LOGIN" in migration
+    assert (
+        "DENY IMPERSONATE ON USER::EHFPreferenceProcedureExecutor TO public"
+        in migration
+    )
     assert re.search(
-        r"CREATE TRIGGER dbo\.TR_UserPreference_ProcedureOnly.*?"
+        r"ALTER PROCEDURE dbo\.SetUserPreference.*?END;\s*'\);\s*"
+        r"DENY IMPERSONATE ON USER::EHFPreferenceProcedureExecutor TO public",
+        migration,
+        flags=re.IGNORECASE | re.DOTALL,
+    ), "bind the module execution context before denying runtime impersonation"
+    assert re.search(
+        r"ALTER TRIGGER dbo\.TR_UserPreference_ProcedureOnly.*?"
         r"AFTER\s+INSERT,\s*UPDATE,\s*DELETE.*?"
-        r"USER_NAME\(\)\s*<>\s*N''dbo''",
+        r"USER_NAME\(\)\s*<>\s*N''EHFPreferenceProcedureExecutor''",
         migration,
         flags=re.IGNORECASE | re.DOTALL,
     )
     assert re.search(
-        r"CREATE PROCEDURE dbo\.SetUserPreference.*?"
-        r"WITH\s+EXECUTE\s+AS\s+OWNER\s+AS",
+        r"ALTER PROCEDURE dbo\.SetUserPreference.*?"
+        r"WITH\s+EXECUTE\s+AS\s+''EHFPreferenceProcedureExecutor''\s+AS",
         migration,
         flags=re.IGNORECASE | re.DOTALL,
     )
 
     for contract_fragment in (
+        "DATABASE_PRINCIPAL_ID(N'EHFPreferenceProcedureExecutor')",
+        "execute_as_principal_id",
+        "HAS_PERMS_BY_NAME",
+        "IMPERSONATE",
         "CREATE USER EHFPreferenceDmlValidator WITHOUT LOGIN",
         "GRANT INSERT, UPDATE, DELETE ON dbo.UserPreference",
         "GRANT EXECUTE ON dbo.SetUserPreference",
@@ -501,6 +598,25 @@ def test_user_preference_guard_uses_unspoofable_module_execution_context() -> No
         "REVERT",
     ):
         assert contract_fragment.casefold() in validator.casefold(), contract_fragment
+
+
+def test_database_script_requires_and_applies_004() -> None:
+    """Break caught: the isolated harness could stop at 003 and miss the hardening."""
+    script = DATABASE_SCRIPT.read_text(encoding="utf-8")
+
+    assert "004_audit_and_preference_hardening.sql" in script
+    assert "004_validate_audit_and_preference_hardening.sql" in script
+    assert "Applied 4 migration\\(s\\)\\." in script
+
+
+def test_database_contract_validator_reports_version_four() -> None:
+    """Break caught: post-upgrade validation could still require the old 003 tip."""
+    validator = (
+        VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 4" in validator
+    assert "WHERE MigrationCount = 4 AND CurrentVersion = 4" in validator
 
 
 def test_database_script_rejects_a_non_test_database_before_connecting() -> None:

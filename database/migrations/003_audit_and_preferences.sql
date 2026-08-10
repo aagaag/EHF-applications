@@ -57,39 +57,6 @@ CREATE TABLE dbo.UserPreference
 );
 
 EXEC(N'
-CREATE FUNCTION dbo.IsAuditPayloadKeyProhibited
-(
-    @JsonKey nvarchar(4000)
-)
-RETURNS bit
-WITH SCHEMABINDING
-AS
-BEGIN
-    DECLARE @NormalizedKey nvarchar(4000) = LOWER(COALESCE(@JsonKey, N''''));
-
-    SET @NormalizedKey = REPLACE(@NormalizedKey, N''_'', N'''');
-    SET @NormalizedKey = REPLACE(@NormalizedKey, N''-'', N'''');
-    SET @NormalizedKey = REPLACE(@NormalizedKey, N'' '', N'''');
-    SET @NormalizedKey = REPLACE(@NormalizedKey, N''.'', N'''');
-    SET @NormalizedKey = REPLACE(@NormalizedKey, N''/'', N'''');
-    SET @NormalizedKey = REPLACE(@NormalizedKey, N''\'', N'''');
-    SET @NormalizedKey = REPLACE(@NormalizedKey, N'':'', N'''');
-
-    IF @NormalizedKey IN
-    (
-        N''before'', N''after'',
-        N''applicationid'', N''applicantid'', N''callid'',
-        N''documentid'', N''requestid'', N''userpreferenceid'',
-        N''status'', N''skin'', N''invertcolors'',
-        N''compactdensity'', N''reducemotion''
-    )
-        RETURN 0;
-
-    RETURN 1;
-END;
-');
-
-EXEC(N'
 CREATE TRIGGER dbo.TR_AuditEvent_AppendOnly
 ON dbo.AuditEvent
 INSTEAD OF UPDATE, DELETE
@@ -134,7 +101,14 @@ BEGIN
     )
     SELECT TOP (1) @Unsafe = 1
     FROM PayloadNode
-    WHERE dbo.IsAuditPayloadKeyProhibited(JsonKey) = 1;
+    WHERE LOWER(REPLACE(REPLACE(REPLACE(JsonKey, ''_'', ''''), ''-'', ''''), '' '', ''''))
+        IN
+        (
+            ''password'', ''secret'', ''otp'', ''otpcode'', ''token'',
+            ''accesstoken'', ''refreshtoken'', ''rawdocument'',
+            ''documentcontent'', ''requestbody'', ''rawrequestbody'',
+            ''rawrequest'', ''body''
+        );
 
     IF @Unsafe = 1
         THROW 51032, ''Audit payload contains a prohibited field.'', 1;
@@ -148,7 +122,7 @@ AFTER INSERT, UPDATE, DELETE
 AS
 BEGIN
     SET NOCOUNT ON;
-    IF USER_NAME() <> N''dbo''
+    IF COALESCE(TRY_CONVERT(bit, SESSION_CONTEXT(N''EHF.UserPreferenceProcedure'')), 0) <> 1
         THROW 51033, ''User preferences may be changed only through the approved procedure.'', 1;
 END;
 ');
@@ -263,7 +237,6 @@ CREATE PROCEDURE dbo.SetUserPreference
     @CompactDensity bit,
     @ReduceMotion bit,
     @ActorIdentity nvarchar(255)
-WITH EXECUTE AS OWNER
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -299,6 +272,9 @@ BEGIN
             @BeforeReduceMotion = ReduceMotion
         FROM dbo.UserPreference WITH (UPDLOCK, HOLDLOCK)
         WHERE IdentityKey = @IdentityKey;
+
+        EXEC sys.sp_set_session_context
+            @key = N''EHF.UserPreferenceProcedure'', @value = 1;
 
         IF @UserPreferenceId IS NULL
         BEGIN
@@ -339,6 +315,9 @@ BEGIN
                 UpdatedAtUtc = SYSUTCDATETIME()
             WHERE UserPreferenceId = @UserPreferenceId;
         END;
+
+        EXEC sys.sp_set_session_context
+            @key = N''EHF.UserPreferenceProcedure'', @value = NULL;
 
         SELECT @PayloadJson =
         (
@@ -403,6 +382,8 @@ BEGIN
         WHERE UserPreferenceId = @UserPreferenceId;
     END TRY
     BEGIN CATCH
+        EXEC sys.sp_set_session_context
+            @key = N''EHF.UserPreferenceProcedure'', @value = NULL;
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         THROW;
     END CATCH;
