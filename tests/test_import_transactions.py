@@ -53,7 +53,7 @@ def test_nonempty_scan_failure_blocks_import_and_rolls_back_the_occurrence(tmp_p
     """Break caught: a non-empty failed document could be omitted from a completed import."""
     repository = MemoryRepository()
 
-    with pytest.raises(ImportExecutionError):
+    with pytest.raises(ImportExecutionError, match="document-admission"):
         execute_import(request(tmp_path), repository, ScanFailingIngestor(), mode=ImportMode.APPLY)
 
     assert repository.documents == []

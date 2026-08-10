@@ -56,6 +56,14 @@ class _DocumentRegistrationError(RuntimeError):
     """A database write failed after a document object was prepared."""
 
 
+class _DocumentAdmissionError(RuntimeError):
+    """A PII-free document admission phase failed before metadata registration."""
+
+    def __init__(self, phase: str, cause_type: str) -> None:
+        super().__init__(f"Document admission failed during {phase} ({cause_type}).")
+        self.phase = phase
+
+
 def _record_legacy_recommendation(connection: Any, document_id: str, document_type: str) -> None:
     """Make recommendation confidentiality authoritative at import time."""
     if document_type == DocumentType.RECOMMENDATION_LETTER.value:
@@ -224,21 +232,30 @@ class DocumentStoreIngestor:
         validation: ValidatedPdf | None = None
         scan: ScanResult | None = None
         registration_failed = False
+        admission_failure: tuple[str, str] | None = None
 
         def validator(path: Path) -> ValidatedPdf:
-            nonlocal validation
-            validation = validate_pdf(
-                path,
-                declared_filename=source.name,
-                declared_media_type="application/pdf",
-            )
-            return validation
+            nonlocal validation, admission_failure
+            try:
+                validation = validate_pdf(
+                    path,
+                    declared_filename=source.name,
+                    declared_media_type="application/pdf",
+                )
+                return validation
+            except Exception as error:
+                admission_failure = ("pdf-validation", type(error).__name__)
+                raise
 
         class ScanCapture:
             def scan(self, path: Path) -> ScanResult:
-                nonlocal scan
-                scan = self_outer._scanner.scan(path)
-                return scan
+                nonlocal scan, admission_failure
+                try:
+                    scan = self_outer._scanner.scan(path)
+                    return scan
+                except Exception as error:
+                    admission_failure = ("malware-scan", type(error).__name__)
+                    raise
 
         self_outer = self
 
@@ -268,6 +285,8 @@ class DocumentStoreIngestor:
         except Exception:
             if registration_failed:
                 raise _DocumentRegistrationError("Document metadata registration failed.") from None
+            if admission_failure is not None:
+                raise _DocumentAdmissionError(*admission_failure) from None
             raise
         if validation is None or scan is None:
             raise _DocumentRegistrationError("Document admission was incomplete.")
@@ -739,13 +758,15 @@ def _import_applicant(
                     )
                 except _DocumentRegistrationError:
                     raise
-                except Exception:
+                except Exception as error:
                     repository.record_occurrence(
                         run_id, row_id, application_id, occurrence, None, "REJECTED"
                     )
                     repository.record_exception(run_id, row_id, "document-ingestion-failed")
                     exceptions["document-ingestion-failed"] += 1
                     if occurrence.byte_size > 0:
+                        if isinstance(error, _DocumentAdmissionError):
+                            stage = f"document-admission-{error.phase}"
                         raise _DocumentRegistrationError(
                             "A non-empty source document failed admission."
                         )
