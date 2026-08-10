@@ -609,6 +609,19 @@ def test_database_script_requires_and_applies_004() -> None:
     assert "Applied 4 migration\\(s\\)\\." in script
 
 
+def test_database_script_enables_quoted_identifier_for_every_sqlcmd_session() -> None:
+    """Break caught: a fresh validator session could reject filtered-index DML."""
+    script = DATABASE_SCRIPT.read_text(encoding="utf-8")
+    arguments = re.search(
+        r"\$arguments\s*=\s*@\((.*?)\n\s*\)",
+        script,
+        flags=re.DOTALL,
+    )
+
+    assert arguments is not None
+    assert "'-I'" in arguments.group(1)
+
+
 def test_database_contract_validator_reports_version_four() -> None:
     """Break caught: post-upgrade validation could still require the old 003 tip."""
     validator = (

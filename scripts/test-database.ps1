@@ -68,6 +68,7 @@ function Invoke-TrustedSqlcmd {
         '-S', $ServerInstance,
         '-E',
         '-C',
+        '-I',
         '-b',
         '-V', '11',
         '-r', '1',
