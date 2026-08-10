@@ -134,6 +134,14 @@ def test_permission_validator_requires_each_table_dml_deny_and_rejects_database_
     assert "A required runtime CONNECT grant is missing." in validator
 
 
+def test_permission_validator_normalizes_catalog_permission_collation_in_both_dml_checks() -> None:
+    """Break caught: SQL Server catalog collation can conflict with the table-variable collation in either DML comparison."""
+    validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(encoding="utf-8")
+
+    expected_comparison = "permission_row.permission_name COLLATE DATABASE_DEFAULT = required_deny.PermissionName"
+    assert validator.count(expected_comparison) == 2
+
+
 @pytest.mark.parametrize(
     ("script", "arguments"),
     (

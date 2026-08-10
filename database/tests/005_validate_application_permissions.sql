@@ -80,7 +80,7 @@ IF EXISTS
           AND permission_row.class = 1
           AND permission_row.major_id = OBJECT_ID(N'dbo.' + required_deny.TableName, N'U')
           AND permission_row.minor_id = 0
-          AND permission_row.permission_name = required_deny.PermissionName
+          AND permission_row.permission_name COLLATE DATABASE_DEFAULT = required_deny.PermissionName
           AND permission_row.state_desc = N'DENY'
     )
 )
@@ -96,7 +96,7 @@ IF EXISTS
           WHERE permission_row.class = 1
             AND permission_row.major_id = OBJECT_ID(N'dbo.' + required_deny.TableName, N'U')
             AND permission_row.minor_id = 0
-            AND permission_row.permission_name = required_deny.PermissionName
+            AND permission_row.permission_name COLLATE DATABASE_DEFAULT = required_deny.PermissionName
             AND permission_row.state_desc = N'DENY'
       )
 )
