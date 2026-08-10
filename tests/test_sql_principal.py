@@ -227,11 +227,10 @@ def test_user_mapping_uses_autocommit_for_database_ddl() -> None:
     suffix = "0123456789abcdef01234567"
 
     helper.map_test_user(
-        connection,
-        f"EHFApplications_Test_sqlperm_{suffix}",
-        f"ehf_app_test_{suffix}",
-        Path("/protected/test-password"),
-        f"ehf_app_test_{suffix}",
+            connection,
+            f"EHFApplications_Test_sqlperm_{suffix}",
+            f"ehf_app_test_{suffix}",
+            f"ehf_app_test_{suffix}",
     )
 
     assert connection.autocommit is True
@@ -283,10 +282,11 @@ def test_status_probe_uses_the_real_test_login_and_parameter_binding(monkeypatch
 
     helper.exercise_test_status(
         admin_connection,
-        "tcp:127.0.0.1,1433",
-        f"EHFApplications_Test_sqlperm_{suffix}",
-        f"ehf_app_test_{suffix}",
-    )
+            "tcp:127.0.0.1,1433",
+            f"EHFApplications_Test_sqlperm_{suffix}",
+            f"ehf_app_test_{suffix}",
+            Path("/protected/test-password"),
+        )
 
     runtime_sql, runtime_parameters = runtime_connection.cursor_instance.executions[0]
     assert "SetApplicationStatus" in runtime_sql
