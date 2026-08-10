@@ -39,7 +39,11 @@ def validate_pdf(
     try:
         if policy.max_bytes <= 0 or policy.max_pages <= 0:
             raise ValueError
-        if source.suffix.casefold() != ".pdf" or Path(declared_filename).suffix.casefold() != ".pdf":
+        # The bytes are validated from a private quarantine file whose random
+        # staging name intentionally ends in .tmp. The user-visible declared
+        # filename must still be PDF-only, while magic and structure checks
+        # below remain authoritative for the staged content.
+        if Path(declared_filename).suffix.casefold() != ".pdf":
             raise ValueError
         if declared_media_type.casefold() != "application/pdf":
             raise ValueError

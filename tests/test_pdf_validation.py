@@ -44,6 +44,20 @@ def test_accepts_a_bounded_plain_pdf(tmp_path: Path) -> None:
     assert admitted.media_type == "application/pdf"
 
 
+def test_accepts_valid_pdf_bytes_from_a_private_tmp_quarantine_name(tmp_path: Path) -> None:
+    """Break caught: every upload was rejected after its safe copy received a random .tmp name."""
+    source = tmp_path / "private-quarantine.tmp"
+    source.write_bytes(pdf_bytes())
+
+    admitted = validate_pdf(
+        source,
+        declared_filename="document.pdf",
+        declared_media_type="application/pdf",
+    )
+
+    assert admitted.page_count == 1
+
+
 @pytest.mark.parametrize(
     ("filename", "media_type"),
     [("document.txt", "application/pdf"), ("document.pdf", "text/plain")],
