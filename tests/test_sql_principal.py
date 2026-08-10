@@ -190,7 +190,6 @@ def test_cleanup_only_accepts_exact_randomized_test_targets() -> None:
         f"EHFApplications_Test_sqlperm_peer_{suffix}",
         f"ehf_app_test_{suffix}",
         "0123456789abcdef0123456789abcdef",
-        Path("/protected/test-password"),
     )
 
     assert all("0123456789abcdef01234567" not in sql for sql, _ in cursor.executions)
@@ -231,6 +230,7 @@ def test_user_mapping_uses_autocommit_for_database_ddl() -> None:
         connection,
         f"EHFApplications_Test_sqlperm_{suffix}",
         f"ehf_app_test_{suffix}",
+        Path("/protected/test-password"),
         f"ehf_app_test_{suffix}",
     )
 
@@ -378,7 +378,6 @@ def test_test_cleanup_requires_token_and_current_run_credential() -> None:
         f"EHFApplications_Test_sqlperm_peer_{suffix}",
         f"ehf_app_test_{suffix}",
         "0123456789abcdef0123456789abcdef",
-        Path("/protected/test-password"),
     )
     statements = "\n".join(statement for statement, _ in cursor.executions)
     assert "DROP DATABASE" not in statements
