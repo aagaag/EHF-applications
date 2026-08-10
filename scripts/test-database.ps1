@@ -39,12 +39,12 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 $migrationFiles = @(Get-ChildItem -LiteralPath $migrationDirectory -File -Filter '*.sql' | Sort-Object Name)
 $validationFiles = @(Get-ChildItem -LiteralPath $validationDirectory -File -Filter '*.sql' | Sort-Object Name)
 if (($migrationFiles.Name -join ',') -ne
-    '001_database_contract.sql,002_application_core.sql,003_audit_and_preferences.sql,004_audit_and_preference_hardening.sql') {
-    throw 'The isolated test requires exactly migrations 001 through 004.'
+    '001_database_contract.sql,002_application_core.sql,003_audit_and_preferences.sql,004_audit_and_preference_hardening.sql,005_application_permissions.sql') {
+    throw 'The isolated test requires exactly migrations 001 through 005.'
 }
 if (($validationFiles.Name -join ',') -ne
-    '001_validate_database_contract.sql,002_validate_application_core.sql,003_validate_audit_and_preferences.sql,004_validate_audit_and_preference_hardening.sql') {
-    throw 'The isolated test requires exactly validators 001 through 004.'
+    '001_validate_database_contract.sql,002_validate_application_core.sql,003_validate_audit_and_preferences.sql,004_validate_audit_and_preference_hardening.sql,005_validate_application_permissions.sql') {
+    throw 'The isolated test requires exactly validators 001 through 005.'
 }
 
 $sqlcmdCommand = Get-Command 'sqlcmd' -ErrorAction SilentlyContinue
@@ -165,8 +165,8 @@ try {
     $createdDatabase = $true
 
     $firstRun = @(Invoke-MigrationRunner)
-    if (($firstRun -join "`n") -notmatch 'Applied 4 migration\(s\)\.') {
-        throw 'The first migration run did not apply exactly four migrations.'
+    if (($firstRun -join "`n") -notmatch 'Applied 5 migration\(s\)\.') {
+        throw 'The first migration run did not apply exactly five migrations.'
     }
     $firstRun | Write-Output
 
