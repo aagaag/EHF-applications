@@ -491,8 +491,12 @@ BEGIN TRY
      OR (SELECT COUNT(*) FROM sys.database_role_members WHERE member_principal_id=@UserId)<>1
      OR NOT EXISTS (SELECT 1 FROM sys.database_role_members WHERE member_principal_id=@UserId AND role_principal_id=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime''))
     THROW 51727,''Expected unmapped production user has an unsafe shape.'',1;
-  DECLARE @Map nvarchar(max)=N''ALTER USER ''+QUOTENAME(@UserName)+N'' WITH LOGIN = ''+QUOTENAME(@LoginName)+N'';'';
-  EXEC(@Map);
+  DECLARE @Transition nvarchar(max)=
+      N''ALTER ROLE [EHFApplicationRuntime] DROP MEMBER ''+QUOTENAME(@UserName)+N'';''
+     +N''DROP USER ''+QUOTENAME(@UserName)+N'';''
+     +N''CREATE USER ''+QUOTENAME(@UserName)+N'' FOR LOGIN ''+QUOTENAME(@LoginName)+N'';''
+     +N''ALTER ROLE [EHFApplicationRuntime] ADD MEMBER ''+QUOTENAME(@UserName)+N'';'';
+  EXEC(@Transition);
   SET @UserId=NULL; SET @ExistingSid=NULL; SET @Auth=NULL;
   SELECT @UserId=principal_id,@ExistingSid=sid,@Auth=authentication_type_desc
   FROM sys.database_principals WHERE name=@UserName AND type_desc=N''SQL_USER'';

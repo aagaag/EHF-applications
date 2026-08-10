@@ -519,8 +519,8 @@ def test_production_mapping_proves_effective_database_isolation_before_mutation(
         )
 
 
-def test_production_mapping_revalidates_exact_user_shape_before_alter_user(monkeypatch) -> None:
-    """Break caught: an ownership, permission, authentication, or role race could reach ALTER USER."""
+def test_production_mapping_revalidates_exact_user_shape_before_atomic_recreation(monkeypatch) -> None:
+    """Break caught: an ownership, permission, authentication, or role race could reach recreation."""
     helper = load_helper()
     connection = FakeConnection(FakeCursor())
     monkeypatch.setattr(helper, "inspect_production", lambda *_: "UNMAPPED")
@@ -536,7 +536,7 @@ def test_production_mapping_revalidates_exact_user_shape_before_alter_user(monke
 
     assert len(connection.cursor_instance.executions) == 1
     statement, parameters = connection.cursor_instance.executions[0]
-    alter_index = statement.index("ALTER USER")
+    transition_index = statement.index("ALTER ROLE [EHFApplicationRuntime] DROP MEMBER")
     for precondition in (
         "@Auth<>N''NONE''",
         "sys.schemas WHERE principal_id=@UserId",
@@ -547,12 +547,12 @@ def test_production_mapping_revalidates_exact_user_shape_before_alter_user(monke
         "role_principal_id=DATABASE_PRINCIPAL_ID(N''EHFApplicationRuntime'')",
     ):
         assert precondition in statement
-        assert statement.index(precondition) < alter_index
+        assert statement.index(precondition) < transition_index
     assert parameters == ("EHFApplications", "ehf_app", "ehf_app")
 
 
-def test_production_mapping_is_atomic_and_rechecks_postcondition_without_test_mutations(monkeypatch) -> None:
-    """Break caught: production mapping could partially mutate or create, grant, or revoke like the test path."""
+def test_production_mapping_atomically_recreates_without_login_user_after_sql_33016(monkeypatch) -> None:
+    """Break caught: ALTER USER cannot map a SQL_USER created WITHOUT LOGIN (SQL error 33016)."""
     helper = load_helper()
     connection = FakeConnection(FakeCursor())
     monkeypatch.setattr(helper, "inspect_production", lambda *_: "UNMAPPED")
@@ -567,21 +567,38 @@ def test_production_mapping_is_atomic_and_rechecks_postcondition_without_test_mu
     )
 
     statement, _ = connection.cursor_instance.executions[0]
-    alter_index = statement.index("ALTER USER")
+    transition_fragments = (
+        "ALTER ROLE [EHFApplicationRuntime] DROP MEMBER ''+QUOTENAME(@UserName)",
+        "DROP USER ''+QUOTENAME(@UserName)",
+        "CREATE USER ''+QUOTENAME(@UserName)+N'' FOR LOGIN ''+QUOTENAME(@LoginName)",
+        "ALTER ROLE [EHFApplicationRuntime] ADD MEMBER ''+QUOTENAME(@UserName)",
+    )
+    transition_indices = tuple(statement.index(fragment) for fragment in transition_fragments)
+    transition_start = transition_indices[0]
+    transition_execute = statement.index("EXEC(@Transition);")
+    postcheck_start = statement.index("SET @UserId=NULL")
     assert "SET XACT_ABORT ON" in statement
-    assert statement.index("BEGIN TRANSACTION") < alter_index
-    assert statement.index("BEGIN TRY") < alter_index
+    assert statement.index("BEGIN TRANSACTION") < transition_start
+    assert statement.index("BEGIN TRY") < transition_start
+    assert transition_indices == tuple(sorted(transition_indices))
+    assert transition_indices[-1] < transition_execute < postcheck_start
+    assert transition_indices[-1] < statement.rindex(
+        "SELECT @UserId=principal_id,@ExistingSid=sid,@Auth=authentication_type_desc"
+    )
     assert statement.count("authentication_type_desc") >= 2
     assert statement.count("sys.database_permissions WHERE grantee_principal_id=@UserId") >= 2
-    assert statement.index("COMMIT TRANSACTION") > alter_index
+    assert statement.index("COMMIT TRANSACTION") > postcheck_start
     assert "BEGIN CATCH" in statement
     assert "IF XACT_STATE()<>0 ROLLBACK TRANSACTION" in statement
-    assert "CREATE USER" not in statement
-    assert "ALTER ROLE" not in statement
+    assert "ALTER USER" not in statement
+    assert statement.count("DROP USER") == 1
+    assert statement.count("CREATE USER") == 1
+    assert statement.count("ALTER ROLE [EHFApplicationRuntime]") == 2
     assert "REVOKE CONNECT" not in statement
+    assert re.search(r"\bGRANT\s+[A-Z]", statement, re.IGNORECASE) is None
 
 
-def test_production_mapping_revalidates_complete_topology_before_and_after_alter(monkeypatch) -> None:
+def test_production_mapping_revalidates_complete_topology_before_and_after_recreation(monkeypatch) -> None:
     """Break caught: server-login or runtime-role drift could escape the mapping transaction."""
     helper = load_helper()
     connection = FakeConnection(FakeCursor())
@@ -597,7 +614,7 @@ def test_production_mapping_revalidates_complete_topology_before_and_after_alter
     )
 
     statement, _ = connection.cursor_instance.executions[0]
-    alter_index = statement.index("ALTER USER")
+    transition_index = statement.index("ALTER ROLE [EHFApplicationRuntime] DROP MEMBER")
     commit_index = statement.index("COMMIT TRANSACTION")
     for topology_check in (
         "INNER JOIN sys.sql_logins AS login_row",
@@ -619,8 +636,8 @@ def test_production_mapping_revalidates_complete_topology_before_and_after_alter
         "sys.database_principals WHERE owning_principal_id=@RuntimeRoleId",
     ):
         assert statement.count(topology_check) >= 2, topology_check
-        assert statement.index(topology_check) < alter_index, topology_check
-        assert alter_index < statement.rindex(topology_check) < commit_index, topology_check
+        assert statement.index(topology_check) < transition_index, topology_check
+        assert transition_index < statement.rindex(topology_check) < commit_index, topology_check
     for denied_permission in helper.EXPECTED_SERVER_DENIES:
         assert statement.count(f"N''{denied_permission}''") >= 4
     assert statement.count(")<>5") >= 2
