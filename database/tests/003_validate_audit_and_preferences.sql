@@ -12,16 +12,17 @@ IF OBJECT_ID(N'dbo.SetApplicationStatus', N'P') IS NULL
    OR OBJECT_ID(N'dbo.SetUserPreference', N'P') IS NULL
     THROW 51302, 'An audited mutation procedure is missing.', 1;
 
-BEGIN TRANSACTION;
 BEGIN TRY
-    DECLARE @SafeAuditEventId uniqueidentifier = NEWID();
-    INSERT dbo.AuditEvent
-        (AuditEventId, EventType, ActorIdentity, EntityType, EntityId, PayloadJson)
-    VALUES
-        (@SafeAuditEventId, 'VALIDATOR_SAFE', N'validator', 'Validator', NEWID(),
-         N'{"before":{"status":"DRAFT"},"after":{"status":"OPEN"}}');
-
+    -- ISOLATED EXPECTED FAILURE: audit update
+    BEGIN TRANSACTION;
     BEGIN TRY
+        DECLARE @SafeAuditEventId uniqueidentifier = NEWID();
+        INSERT dbo.AuditEvent
+            (AuditEventId, EventType, ActorIdentity, EntityType, EntityId, PayloadJson)
+        VALUES
+            (@SafeAuditEventId, 'VALIDATOR_SAFE', N'validator', 'Validator', NEWID(),
+             N'{"before":{"status":"DRAFT"},"after":{"status":"OPEN"}}');
+
         UPDATE dbo.AuditEvent
         SET EventType = 'MUTATED'
         WHERE AuditEventId = @SafeAuditEventId;
@@ -30,8 +31,11 @@ BEGIN TRY
     BEGIN CATCH
         IF ERROR_NUMBER() = 51303 THROW;
         IF ERROR_NUMBER() <> 51031 THROW;
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
     END CATCH;
 
+    -- ISOLATED EXPECTED FAILURE: prohibited audit payload
+    BEGIN TRANSACTION;
     BEGIN TRY
         INSERT dbo.AuditEvent
             (EventType, ActorIdentity, EntityType, EntityId, PayloadJson)
@@ -43,8 +47,11 @@ BEGIN TRY
     BEGIN CATCH
         IF ERROR_NUMBER() = 51304 THROW;
         IF ERROR_NUMBER() <> 51032 THROW;
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
     END CATCH;
 
+    -- ISOLATED EXPECTED FAILURE: direct preference DML
+    BEGIN TRANSACTION;
     BEGIN TRY
         INSERT dbo.UserPreference
             (IdentityKey, Email, DisplayName, Skin,
@@ -57,8 +64,12 @@ BEGIN TRY
     BEGIN CATCH
         IF ERROR_NUMBER() = 51305 THROW;
         IF ERROR_NUMBER() <> 51033 THROW;
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
     END CATCH;
 
+    -- SUCCESSFUL VALIDATOR WRITES (ROLLED BACK)
+    BEGIN TRANSACTION;
+    BEGIN TRY
     EXEC dbo.SetUserPreference
         @IdentityKey = N'validator-identity',
         @Email = N'validator@example.invalid',
@@ -135,6 +146,11 @@ BEGIN TRY
         THROW 51309, 'SetApplicationStatus did not append before/after audit facts.', 1;
 
     ROLLBACK TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
 END TRY
 BEGIN CATCH
     EXEC sys.sp_set_session_context

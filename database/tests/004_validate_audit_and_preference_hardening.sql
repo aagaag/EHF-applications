@@ -21,22 +21,16 @@ IF NOT EXISTS
 )
     THROW 51407, 'SetUserPreference has the wrong execution principal.', 1;
 
-BEGIN TRANSACTION;
+DECLARE @CreatedValidatorUser bit = 0;
+DECLARE @IsImpersonated bit = 0;
+
 BEGIN TRY
     CREATE USER EHFPreferenceDmlValidator WITHOUT LOGIN;
     GRANT INSERT, UPDATE, DELETE ON dbo.UserPreference
         TO EHFPreferenceDmlValidator;
     GRANT EXECUTE ON dbo.SetUserPreference
         TO EHFPreferenceDmlValidator;
-
-    INSERT dbo.AuditEvent
-        (EventType, ActorIdentity, EntityType, EntityId, PayloadJson)
-    VALUES
-        ('VALIDATOR_SAFE', N'validator', 'Validator', NEWID(),
-         N'{"applicationId":"00000000-0000-0000-0000-000000000001",'
-         + N'"documentId":"00000000-0000-0000-0000-000000000002",'
-         + N'"requestId":"00000000-0000-0000-0000-000000000003",'
-         + N'"before":{"status":"DRAFT"},"after":{"status":"OPEN"}}');
+    SET @CreatedValidatorUser = 1;
 
     DECLARE @ProhibitedAuditPayload TABLE
     (
@@ -70,6 +64,10 @@ BEGIN TRY
         FROM @ProhibitedAuditPayload
         ORDER BY CaseName;
 
+        DELETE @ProhibitedAuditPayload WHERE CaseName = @ProhibitedCaseName;
+
+        -- ISOLATED EXPECTED FAILURE: prohibited audit payload aliases
+        BEGIN TRANSACTION;
         BEGIN TRY
             INSERT dbo.AuditEvent
                 (EventType, ActorIdentity, EntityType, EntityId, PayloadJson)
@@ -81,17 +79,20 @@ BEGIN TRY
         BEGIN CATCH
             IF ERROR_NUMBER() = 51402 THROW;
             IF ERROR_NUMBER() <> 51032 THROW;
+            IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         END CATCH;
-
-        DELETE @ProhibitedAuditPayload WHERE CaseName = @ProhibitedCaseName;
     END;
 
     DECLARE @DirectPreferenceWriteRejected bit = 0;
+    -- ISOLATED EXPECTED FAILURE: direct preference DML
+    BEGIN TRANSACTION;
     EXECUTE AS USER = N'EHFPreferenceDmlValidator';
+    SET @IsImpersonated = 1;
     IF HAS_PERMS_BY_NAME
        (N'EHFPreferenceProcedureExecutor', N'USER', N'IMPERSONATE') <> 0
     BEGIN
         REVERT;
+        SET @IsImpersonated = 0;
         THROW 51408, 'The direct-DML principal can impersonate the procedure executor.', 1;
     END;
     EXEC sys.sp_set_session_context
@@ -110,6 +111,8 @@ BEGIN TRY
             EXEC sys.sp_set_session_context
                 @key = N'EHF.UserPreferenceProcedure', @value = NULL;
             REVERT;
+            SET @IsImpersonated = 0;
+            IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
             THROW;
         END;
         SET @DirectPreferenceWriteRejected = 1;
@@ -117,25 +120,56 @@ BEGIN TRY
     EXEC sys.sp_set_session_context
         @key = N'EHF.UserPreferenceProcedure', @value = NULL;
     REVERT;
+    SET @IsImpersonated = 0;
+    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
 
     IF @DirectPreferenceWriteRejected <> 1
         THROW 51403, 'Caller-controlled session context enabled direct preference DML.', 1;
 
-    EXECUTE AS USER = N'EHFPreferenceDmlValidator';
+    -- SUCCESSFUL VALIDATOR WRITES (ROLLED BACK)
+    BEGIN TRANSACTION;
     BEGIN TRY
-        EXEC dbo.SetUserPreference
-            @IdentityKey = N'validator-identity',
-            @Email = N'validator@example.invalid',
-            @DisplayName = N'Validator identity',
-            @Skin = 'soft-earth',
-            @InvertColors = 1,
-            @CompactDensity = 0,
-            @ReduceMotion = 1,
-            @ActorIdentity = N'validator-identity';
-        REVERT;
+        INSERT dbo.AuditEvent
+            (EventType, ActorIdentity, EntityType, EntityId, PayloadJson)
+        VALUES
+            ('VALIDATOR_SAFE', N'validator', 'Validator', NEWID(),
+             N'{"applicationId":"00000000-0000-0000-0000-000000000001",'
+             + N'"documentId":"00000000-0000-0000-0000-000000000002",'
+             + N'"requestId":"00000000-0000-0000-0000-000000000003",'
+             + N'"before":{"status":"DRAFT"},"after":{"status":"OPEN"}}');
+
+        BEGIN TRY
+            EXECUTE AS USER = N'EHFPreferenceDmlValidator';
+            SET @IsImpersonated = 1;
+            EXEC dbo.SetUserPreference
+                @IdentityKey = N'validator-identity',
+                @Email = N'validator@example.invalid',
+                @DisplayName = N'Validator identity',
+                @Skin = 'soft-earth',
+                @InvertColors = 1,
+                @CompactDensity = 0,
+                @ReduceMotion = 1,
+                @ActorIdentity = N'validator-identity';
+            REVERT;
+            SET @IsImpersonated = 0;
+        END TRY
+        BEGIN CATCH
+            IF @IsImpersonated = 1
+            BEGIN
+                REVERT;
+                SET @IsImpersonated = 0;
+            END;
+            IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+            THROW;
+        END CATCH;
     END TRY
     BEGIN CATCH
-        REVERT;
+        IF @IsImpersonated = 1
+        BEGIN
+            REVERT;
+            SET @IsImpersonated = 0;
+        END;
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         THROW;
     END CATCH;
 
@@ -160,11 +194,27 @@ BEGIN TRY
         THROW 51405, 'SetUserPreference did not append before/after audit facts.', 1;
 
     ROLLBACK TRANSACTION;
+
+    IF @CreatedValidatorUser = 1
+    BEGIN
+        DROP USER EHFPreferenceDmlValidator;
+        SET @CreatedValidatorUser = 0;
+    END;
 END TRY
 BEGIN CATCH
-    EXEC sys.sp_set_session_context
-        @key = N'EHF.UserPreferenceProcedure', @value = NULL;
+    IF @IsImpersonated = 1
+    BEGIN
+        EXEC sys.sp_set_session_context
+            @key = N'EHF.UserPreferenceProcedure', @value = NULL;
+        REVERT;
+        SET @IsImpersonated = 0;
+    END;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    IF @CreatedValidatorUser = 1
+    BEGIN
+        DROP USER EHFPreferenceDmlValidator;
+        SET @CreatedValidatorUser = 0;
+    END;
     THROW;
 END CATCH;
 

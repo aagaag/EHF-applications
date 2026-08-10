@@ -23,8 +23,8 @@ PYTHON = Path(
 PUBLISHED_003_MIGRATION_SHA256 = bytes.fromhex(
     "472fdfb22cb2ea46f786059905e8c1f9491b7081e145bb8731f9b0c6dd4349ac"
 )
-PUBLISHED_003_VALIDATOR_SHA256 = bytes.fromhex(
-    "da5b321af3e99299181f0fe6cd7ad54236d8859ea44d4cbf9e6547a33df72d12"
+CURRENT_003_VALIDATOR_SHA256 = bytes.fromhex(
+    "ae987bc057289e798da030f014b507d52a353b72f4510631d62d90caa08910f6"
 )
 
 
@@ -229,8 +229,8 @@ def test_second_run_is_an_idempotent_noop(tmp_path: Path) -> None:
     assert connection.commit_count == 1
 
 
-def test_published_003_artifacts_remain_byte_stable() -> None:
-    """Break caught: editing published 003 would strand databases on checksum drift."""
+def test_published_003_migration_and_current_validator_are_byte_stable() -> None:
+    """Break caught: migration drift or unreviewed validator changes could strand validation."""
     migration_payload = (
         MIGRATION_DIRECTORY / "003_audit_and_preferences.sql"
     ).read_bytes()
@@ -239,7 +239,7 @@ def test_published_003_artifacts_remain_byte_stable() -> None:
     ).read_bytes()
 
     assert hashlib.sha256(migration_payload).digest() == PUBLISHED_003_MIGRATION_SHA256
-    assert hashlib.sha256(validator_payload).digest() == PUBLISHED_003_VALIDATOR_SHA256
+    assert hashlib.sha256(validator_payload).digest() == CURRENT_003_VALIDATOR_SHA256
 
 
 def test_original_003_prefix_upgrades_by_applying_only_004() -> None:
@@ -620,6 +620,78 @@ def test_database_script_enables_quoted_identifier_for_every_sqlcmd_session() ->
 
     assert arguments is not None
     assert "'-I'" in arguments.group(1)
+
+
+def validator_section(source: str, marker: str) -> str:
+    section = re.search(
+        rf"{re.escape(marker)}(?P<section>.*?)(?=\n-- ISOLATED EXPECTED FAILURE:|\n-- SUCCESSFUL VALIDATOR WRITES|\Z)",
+        source,
+        flags=re.DOTALL,
+    )
+    assert section is not None, marker
+    return section.group("section")
+
+
+def assert_isolated_expected_failure(source: str, marker: str, expected_error: int) -> None:
+    section = validator_section(source, marker)
+
+    assert re.search(r"BEGIN TRANSACTION;\s*BEGIN TRY", section)
+    assert re.search(
+        rf"IF ERROR_NUMBER\(\) <> {expected_error}\s*(?:THROW;|BEGIN)",
+        section,
+    )
+    assert "IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;" in section
+
+
+def test_validator_003_isolates_expected_failures_and_rolls_back_successful_writes() -> None:
+    """Break caught: one poisoned trigger transaction could mask later validator assertions."""
+    validator = (
+        VALIDATION_DIRECTORY / "003_validate_audit_and_preferences.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "-- ISOLATED EXPECTED FAILURE:" in validator
+    first_failure = validator.index("-- ISOLATED EXPECTED FAILURE:")
+    assert "BEGIN TRANSACTION;" not in validator[:first_failure]
+    for marker, expected_error in (
+        ("-- ISOLATED EXPECTED FAILURE: audit update", 51031),
+        ("-- ISOLATED EXPECTED FAILURE: prohibited audit payload", 51032),
+        ("-- ISOLATED EXPECTED FAILURE: direct preference DML", 51033),
+    ):
+        assert_isolated_expected_failure(validator, marker, expected_error)
+
+    successful_writes = validator_section(
+        validator, "-- SUCCESSFUL VALIDATOR WRITES (ROLLED BACK)"
+    )
+    assert re.search(r"BEGIN TRANSACTION;.*?ROLLBACK TRANSACTION;", successful_writes, re.DOTALL)
+    assert "COMMIT TRANSACTION" not in validator
+
+
+def test_validator_004_isolates_expected_failures_and_cleans_up_successful_writes() -> None:
+    """Break caught: hardened rejection loops must restore a committable session before later writes."""
+    validator = (
+        VALIDATION_DIRECTORY / "004_validate_audit_and_preference_hardening.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "-- ISOLATED EXPECTED FAILURE:" in validator
+    first_failure = validator.index("-- ISOLATED EXPECTED FAILURE:")
+    assert "BEGIN TRANSACTION;" not in validator[:first_failure]
+    assert_isolated_expected_failure(
+        validator,
+        "-- ISOLATED EXPECTED FAILURE: prohibited audit payload aliases",
+        51032,
+    )
+    assert_isolated_expected_failure(
+        validator,
+        "-- ISOLATED EXPECTED FAILURE: direct preference DML",
+        51033,
+    )
+
+    successful_writes = validator_section(
+        validator, "-- SUCCESSFUL VALIDATOR WRITES (ROLLED BACK)"
+    )
+    assert re.search(r"BEGIN TRANSACTION;.*?ROLLBACK TRANSACTION;", successful_writes, re.DOTALL)
+    assert "COMMIT TRANSACTION" not in validator
+    assert "DROP USER EHFPreferenceDmlValidator" in validator
 
 
 def test_database_contract_validator_reports_version_four() -> None:
