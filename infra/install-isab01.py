@@ -482,6 +482,19 @@ def _ready() -> None:
     )
 
 
+def _wait_until_ready(*, timeout_seconds: float = 20, interval_seconds: float = 0.5) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if _service_active():
+            try:
+                _ready()
+                return
+            except DeploymentError:
+                pass
+        time.sleep(interval_seconds)
+    raise DeploymentError("The EHF service did not become ready before the deadline.")
+
+
 def _restore(
     previous: Path | None,
     service_was_active: bool,
@@ -525,14 +538,7 @@ def deploy(archive: Path, commit: str, sql_admin_credential: Path) -> None:
         _run(["/usr/bin/systemctl", "daemon-reload"])
         _run(["/usr/bin/systemctl", "enable", SERVICE_NAME])
         _run(["/usr/bin/systemctl", "restart", SERVICE_NAME])
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline:
-            if _service_active():
-                _ready()
-                break
-            time.sleep(0.5)
-        else:
-            raise DeploymentError("The EHF service did not become active.")
+        _wait_until_ready()
         _run(["/usr/bin/systemctl", "reload", "nginx.service"])
     except Exception:
         _restore(previous, service_was_active, configuration, switched=switched)
@@ -554,7 +560,7 @@ def rollback(commit: str) -> None:
         switched = True
         _run(["/usr/bin/systemctl", "daemon-reload"])
         _run(["/usr/bin/systemctl", "restart", SERVICE_NAME])
-        _ready()
+        _wait_until_ready()
         _run(["/usr/bin/systemctl", "reload", "nginx.service"])
     except Exception:
         _restore(

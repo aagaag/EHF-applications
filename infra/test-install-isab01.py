@@ -282,6 +282,29 @@ def test_configuration_snapshot_restores_exact_previous_bytes_and_absence(tmp_pa
     assert not newly_created.exists()
 
 
+def test_readiness_wait_tolerates_service_startup_race(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Break caught: the first readiness miss could remove current while Python was still starting."""
+    installer = load_installer()
+    readiness_attempts = 0
+    sleeps: list[float] = []
+
+    monkeypatch.setattr(installer, "_service_active", lambda: True)
+
+    def eventually_ready() -> None:
+        nonlocal readiness_attempts
+        readiness_attempts += 1
+        if readiness_attempts == 1:
+            raise installer.DeploymentError("still starting")
+
+    monkeypatch.setattr(installer, "_ready", eventually_ready)
+    monkeypatch.setattr(installer.time, "sleep", sleeps.append)
+
+    installer._wait_until_ready(timeout_seconds=20, interval_seconds=0.25)
+
+    assert readiness_attempts == 2
+    assert sleeps == [0.25]
+
+
 def test_explicit_rollback_restores_the_prior_symlink_when_target_readiness_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -305,7 +328,7 @@ def test_explicit_rollback_restores_the_prior_symlink_when_target_readiness_fail
     monkeypatch.setattr(installer, "_run", lambda command: commands.append(tuple(command)))
     monkeypatch.setattr(
         installer,
-        "_ready",
+        "_wait_until_ready",
         lambda: (_ for _ in ()).throw(installer.DeploymentError("readiness failed")),
     )
 
@@ -339,7 +362,7 @@ def test_explicit_rollback_restores_a_previously_inactive_service_when_target_re
     monkeypatch.setattr(installer, "_run", lambda command: commands.append(tuple(command)))
     monkeypatch.setattr(
         installer,
-        "_ready",
+        "_wait_until_ready",
         lambda: (_ for _ in ()).throw(installer.DeploymentError("readiness failed")),
     )
 
