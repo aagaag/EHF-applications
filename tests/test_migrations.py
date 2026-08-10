@@ -411,6 +411,98 @@ def test_provenance_and_section_history_have_independent_versions() -> None:
         ), table_name
 
 
+def test_audit_payload_policy_normalizes_aliases_at_every_json_depth() -> None:
+    """Break caught: casing, separators, aliases, or nesting could bypass redaction policy."""
+    migration = (
+        MIGRATION_DIRECTORY / "003_audit_and_preferences.sql"
+    ).read_text(encoding="utf-8")
+    validator = (
+        VALIDATION_DIRECTORY / "003_validate_audit_and_preferences.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "CREATE FUNCTION dbo.IsAuditPayloadKeyProhibited" in migration
+    assert re.search(
+        r"TR_AuditEvent_RejectSensitivePayload.*?UNION ALL.*?"
+        r"dbo\.IsAuditPayloadKeyProhibited\(JsonKey\)\s*=\s*1",
+        migration,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    for separator in ("_", "-", " ", ".", "/"):
+        assert re.search(
+            rf"REPLACE\s*\(.*?N''{re.escape(separator)}''\s*,\s*N''''\s*\)",
+            migration,
+            flags=re.IGNORECASE | re.DOTALL,
+        ), separator
+
+    assert re.search(
+        r"IF\s+@NormalizedKey\s+IN\s*\(.*?\)\s*RETURN\s+0\s*;\s*"
+        r"RETURN\s+1\s*;",
+        migration,
+        flags=re.IGNORECASE | re.DOTALL,
+    ), "audit payload keys must be explicitly allowed and unknown keys rejected"
+
+    for prohibited_alias in (
+        "apiToken",
+        "API-TOKEN",
+        "clientSecret",
+        "client_secret",
+        "otpValue",
+        "otp.value",
+        "resumeDocument",
+        "resume-document",
+        "incomingRequestBody",
+        "incoming/request/body",
+        "credentialBlob",
+        "rawFileBytes",
+        "unexpectedMetadata",
+    ):
+        assert prohibited_alias.casefold() in validator.casefold(), prohibited_alias
+    assert re.search(
+        r'\{"after":\{"before":\{"apiToken":"prohibited"\}\}\}',
+        validator,
+        flags=re.IGNORECASE,
+    ), "validator must reach a prohibited key through allowed nested object keys"
+
+    for allowed_fact in ("applicationId", "documentId", "requestId", "before", "after"):
+        assert allowed_fact.casefold() in validator.casefold(), allowed_fact
+
+
+def test_user_preference_guard_uses_unspoofable_module_execution_context() -> None:
+    """Break caught: a table-DML caller could forge session state and skip auditing."""
+    migration = (
+        MIGRATION_DIRECTORY / "003_audit_and_preferences.sql"
+    ).read_text(encoding="utf-8")
+    validator = (
+        VALIDATION_DIRECTORY / "003_validate_audit_and_preferences.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "SESSION_CONTEXT" not in migration
+    assert re.search(
+        r"CREATE TRIGGER dbo\.TR_UserPreference_ProcedureOnly.*?"
+        r"AFTER\s+INSERT,\s*UPDATE,\s*DELETE.*?"
+        r"USER_NAME\(\)\s*<>\s*N''dbo''",
+        migration,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert re.search(
+        r"CREATE PROCEDURE dbo\.SetUserPreference.*?"
+        r"WITH\s+EXECUTE\s+AS\s+OWNER\s+AS",
+        migration,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    for contract_fragment in (
+        "CREATE USER EHFPreferenceDmlValidator WITHOUT LOGIN",
+        "GRANT INSERT, UPDATE, DELETE ON dbo.UserPreference",
+        "GRANT EXECUTE ON dbo.SetUserPreference",
+        "EXECUTE AS USER = N'EHFPreferenceDmlValidator'",
+        "EHF.UserPreferenceProcedure",
+        "EXEC dbo.SetUserPreference",
+        "REVERT",
+    ):
+        assert contract_fragment.casefold() in validator.casefold(), contract_fragment
+
+
 def test_database_script_rejects_a_non_test_database_before_connecting() -> None:
     """Break caught: the integration harness could target a production database name."""
     completed = subprocess.run(
