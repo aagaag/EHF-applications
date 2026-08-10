@@ -1,0 +1,84 @@
+"""Browser-level Task 6 checks for the inspectable shared EHF shell."""
+
+from __future__ import annotations
+
+import os
+import socket
+import subprocess
+import sys
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
+
+import pytest
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@contextmanager
+def preview_server() -> Iterator[str]:
+    """Run the actual ASGI preview on an ephemeral loopback port."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    process = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port)],
+        cwd=ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        import httpx
+
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                if httpx.get(f"http://127.0.0.1:{port}/health/live", timeout=0.2).status_code == 200:
+                    break
+            except httpx.HTTPError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("preview server did not become ready")
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
+
+
+@pytest.mark.parametrize("viewport", [(1440, 900), (1024, 768), (720, 900), (390, 844)])
+def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_overflow(
+    viewport: tuple[int, int],
+) -> None:
+    """Break caught: the shared shell could clip, fail as a drawer, or lose keyboard access."""
+    pytest.importorskip("playwright.sync_api")
+    from axe_playwright_python.sync_playwright import Axe
+    from playwright.sync_api import sync_playwright
+
+    with preview_server() as base_url, sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover - environment-specific browser installation
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
+            page.goto(f"{base_url}/internal/", wait_until="networkidle")
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+            assert page.locator(".shell-card").count() >= 1
+            assert page.locator("text=Preview only").count() == 1
+            assert page.locator("text=Authorizations:").count() == 1
+
+            if viewport[0] <= 720:
+                toggle = page.get_by_role("button", name="Open application navigation")
+                toggle.focus()
+                page.keyboard.press("Enter")
+                assert page.get_by_role("complementary", name="Application navigation").get_attribute("data-open") == "true"
+                page.keyboard.press("Escape")
+                assert toggle.get_attribute("aria-expanded") == "false"
+                assert page.evaluate("document.activeElement === document.querySelector('.app-nav-toggle')")
+
+            results = Axe(page).run()
+            assert results.violations == []
+        finally:
+            browser.close()
