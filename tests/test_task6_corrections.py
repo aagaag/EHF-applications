@@ -64,6 +64,19 @@ def test_internal_rendering_uses_one_filtered_inventory_for_navigation_help_card
     assert "Applications" in trustee.text
 
 
+def test_authenticated_production_root_opens_the_internal_portal() -> None:
+    """Break caught: the deployed hostname authenticated successfully but GET / returned JSON 404."""
+    from app.navigation import INTERNAL_GROUPS
+
+    authorized = _client(_identity(INTERNAL_GROUPS.administrators))
+    response = authorized.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/internal/"
+    assert authorized.get("/").status_code == 200
+    assert _client().get("/", follow_redirects=False).status_code == 404
+
+
 def test_default_and_production_internal_routes_fail_closed_while_development_simulation_is_explicit() -> None:
     assert _client().get("/internal/").status_code == 404
     assert _client().get("/__preview/internal/administrator/").status_code == 200

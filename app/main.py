@@ -11,7 +11,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -138,6 +138,13 @@ def create_app(
         if principal is None:
             raise HTTPException(status_code=404)
         return principal
+
+    @application.get("/", response_class=RedirectResponse)
+    def home(request: Request) -> RedirectResponse:
+        principal = authenticated(request)
+        if not principal.groups & {INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}:
+            raise HTTPException(status_code=404)
+        return RedirectResponse("/internal/", status_code=303)
 
     @application.get("/internal/", response_class=HTMLResponse)
     def internal_preview(request: Request) -> HTMLResponse:
