@@ -146,6 +146,7 @@ def test_permission_validator_requires_the_exact_permission_rows_and_states() ->
 
     assert "@ProtectedTables" in validator
     assert "@RequiredDmlDenies" in validator
+    assert "@ProtectedViews" in validator
     assert "@ExpectedPermissions" in validator
     for permission_row in (
         "(0, 0, 0, N'CONNECT', N'GRANT')",

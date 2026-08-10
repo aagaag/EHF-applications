@@ -39,6 +39,9 @@ INSERT @RequiredDmlDenies
 SELECT TableName, PermissionName
 FROM @ProtectedTables
 CROSS JOIN (VALUES (N'SELECT'), (N'INSERT'), (N'UPDATE'), (N'DELETE')) AS permission_name(PermissionName);
+DECLARE @ProtectedViews TABLE (ViewName sysname NOT NULL PRIMARY KEY);
+INSERT @ProtectedViews VALUES
+    (N'vw_ApplicantVisibleDocumentVersion'), (N'vw_InternalDocumentVersion');
 DECLARE @ExpectedPermissions TABLE
 (
     ClassId tinyint NOT NULL,
@@ -65,6 +68,9 @@ FROM @ApprovedProcedures AS approved;
 INSERT @ExpectedPermissions (ClassId, MajorId, MinorId, PermissionName, StateDesc)
 SELECT 1, OBJECT_ID(N'dbo.' + required_deny.TableName, N'U'), 0, required_deny.PermissionName, N'DENY'
 FROM @RequiredDmlDenies AS required_deny;
+INSERT @ExpectedPermissions (ClassId, MajorId, MinorId, PermissionName, StateDesc)
+SELECT 1, OBJECT_ID(N'dbo.' + protected_view.ViewName, N'V'), 0, N'SELECT', N'DENY'
+FROM @ProtectedViews AS protected_view;
 
 IF EXISTS
 (
