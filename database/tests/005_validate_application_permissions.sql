@@ -53,6 +53,22 @@ IF EXISTS
       AND permission_row.state_desc <> N'DENY'
 )
     THROW 51508, 'The runtime role has a non-denied table permission.', 1;
+IF EXISTS
+(
+    SELECT 1 FROM sys.database_permissions
+    WHERE grantee_principal_id = DATABASE_PRINCIPAL_ID(N'ehf_app')
+)
+    THROW 51509, 'The runtime user has a direct permission.', 1;
+IF EXISTS
+(
+    SELECT 1
+    FROM sys.database_role_members AS membership
+    INNER JOIN sys.database_principals AS role_row
+      ON role_row.principal_id = membership.role_principal_id
+    WHERE membership.member_principal_id = DATABASE_PRINCIPAL_ID(N'ehf_app')
+      AND role_row.name <> N'EHFApplicationRuntime'
+)
+    THROW 51510, 'The runtime user has an unexpected role.', 1;
 
 -- Real-login grants, denials, cross-database access, and procedure behavior
 -- are exercised only by infra/test-sql-login.sh. EXECUTE AS USER is not a

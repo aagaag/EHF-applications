@@ -93,6 +93,7 @@ def test_helper_has_only_fixed_lifecycle_commands() -> None:
         "exercise-test-status",
         "cleanup-test-targets",
         "verify-test-cleanup",
+        "verify-test-targets-preserved",
     }
 
 
@@ -157,8 +158,8 @@ def test_odbc_connection_uses_the_fixed_server_and_keeps_credential_out_of_outpu
 
     assert connection is fake_driver.connection
     connection_string, autocommit = fake_driver.calls[0]
-    assert "SERVER=tcp:127.0.0.1,1433" in connection_string
-    assert "DATABASE=EHFApplications" in connection_string
+    assert "SERVER={tcp:127.0.0.1,1433}" in connection_string
+    assert "DATABASE={EHFApplications}" in connection_string
     assert autocommit is False
     with pytest.raises(helper.PrincipalError, match="Unexpected SQL Server target"):
         helper._connect("tcp:10.0.0.2,1433", "EHFApplications", "ehf_app", "Aa1._~" + "a" * 42)
@@ -188,12 +189,21 @@ def test_cleanup_only_accepts_exact_randomized_test_targets() -> None:
         f"EHFApplications_Test_sqlperm_{suffix}",
         f"EHFApplications_Test_sqlperm_peer_{suffix}",
         f"ehf_app_test_{suffix}",
+        "0123456789abcdef0123456789abcdef",
+        Path("/protected/test-password"),
     )
 
     assert all("0123456789abcdef01234567" not in sql for sql, _ in cursor.executions)
     assert all(parameters for _, parameters in cursor.executions)
     with pytest.raises(helper.PrincipalError, match="Unexpected principal target"):
-        helper.cleanup_test_targets(connection, "EHFApplications", "Finances2", "ehf_app")
+        helper.cleanup_test_targets(
+            connection,
+            "EHFApplications",
+            "Finances2",
+            "ehf_app",
+            "0123456789abcdef0123456789abcdef",
+            Path("/protected/test-password"),
+        )
 
 
 def test_database_lifecycle_uses_autocommit_for_sql_server_database_ddl() -> None:
@@ -203,7 +213,9 @@ def test_database_lifecycle_uses_autocommit_for_sql_server_database_ddl() -> Non
     connection.autocommit = False
 
     helper.create_test_database(
-        connection, "EHFApplications_Test_sqlperm_0123456789abcdef01234567"
+        connection,
+        "EHFApplications_Test_sqlperm_0123456789abcdef01234567",
+        "0123456789abcdef0123456789abcdef",
     )
 
     assert connection.autocommit is True
@@ -225,7 +237,7 @@ def test_user_mapping_uses_autocommit_for_database_ddl() -> None:
 
     assert connection.autocommit is True
     statement, _ = connection.cursor_instance.executions[0]
-    assert "Test user lacks its runtime role" in statement
+    assert "Expected database user has direct permissions" in statement
 
 
 def test_dynamic_identifier_ddl_is_assigned_before_server_side_execution() -> None:
@@ -313,5 +325,122 @@ def test_cli_redacts_driver_errors(monkeypatch, capsys) -> None:
         ]
     ) == 2
     captured = capsys.readouterr()
-    assert captured.err.strip() == "SQL principal operation failed."
+    assert captured.err.strip() == "SQL_PRINCIPAL_ERROR: OPERATION_FAILED"
     assert "do-not-print" not in captured.err
+
+
+def test_production_server_deny_set_is_exact_and_contains_metadata_boundaries() -> None:
+    """Break caught: an existing login could retain broad server metadata access."""
+    helper = load_helper()
+
+    assert helper.EXPECTED_SERVER_DENIES == frozenset(
+        {
+            "ALTER ANY LOGIN",
+            "ALTER ANY SERVER ROLE",
+            "CONTROL SERVER",
+            "VIEW ANY DATABASE",
+            "VIEW ANY DEFINITION",
+            "VIEW SERVER STATE",
+        }
+    )
+
+
+def test_odbc_components_are_braced_before_connecting(monkeypatch) -> None:
+    """Break caught: a separator in an ODBC component could alter connection semantics."""
+    helper = load_helper()
+    fake_driver = FakePyodbc(FakeConnection(FakeCursor()))
+    monkeypatch.setattr(helper, "pyodbc", fake_driver)
+
+    helper._connect(
+        helper.SERVER,
+        "EHFApplications",
+        "ehf_app",
+        "Aa1._~" + "a" * 40 + ";}",
+    )
+
+    connection_string, _ = fake_driver.calls[0]
+    assert "PWD={Aa1._~" in connection_string
+    assert ";}}}" in connection_string
+    assert "PWD=Aa1" not in connection_string
+
+
+def test_test_cleanup_requires_token_and_current_run_credential() -> None:
+    """Break caught: a peer matching a test name could be dropped without ownership proof."""
+    helper = load_helper()
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+    suffix = "0123456789abcdef01234567"
+
+    with pytest.raises(helper.PrincipalError, match="run token"):
+        helper.validate_run_token("not-a-token")
+
+    helper.cleanup_test_targets(
+        connection,
+        f"EHFApplications_Test_sqlperm_{suffix}",
+        f"EHFApplications_Test_sqlperm_peer_{suffix}",
+        f"ehf_app_test_{suffix}",
+        "0123456789abcdef0123456789abcdef",
+        Path("/protected/test-password"),
+    )
+    statements = "\n".join(statement for statement, _ in cursor.executions)
+    assert "DROP DATABASE" not in statements
+    assert "DROP LOGIN" not in statements
+
+
+def test_helper_has_no_path_read_text_credential_race_and_validates_before_connect(monkeypatch) -> None:
+    """Break caught: a credential swap or malformed target could reach the ODBC driver."""
+    helper = load_helper()
+    source = HELPER.read_text(encoding="utf-8")
+    fake_driver = FakePyodbc(FakeConnection(FakeCursor()))
+    monkeypatch.setattr(helper, "pyodbc", fake_driver)
+
+    assert "path.read_text" not in source
+    assert "O_NOFOLLOW" in source
+    with pytest.raises(helper.PrincipalError, match="Unexpected principal target"):
+        helper.validate_command_arguments(
+            "create-test-login",
+            "tcp:127.0.0.1,1433",
+            "Finances2",
+            "ehf_app",
+            None,
+        )
+    assert fake_driver.calls == []
+
+
+def test_cleanup_authenticates_the_owned_login_before_dropping_its_default_database() -> None:
+    """Break caught: cleanup could strand a current-run login after deleting its default DB."""
+    source = HELPER.read_text(encoding="utf-8")
+    cleanup = source[source.index("def cleanup_test_targets") : source.index("def verify_test_cleanup")]
+
+    assert cleanup.index("authenticate_login(") < cleanup.index("_drop_owned_database(")
+
+
+def test_test_login_cleanup_allows_only_the_implicit_connect_sql_grant() -> None:
+    """Break caught: cleanup could preserve every normal SQL login as over-privileged."""
+    source = HELPER.read_text(encoding="utf-8")
+
+    assert "permission_name=N'CONNECT SQL' AND state_desc=N'GRANT'" in source
+
+
+def test_test_user_mapping_revokes_sql_servers_implicit_connect_grant() -> None:
+    """Break caught: a newly created temporary user could fail the exact direct-grant check."""
+    source = HELPER.read_text(encoding="utf-8")
+
+    assert "REVOKE CONNECT FROM ''+QUOTENAME(@UserName)" in source
+
+
+def test_run_marker_is_bound_to_its_randomized_name_suffix() -> None:
+    """Break caught: a lost credential could make cleanup trust an unrelated marker."""
+    helper = load_helper()
+    suffix = "0123456789abcdef01234567"
+
+    helper.validate_run_token(suffix + "89abcdef", suffix)
+    with pytest.raises(helper.PrincipalError):
+        helper.validate_run_token("f" * 32, suffix)
+
+
+def test_adverse_preservation_does_not_require_database_authentication() -> None:
+    """Break caught: an intentionally unmapped adverse login cannot enter its database."""
+    source = HELPER.read_text(encoding="utf-8")
+    section = source[source.index("def verify_test_targets_preserved") : source.index("def admin_connection_database")]
+    assert "authenticate_login(" not in section

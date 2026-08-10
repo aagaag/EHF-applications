@@ -19,6 +19,7 @@ END;
 ');
 
 GRANT CONNECT TO EHFApplicationRuntime;
+REVOKE CONNECT FROM ehf_app;
 GRANT EXECUTE ON dbo.RuntimeHealth TO EHFApplicationRuntime;
 GRANT EXECUTE ON dbo.SetUserPreference TO EHFApplicationRuntime;
 GRANT EXECUTE ON dbo.SetApplicationStatus TO EHFApplicationRuntime;

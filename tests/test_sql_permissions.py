@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 import subprocess
+import importlib.util
 
 import pytest
 
@@ -13,6 +14,7 @@ VALIDATORS = ROOT / "database" / "tests"
 MIGRATION = MIGRATIONS / "005_application_permissions.sql"
 SETUP_SCRIPT = ROOT / "infra" / "setup-sql-login.sh"
 TEST_SCRIPT = ROOT / "infra" / "test-sql-login.sh"
+HELPER = ROOT / "infra" / "sql-principal.py"
 GIT_BASH = Path(r"C:\Program Files\Git\bin\bash.exe")
 
 PROTECTED_TABLES = (
@@ -83,6 +85,7 @@ def test_permission_migration_denies_direct_table_access_and_publishes_only_thre
     assert "GRANT SELECT ON SCHEMA::dbo" not in migration
     assert "GRANT EXECUTE ON SCHEMA::dbo" not in migration
     assert "DENY ALTER, CONTROL ON SCHEMA::dbo" not in migration
+    assert "REVOKE CONNECT FROM ehf_app;" in migration
 
 
 def test_permission_validator_leaves_real_login_checks_to_the_isolated_verifier() -> None:
@@ -99,6 +102,16 @@ def test_permission_validator_leaves_real_login_checks_to_the_isolated_verifier(
     ):
         assert fragment in validator
     assert "EXECUTE AS USER =" not in validator
+
+
+def test_permission_validator_rejects_direct_runtime_user_grants_and_unexpected_roles() -> None:
+    """Break caught: the mapped user could bypass its one approved runtime role."""
+    validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "The runtime user has a direct permission." in validator
+    assert "The runtime user has an unexpected role." in validator
 
 
 @pytest.mark.parametrize(
@@ -143,6 +156,14 @@ def test_sql_login_scripts_keep_passwords_out_of_command_arguments_and_logs() ->
         assert "set +x" in source
 
 
+def test_password_validation_has_no_command_line_test_hook() -> None:
+    """Break caught: a password value could be injected into a process listing by a test hook."""
+    source = SETUP_SCRIPT.read_text(encoding="utf-8")
+
+    assert "--validate-password" not in source
+    assert "password_is_safe" not in source
+
+
 @pytest.mark.parametrize(
     ("password", "accepted"),
     (
@@ -154,21 +175,20 @@ def test_sql_login_scripts_keep_passwords_out_of_command_arguments_and_logs() ->
         ("A" * 47 + "\n", False),
     ),
 )
-def test_setup_password_preflight_accepts_only_the_fixed_safe_alphabet(
+def test_helper_password_validation_accepts_only_the_fixed_safe_alphabet(
     password: str, accepted: bool
 ) -> None:
-    """Break caught: a password file could inject SQLCMD substitution syntax."""
-    completed = subprocess.run(
-        [str(GIT_BASH), str(SETUP_SCRIPT), "--validate-password", password],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=10,
-    )
+    """Break caught: a password file could inject SQLCMD syntax without argv exposure."""
+    spec = importlib.util.spec_from_file_location("sql_principal_password", HELPER)
+    assert spec and spec.loader
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
 
-    assert (completed.returncode == 0) is accepted
-    assert password not in completed.stdout + completed.stderr
+    if accepted:
+        helper._require_safe_password(password)
+    else:
+        with pytest.raises(helper.PrincipalError):
+            helper._require_safe_password(password)
 
 
 def test_sql_scripts_use_hardened_sqlcmd_invocations_and_lf_line_endings() -> None:
@@ -203,15 +223,39 @@ def test_isolated_verifier_uses_a_second_database_and_fails_when_cleanup_fails()
 
     assert "EHFApplications_Test_sqlperm_peer_" in source
     assert "create-test-database" in source
-    assert "created_peer_database=1" in source
+    assert "run_token=" in source
     assert "Cleanup failed; isolated EHF SQL verification is unsuccessful." in source
     assert "run_runtime_sql \"$peer_database\"" in source
     assert "verify-test-cleanup" in source
+
+
+def test_isolated_verifier_cleans_explicitly_before_pass_and_preserves_adverse_peer() -> None:
+    """Break caught: PASS could be printed before a failing trap cleanup, or a peer could be deleted."""
+    source = TEST_SCRIPT.read_text(encoding="utf-8")
+
+    pass_index = source.index("PASS isolated EHF SQL permission boundary")
+    cleanup_index = source.index("cleanup_owned_targets")
+    assert cleanup_index < pass_index
+    assert "trap - EXIT" in source
+    assert "adverse_database" in source
+    assert "verify-test-targets-preserved" in source
+
+
+def test_setup_converges_an_authenticated_unmapped_login_without_creating_a_password() -> None:
+    """Break caught: a safe interrupted setup could not converge on its next root-run."""
+    source = SETUP_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'ready|unmapped)' in source
+    assert '[[ "$inspect_state" == "ready" ]] || fail' not in source
+    assert 'map-production-user' in source
+    assert "/opt/ehf/current/venv/bin/python" in source
 
 
 def test_isolated_sqlcmd_wrapper_forwards_static_migration_and_validator_files() -> None:
     """Break caught: -i migration files could be accepted by the wrapper but never executed."""
     source = TEST_SCRIPT.read_text(encoding="utf-8")
 
-    assert 'local target_database="$1"\n  shift\n  SQLCMDPASSWORD=' in source
+    assert 'local target_database="$1"; shift; SQLCMDPASSWORD=' in source
     assert "EXEC(N'ALTER SERVER ROLE" not in source
+    assert "@loginSql" in source and "@roleSql" in source
+    assert "IF ERROR_NUMBER()<>15247 THROW" in source
