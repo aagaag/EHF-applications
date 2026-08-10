@@ -1,6 +1,7 @@
 """Production Access identity and internal metrics projection tests."""
 
 from types import SimpleNamespace
+import logging
 
 from starlette.requests import Request
 
@@ -14,6 +15,29 @@ def _request() -> Request:
         (b"cookie", b"CF_Authorization=session-token"),
     ]
     return Request({"type": "http", "method": "GET", "path": "/", "headers": headers})
+
+
+def test_access_resolver_logs_only_a_safe_failure_stage(caplog) -> None:  # type: ignore[no-untyped-def]
+    resolver = CloudflareAccessIdentityResolver(
+        issuer="https://team.cloudflareaccess.com",
+        audience="audience",
+        administrator_group_id="admin-id",
+        trustee_group_id="trustee-id",
+    )
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [(b"cf-access-jwt-assertion", b"secret-signed-token")],
+        }
+    )
+
+    with caplog.at_level(logging.WARNING, logger="ehf.identity"):
+        assert resolver(request) is None
+
+    assert "missing-cookie" in caplog.text
+    assert "secret-signed-token" not in caplog.text
 
 
 def test_access_resolver_requires_verified_full_entra_group_membership(monkeypatch) -> None:  # type: ignore[no-untyped-def]

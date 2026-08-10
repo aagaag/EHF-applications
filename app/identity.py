@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 import httpx
@@ -12,6 +13,9 @@ import jwt
 from starlette.requests import Request
 
 from app.preferences import Identity
+
+
+_LOGGER = logging.getLogger("ehf.identity")
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,8 +58,10 @@ class CloudflareAccessIdentityResolver:
     def __call__(self, request: Request) -> AuthenticatedIdentity | None:
         assertion = request.headers.get("cf-access-jwt-assertion", "").strip()
         cookie = request.cookies.get("CF_Authorization", "").strip()
-        if not assertion or not cookie:
-            return None
+        if not assertion:
+            return self._deny("missing-assertion")
+        if not cookie:
+            return self._deny("missing-cookie")
         try:
             signing_key = self._keys.get_signing_key_from_jwt(assertion)
             claims: dict[str, Any] = jwt.decode(
@@ -66,12 +72,15 @@ class CloudflareAccessIdentityResolver:
                 issuer=self._issuer,
                 options={"require": ["aud", "exp", "iat", "iss", "sub", "email"]},
             )
+        except (KeyError, TypeError, ValueError, jwt.PyJWTError):
+            return self._deny("invalid-access-jwt")
+        try:
             if claims.get("type") != "app":
-                return None
+                return self._deny("invalid-token-type")
             email = str(claims["email"]).strip().casefold()
             subject = str(claims["sub"]).strip()
             if not email or not subject:
-                return None
+                return self._deny("missing-identity-claims")
             response = httpx.get(
                 f"{self._issuer}/cdn-cgi/access/get-identity",
                 headers={"cookie": f"CF_Authorization={cookie}"},
@@ -80,11 +89,16 @@ class CloudflareAccessIdentityResolver:
             )
             response.raise_for_status()
             identity_payload = response.json()
+        except httpx.HTTPError:
+            return self._deny("identity-endpoint-unavailable")
+        except (KeyError, TypeError, ValueError):
+            return self._deny("invalid-identity-payload")
+        try:
             if str(identity_payload.get("email", "")).strip().casefold() != email:
-                return None
+                return self._deny("identity-email-mismatch")
             idp = identity_payload.get("idp")
             if not isinstance(idp, dict):
-                return None
+                return self._deny("missing-idp-payload")
             group_values = _string_values(idp.get("groups"))
             groups = frozenset(
                 canonical
@@ -92,14 +106,19 @@ class CloudflareAccessIdentityResolver:
                 if identifier in group_values
             )
             if not groups:
-                return None
+                return self._deny("authorized-group-missing")
             display_name = str(idp.get("name") or identity_payload.get("name") or email).strip()
             return AuthenticatedIdentity(
                 identity=Identity(f"cloudflare:{subject}", email, display_name),
                 groups=groups,
             )
-        except (httpx.HTTPError, KeyError, TypeError, ValueError, jwt.PyJWTError):
-            return None
+        except (KeyError, TypeError, ValueError):
+            return self._deny("invalid-resolved-identity")
+
+    @staticmethod
+    def _deny(stage: str) -> None:
+        _LOGGER.warning("Cloudflare Access identity denied: %s", stage)
+        return None
 
 
 def _string_values(value: Any) -> frozenset[str]:
