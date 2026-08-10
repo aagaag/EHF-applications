@@ -571,6 +571,7 @@ def test_production_mapping_atomically_recreates_without_login_user_after_sql_33
         "ALTER ROLE [EHFApplicationRuntime] DROP MEMBER ''+QUOTENAME(@UserName)",
         "DROP USER ''+QUOTENAME(@UserName)",
         "CREATE USER ''+QUOTENAME(@UserName)+N'' FOR LOGIN ''+QUOTENAME(@LoginName)",
+        "REVOKE CONNECT FROM ''+QUOTENAME(@UserName)",
         "ALTER ROLE [EHFApplicationRuntime] ADD MEMBER ''+QUOTENAME(@UserName)",
     )
     transition_indices = tuple(statement.index(fragment) for fragment in transition_fragments)
@@ -593,8 +594,8 @@ def test_production_mapping_atomically_recreates_without_login_user_after_sql_33
     assert "ALTER USER" not in statement
     assert statement.count("DROP USER") == 1
     assert statement.count("CREATE USER") == 1
+    assert statement.count("REVOKE CONNECT FROM") == 1
     assert statement.count("ALTER ROLE [EHFApplicationRuntime]") == 2
-    assert "REVOKE CONNECT" not in statement
     assert re.search(r"\bGRANT\s+[A-Z]", statement, re.IGNORECASE) is None
 
 

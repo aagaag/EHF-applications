@@ -62,14 +62,16 @@ explicit `XACT_ABORT` transaction. SQL Server does not permit a `SQL_USER`
 created `WITHOUT LOGIN` to be remapped with `ALTER USER ... WITH LOGIN` (error
 33016). Only after every precheck, fixed dynamic SQL safely quotes the validated
 identifiers and atomically drops the user's runtime-role membership, drops the
-user, recreates the same user name for the expected login, and restores the
-runtime-role membership. Any failure rolls back the complete transition, and
-the mapped postcondition is rechecked before commit. Both checks include the
-enabled SQL login, default database, password-policy flags, five-denial direct
-server-permission shape, absence of server roles and database ownership, and
-the complete dbo-owned sole-member runtime-role topology. The production batch
-does not grant or revoke any direct permission. The earlier lifecycle and
-effective cross-database checks remain additional preconditions.
+user, recreates the same user name for the expected login, revokes the direct
+`CONNECT` that SQL Server adds during `CREATE USER ... FOR LOGIN`, and restores
+the runtime-role membership. Any failure rolls back the complete transition,
+and the mapped postcondition is rechecked before commit. Both checks include
+the enabled SQL login, default database, password-policy flags, five-denial
+direct server-permission shape, absence of server roles and database ownership,
+and the complete dbo-owned sole-member runtime-role topology. The production
+batch grants no direct permission; database `CONNECT` remains available only
+through `EHFApplicationRuntime`. The earlier lifecycle and effective
+cross-database checks remain additional preconditions.
 
 SQL Server permits a login that knows its old password to rotate its own
 password; this is not `ALTER ANY LOGIN` and is not treated as an elevation

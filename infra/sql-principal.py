@@ -495,6 +495,7 @@ BEGIN TRY
       N''ALTER ROLE [EHFApplicationRuntime] DROP MEMBER ''+QUOTENAME(@UserName)+N'';''
      +N''DROP USER ''+QUOTENAME(@UserName)+N'';''
      +N''CREATE USER ''+QUOTENAME(@UserName)+N'' FOR LOGIN ''+QUOTENAME(@LoginName)+N'';''
+     +N''REVOKE CONNECT FROM ''+QUOTENAME(@UserName)+N'';''
      +N''ALTER ROLE [EHFApplicationRuntime] ADD MEMBER ''+QUOTENAME(@UserName)+N'';'';
   EXEC(@Transition);
   SET @UserId=NULL; SET @ExistingSid=NULL; SET @Auth=NULL;
