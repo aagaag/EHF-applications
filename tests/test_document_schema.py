@@ -97,3 +97,15 @@ def test_source_occurrence_version_must_belong_to_its_application() -> None:
     )
     assert "linked version belongs to another application" in validator
     assert "non-document occurrence permits null version" in validator
+
+
+def test_new_contact_review_columns_are_constrained_in_a_deferred_batch() -> None:
+    """Break caught: SQL Server compiles a later constraint before the new columns exist."""
+    permissions = (MIGRATIONS / "009_document_permissions.sql").read_text(encoding="utf-8")
+
+    assert re.search(
+        r"EXEC\(N'\s*ALTER TABLE dbo\.ApplicantContact\s+ADD CONSTRAINT "
+        r"CK_ApplicantContact_ReviewStatus.*?CK_ApplicantContact_ReviewEvidence.*?'\);",
+        permissions,
+        flags=re.IGNORECASE | re.DOTALL,
+    )

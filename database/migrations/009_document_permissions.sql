@@ -7,12 +7,14 @@ ALTER TABLE dbo.ApplicantContact
         ReviewedByIdentity nvarchar(255) NULL,
         ReviewedAtUtc datetime2(7) NULL;
 
+EXEC(N'
 ALTER TABLE dbo.ApplicantContact
     ADD CONSTRAINT CK_ApplicantContact_ReviewStatus CHECK
-        (ReviewStatus IN ('UNREVIEWED', 'REVIEWED')),
+        (ReviewStatus IN (''UNREVIEWED'', ''REVIEWED'')),
         CONSTRAINT CK_ApplicantContact_ReviewEvidence CHECK
-        ((ReviewStatus = 'UNREVIEWED' AND ReviewedByIdentity IS NULL AND ReviewedAtUtc IS NULL)
-         OR (ReviewStatus = 'REVIEWED' AND LEN(ReviewedByIdentity) > 0 AND ReviewedAtUtc IS NOT NULL));
+        ((ReviewStatus = ''UNREVIEWED'' AND ReviewedByIdentity IS NULL AND ReviewedAtUtc IS NULL)
+         OR (ReviewStatus = ''REVIEWED'' AND LEN(ReviewedByIdentity) > 0 AND ReviewedAtUtc IS NOT NULL));
+');
 
 CREATE TABLE dbo.ClassificationDecision
 (
