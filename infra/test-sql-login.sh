@@ -130,7 +130,8 @@ INSERT @DmlTargets VALUES
  (N'DocumentSlot',N'SlotCode'),(N'Document',N'DocumentType'),(N'StoredObject',N'ObjectKey'),
  (N'DocumentVersion',N'VersionNumber'),(N'Recommendation',N'ArrivalChannel'),
  (N'ImportRun',N'ImporterVersion'),(N'ImportRow',N'SourceRowNumber'),(N'SourceOccurrence',N'SourceLocatorSha256'),
- (N'ImportException',N'ExceptionCode'),(N'ClassificationDecision',N'Classification');
+ (N'CallSourceOccurrence',N'SourceLocatorSha256'),(N'ImportException',N'ExceptionCode'),
+ (N'ClassificationDecision',N'Classification');
 DECLARE @TableName sysname,@ColumnName sysname,@Sql nvarchar(max),@Denied bit;
 DECLARE dml_cursor CURSOR LOCAL FAST_FORWARD FOR SELECT TableName,ColumnName FROM @DmlTargets;
 OPEN dml_cursor; FETCH NEXT FROM dml_cursor INTO @TableName,@ColumnName;

@@ -33,6 +33,17 @@ PROTECTED_TABLES = (
     "ApplicationSectionVersion",
     "AuditEvent",
     "UserPreference",
+    "DocumentSlot",
+    "Document",
+    "StoredObject",
+    "DocumentVersion",
+    "Recommendation",
+    "ImportRun",
+    "ImportRow",
+    "SourceOccurrence",
+    "CallSourceOccurrence",
+    "ImportException",
+    "ClassificationDecision",
 )
 
 
@@ -57,6 +68,8 @@ def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
         "dbo.SetUserPreference",
         "dbo.GetUserPreference",
         "dbo.SetApplicationStatus",
+        "dbo.ValidateApplicationInvitation",
+        "dbo.GetInternalApplicationMetrics",
         "EHFApplicationRuntime",
         "sys.database_permissions",
         "The runtime role has a missing or altered permission row.",
@@ -68,6 +81,7 @@ def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
 def test_permission_migrations_deny_direct_table_access_and_publish_only_four_procedures() -> None:
     """Break caught: the runtime role could gain a table grant or unreviewed module access."""
     migration = MIGRATION.read_text(encoding="utf-8")
+    permission_migrations = migration + (MIGRATIONS / "009_document_permissions.sql").read_text(encoding="utf-8")
 
     assert "CREATE ROLE EHFApplicationRuntime" in migration
     assert "CREATE USER ehf_app WITHOUT LOGIN" in migration
@@ -75,7 +89,7 @@ def test_permission_migrations_deny_direct_table_access_and_publish_only_four_pr
         assert (
             f"DENY SELECT, INSERT, UPDATE, DELETE ON dbo.{table_name}"
             " TO EHFApplicationRuntime;"
-        ) in migration
+        ) in permission_migrations
     for procedure_name in (
         "RuntimeHealth",
         "SetUserPreference",

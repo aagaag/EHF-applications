@@ -9,6 +9,10 @@ IF OBJECT_ID(N'dbo.SetApplicationStatus', N'P') IS NULL
     THROW 51502, 'The application-status procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.GetUserPreference', N'P') IS NULL
     THROW 51517, 'The preference-read procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.ValidateApplicationInvitation', N'P') IS NULL
+    THROW 51518, 'The invitation-validation procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.GetInternalApplicationMetrics', N'P') IS NULL
+    THROW 51519, 'The internal-metrics procedure is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'EHFApplicationRuntime') IS NULL
     THROW 51503, 'The EHF runtime role is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'ehf_app') IS NULL
@@ -17,13 +21,19 @@ IF DATABASE_PRINCIPAL_ID(N'ehf_app') IS NULL
 DECLARE @RuntimeRoleId int = DATABASE_PRINCIPAL_ID(N'EHFApplicationRuntime');
 DECLARE @RuntimeUserId int = DATABASE_PRINCIPAL_ID(N'ehf_app');
 DECLARE @ApprovedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
-INSERT @ApprovedProcedures VALUES (N'RuntimeHealth'), (N'SetUserPreference'), (N'GetUserPreference'), (N'SetApplicationStatus');
+INSERT @ApprovedProcedures VALUES
+    (N'RuntimeHealth'), (N'SetUserPreference'), (N'GetUserPreference'),
+    (N'SetApplicationStatus'), (N'ValidateApplicationInvitation'),
+    (N'GetInternalApplicationMetrics');
 DECLARE @ProtectedTables TABLE (TableName sysname NOT NULL PRIMARY KEY);
 INSERT @ProtectedTables VALUES
     (N'SchemaMigration'), (N'FellowshipCall'), (N'Applicant'), (N'ApplicantContact'),
     (N'Application'), (N'EmploymentAffiliation'), (N'Qualification'),
     (N'EligibilityDeclaration'), (N'Bibliometrics'), (N'ContributionStatement'),
-    (N'FieldProvenance'), (N'ApplicationSectionVersion'), (N'AuditEvent'), (N'UserPreference');
+    (N'FieldProvenance'), (N'ApplicationSectionVersion'), (N'AuditEvent'), (N'UserPreference'),
+    (N'DocumentSlot'), (N'Document'), (N'StoredObject'), (N'DocumentVersion'),
+    (N'Recommendation'), (N'ImportRun'), (N'ImportRow'), (N'SourceOccurrence'),
+    (N'CallSourceOccurrence'), (N'ImportException'), (N'ClassificationDecision');
 DECLARE @RequiredDmlDenies TABLE (TableName sysname NOT NULL, PermissionName sysname NOT NULL, PRIMARY KEY (TableName, PermissionName));
 INSERT @RequiredDmlDenies
 SELECT TableName, PermissionName
