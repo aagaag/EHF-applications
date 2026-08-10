@@ -540,7 +540,7 @@ BEGIN CATCH
   IF XACT_STATE()<>0 ROLLBACK TRANSACTION;
   THROW;
 END CATCH;';
-EXEC sys.sp_executesql @Sql,N'@LoginName sysname,@UserName sysname',@LoginName,@UserName;
+EXEC sys.sp_executesql @Sql,N'@DatabaseName sysname,@LoginName sysname,@UserName sysname',@DatabaseName,@LoginName,@UserName;
 """, (database, login, user))
         return
     _execute(connection, """

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import re
 
 import pytest
 
@@ -623,6 +624,50 @@ def test_production_mapping_revalidates_complete_topology_before_and_after_alter
     for denied_permission in helper.EXPECTED_SERVER_DENIES:
         assert statement.count(f"N''{denied_permission}''") >= 4
     assert statement.count(")<>5") >= 2
+
+
+def test_production_mapping_binds_database_name_inside_dynamic_sql(monkeypatch) -> None:
+    """Break caught: the production batch could reference an undeclared dynamic @DatabaseName."""
+    helper = load_helper()
+
+    class DynamicBindingCursor(FakeCursor):
+        def execute(self, statement: str, *parameters: object):
+            binding = re.search(
+                r"EXEC\s+sys\.sp_executesql\s+@Sql\s*,\s*N'(?P<declarations>[^']+)'\s*,(?P<arguments>[^;]+);",
+                statement,
+            )
+            assert binding is not None
+            declarations = tuple(
+                declaration.strip() for declaration in binding.group("declarations").split(",")
+            )
+            arguments = tuple(
+                argument.strip() for argument in binding.group("arguments").split(",")
+            )
+            assert declarations == (
+                "@DatabaseName sysname",
+                "@LoginName sysname",
+                "@UserName sysname",
+            )
+            assert arguments == ("@DatabaseName", "@LoginName", "@UserName")
+            return super().execute(statement, *parameters)
+
+    connection = FakeConnection(DynamicBindingCursor())
+    monkeypatch.setattr(helper, "inspect_production", lambda *_: "UNMAPPED")
+    monkeypatch.setattr(helper, "require_no_effective_cross_database_access", lambda *_: None)
+
+    helper.map_production_user(
+        connection,
+        "EHFApplications",
+        "ehf_app",
+        "ehf_app",
+        Path("/protected/password"),
+    )
+
+    assert connection.cursor_instance.executions[0][1] == (
+        "EHFApplications",
+        "ehf_app",
+        "ehf_app",
+    )
 
 
 def test_helper_executes_only_fixed_admin_sqlcmd_artifacts_without_exposing_secret(monkeypatch) -> None:
