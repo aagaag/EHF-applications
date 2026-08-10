@@ -420,7 +420,7 @@ class SqlImportRepository:
             "SELECT TOP (1) CONVERT(varchar(36), DocumentVersionId) "
             "FROM dbo.SourceOccurrence WHERE ApplicationId = ? "
             "AND SourceContentSha256 = CONVERT(binary(32), CONVERT(varbinary(32), ?, 2)) "
-            "AND DocumentVersionId IS NOT NULL ORDER BY CreatedAtUtc",
+            "AND DocumentVersionId IS NOT NULL ORDER BY ObservedAtUtc",
             application_id,
             source_content_hash,
         ).fetchone()

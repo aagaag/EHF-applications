@@ -8,6 +8,18 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_existing_document_lookup_uses_the_import_provenance_timestamp() -> None:
+    """Break caught: the live import queried a nonexistent SourceOccurrence timestamp."""
+    importer = (ROOT / "app" / "importer" / "run.py").read_text(encoding="utf-8")
+    migration = (ROOT / "database" / "migrations" / "008_import_provenance.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "ORDER BY ObservedAtUtc" in importer
+    assert "ObservedAtUtc datetime2(7)" in migration
+    assert "ORDER BY CreatedAtUtc" not in importer
 APPROVED_SPEC = "docs/superpowers/specs/2026-08-09-ehf-applications-portal-design.md"
 
 EXPECTED_RUNTIME_REQUIREMENTS = [
