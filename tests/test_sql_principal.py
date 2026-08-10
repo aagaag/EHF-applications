@@ -93,6 +93,7 @@ def test_helper_has_only_fixed_lifecycle_commands() -> None:
         "exercise-test-status",
         "cleanup-test-targets",
         "verify-test-cleanup",
+        "verify-no-test-leftovers",
         "verify-test-targets-preserved",
     }
 
@@ -448,3 +449,31 @@ def test_cleanup_does_not_accept_a_credential_argument() -> None:
     """Break caught: cleanup must converge deterministically after credential loss."""
     helper = load_helper()
     assert "credential_file" not in helper.cleanup_test_targets.__annotations__
+
+
+def test_global_cleanup_verifier_rejects_any_matching_resource() -> None:
+    """Break caught: named cleanup could pass while another test target remains."""
+    helper = load_helper()
+
+    helper.verify_no_test_leftovers(FakeConnection(FakeCursor()))
+    with pytest.raises(helper.PrincipalError, match="cleanup verification"):
+        helper.verify_no_test_leftovers(
+            FakeConnection(FakeCursor(rows=[("EHFApplications_Test_sqlperm_leftover",)]))
+        )
+
+
+def test_global_cleanup_command_has_no_target_arguments() -> None:
+    """Break caught: global verification could accidentally accept a narrowed target."""
+    helper = load_helper()
+    arguments = helper.parser().parse_args(
+        [
+            "verify-no-test-leftovers",
+            "--server",
+            "tcp:127.0.0.1,1433",
+            "--admin-credential-file",
+            "/protected/admin-password",
+        ]
+    )
+
+    assert arguments.command == "verify-no-test-leftovers"
+    assert not hasattr(arguments, "database")

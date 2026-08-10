@@ -227,6 +227,8 @@ def test_isolated_verifier_uses_a_second_database_and_fails_when_cleanup_fails()
     assert "Cleanup failed; isolated EHF SQL verification is unsuccessful." in source
     assert "run_runtime_sql \"$peer_database\"" in source
     assert "verify-test-cleanup" in source
+    assert "verify-no-test-leftovers" in source
+    assert "Cleanup stage: global zero verify." in source
 
 
 def test_isolated_verifier_cleans_explicitly_before_pass_and_preserves_adverse_peer() -> None:
@@ -239,6 +241,7 @@ def test_isolated_verifier_cleans_explicitly_before_pass_and_preserves_adverse_p
     assert "trap - EXIT" in source
     assert "adverse_database" in source
     assert "verify-test-targets-preserved" in source
+    assert source.index("verify-no-test-leftovers") < pass_index
 
 
 def test_setup_converges_an_authenticated_unmapped_login_without_creating_a_password() -> None:

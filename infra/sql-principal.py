@@ -76,6 +76,7 @@ COMMANDS = (
     "exercise-test-status",
     "cleanup-test-targets",
     "verify-test-cleanup",
+    "verify-no-test-leftovers",
     "verify-test-targets-preserved",
 )
 
@@ -134,6 +135,10 @@ def validate_command_arguments(
     if command not in COMMANDS:
         raise PrincipalError("Unexpected helper command")
     _require_server(server)
+    if command == "verify-no-test-leftovers":
+        if any(value is not None for value in (database, login, peer_database, user, run_token)):
+            raise PrincipalError("Unexpected principal target")
+        return
     if command == "authenticate-login":
         if database is None or login is None:
             raise PrincipalError("Unexpected principal target")
@@ -582,7 +587,13 @@ def cleanup_test_targets(connection, database: str, peer_database: str, login: s
 
 def verify_test_cleanup(connection, database: str, peer_database: str, login: str, run_token: str) -> None:
     validate_command_arguments("verify-test-cleanup", SERVER, database, login, peer_database, run_token=run_token)
-    if _database_marker(connection, database) == run_token or _database_marker(connection, peer_database) == run_token or _test_login_exists(connection, login):
+    if _database_exists(connection, database) or _database_exists(connection, peer_database) or _test_login_exists(connection, login):
+        raise PrincipalError("Test principal cleanup verification failed")
+
+
+def verify_no_test_leftovers(connection) -> None:
+    rows = _rows(connection, "SELECT name FROM sys.databases WHERE name LIKE N'EHFApplications_Test_sqlperm%' UNION ALL SELECT name FROM sys.server_principals WHERE name LIKE N'ehf_app_test_%';")
+    if rows:
         raise PrincipalError("Test principal cleanup verification failed")
 
 
@@ -592,12 +603,16 @@ def verify_test_targets_preserved(connection, database: str, login: str, run_tok
         raise PrincipalError("Test principal preservation verification failed")
 
 
-def admin_connection_database(command: str, database: str) -> str:
+def admin_connection_database(command: str, database: str | None) -> str:
     return database if command in {"record-test-migration", "exercise-test-status"} else "master"
 
 
 def _admin_connection(arguments):
-    return connect_admin(arguments.server, Path(arguments.admin_credential_file), admin_connection_database(arguments.command, arguments.database))
+    return connect_admin(
+        arguments.server,
+        Path(arguments.admin_credential_file),
+        admin_connection_database(arguments.command, getattr(arguments, "database", None)),
+    )
 
 
 def dispatch(arguments) -> None:
@@ -621,6 +636,7 @@ def dispatch(arguments) -> None:
         elif command == "exercise-test-status": exercise_test_status(connection, arguments.server, arguments.database, arguments.login, Path(arguments.credential_file))
         elif command == "cleanup-test-targets": cleanup_test_targets(connection, arguments.database, arguments.peer_database, arguments.login, arguments.run_token, arguments.server)
         elif command == "verify-test-cleanup": verify_test_cleanup(connection, arguments.database, arguments.peer_database, arguments.login, arguments.run_token)
+        elif command == "verify-no-test-leftovers": verify_no_test_leftovers(connection)
         elif command == "verify-test-targets-preserved": verify_test_targets_preserved(connection, arguments.database, arguments.login, arguments.run_token, Path(arguments.credential_file), arguments.server)
     finally:
         connection.close()
@@ -631,8 +647,7 @@ def parser() -> argparse.ArgumentParser:
     for command in COMMANDS:
         item = subparsers.add_parser(command, add_help=False); item.add_argument("--server", required=True)
         if command != "authenticate-login": item.add_argument("--admin-credential-file", required=True)
-        if command != "create-test-database": item.add_argument("--database", required=True)
-        else: item.add_argument("--database", required=True)
+        if command != "verify-no-test-leftovers": item.add_argument("--database", required=True)
         if command in {"inspect-production", "map-production-user", "map-test-user"}: item.add_argument("--user", required=True)
         if command in {"inspect-production", "authenticate-login", "create-production-login", "map-production-user", "create-test-login", "map-test-user", "exercise-test-status", "cleanup-test-targets", "verify-test-cleanup", "verify-test-targets-preserved"}: item.add_argument("--login", required=True)
         if command in {"authenticate-login", "create-production-login", "create-test-login", "exercise-test-status", "verify-test-targets-preserved"}: item.add_argument("--credential-file", required=True)
