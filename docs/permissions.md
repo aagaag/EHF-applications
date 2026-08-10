@@ -31,12 +31,18 @@ otherwise exact `UNMAPPED` state converges to the one expected EHF user mapping;
 any direct permission, extra role, ownership, external mapping, unexpected
 server permission, or effective access to another user database is refused.
 
-The production login has no server role, does not own `EHFApplications`, and
-has exactly these explicit server denials: `VIEW ANY DATABASE`, `VIEW ANY
-DEFINITION`, `VIEW SERVER STATE`, `ALTER ANY LOGIN`, `ALTER ANY SERVER ROLE`,
-and `CONTROL SERVER`. It has no user in `master` or another application
-database. The runtime user has no direct database grant and belongs only to
-`EHFApplicationRuntime`.
+The production login is enabled, has `CHECK_POLICY=ON`,
+`CHECK_EXPIRATION=OFF`, and defaults to `EHFApplications`. It has no server
+role, does not own `EHFApplications`, and has exactly these five explicit
+server denials: `VIEW ANY DATABASE`, `VIEW ANY DEFINITION`, `VIEW SERVER
+STATE`, `ALTER ANY LOGIN`, and `ALTER ANY SERVER ROLE`. The login has no
+direct `CONTROL SERVER` grant or denial: the controlled live probe established
+that an explicit `DENY CONTROL SERVER` prevents SQL login authentication with
+SQL Server error 18456. Effective `CONTROL SERVER` remains required to be
+unavailable, by absence of a grant or server-role membership and by the five
+narrower denials, and is checked by the isolated verifier. It has no user in
+`master` or another application database. The runtime user has no direct
+database grant and belongs only to `EHFApplicationRuntime`.
 
 The role receives `CONNECT` and `EXECUTE` only on `dbo.RuntimeHealth`,
 `dbo.SetUserPreference`, and `dbo.SetApplicationStatus`. It receives no table

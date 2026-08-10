@@ -51,7 +51,6 @@ MARKER_NAME = "EHF.Task4RunToken"
 SERVER_DENY_NAMES = (
     "ALTER ANY LOGIN",
     "ALTER ANY SERVER ROLE",
-    "CONTROL SERVER",
     "VIEW ANY DATABASE",
     "VIEW ANY DEFINITION",
     "VIEW SERVER STATE",
@@ -497,11 +496,11 @@ ELSE SELECT @Out=''INVALID'';';
 EXEC sys.sp_executesql @Sql,N'@LoginName sysname,@UserName sysname,@LoginExists bit,@Out varchar(12) OUTPUT',@LoginName,@UserName,@LoginExists,@UserState OUTPUT;
 IF @UserState=N''INVALID'' SELECT ''INVALID'' AS State;
 ELSE IF @LoginExists=0 SELECT ''ABSENT'' AS State;
-ELSE IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name=@LoginName AND type_desc=N''SQL_LOGIN'' AND is_disabled=0 AND default_database_name=@DatabaseName AND is_policy_checked=1 AND is_expiration_checked=0) SELECT ''INVALID'' AS State;
+ELSE IF NOT EXISTS (SELECT 1 FROM sys.server_principals AS principal_row INNER JOIN sys.sql_logins AS login_row ON login_row.principal_id=principal_row.principal_id WHERE principal_row.name=@LoginName AND principal_row.type_desc=N''SQL_LOGIN'' AND principal_row.is_disabled=0 AND principal_row.default_database_name=@DatabaseName AND login_row.is_policy_checked=1 AND login_row.is_expiration_checked=0) SELECT ''INVALID'' AS State;
 ELSE IF EXISTS (SELECT 1 FROM sys.databases WHERE owner_sid=SUSER_SID(@LoginName)) SELECT ''INVALID'' AS State;
 ELSE IF EXISTS (SELECT 1 FROM sys.server_role_members m INNER JOIN sys.server_principals p ON p.principal_id=m.member_principal_id WHERE p.name=@LoginName) SELECT ''INVALID'' AS State;
-ELSE IF EXISTS (SELECT 1 FROM sys.server_permissions p WHERE p.grantee_principal_id=SUSER_ID(@LoginName) AND (p.state_desc<>N''DENY'' OR p.permission_name NOT IN (N''ALTER ANY LOGIN'',N''ALTER ANY SERVER ROLE'',N''CONTROL SERVER'',N''VIEW ANY DATABASE'',N''VIEW ANY DEFINITION'',N''VIEW SERVER STATE''))) SELECT ''INVALID'' AS State;
-ELSE IF (SELECT COUNT(*) FROM sys.server_permissions WHERE grantee_principal_id=SUSER_ID(@LoginName) AND state_desc=N''DENY'' AND permission_name IN (N''ALTER ANY LOGIN'',N''ALTER ANY SERVER ROLE'',N''CONTROL SERVER'',N''VIEW ANY DATABASE'',N''VIEW ANY DEFINITION'',N''VIEW SERVER STATE''))<>6 SELECT ''INVALID'' AS State;
+ELSE IF EXISTS (SELECT 1 FROM sys.server_permissions p WHERE p.grantee_principal_id=SUSER_ID(@LoginName) AND NOT (p.permission_name=N''CONNECT SQL'' AND p.state_desc=N''GRANT'') AND NOT (p.state_desc=N''DENY'' AND p.permission_name IN (N''ALTER ANY LOGIN'',N''ALTER ANY SERVER ROLE'',N''VIEW ANY DATABASE'',N''VIEW ANY DEFINITION'',N''VIEW SERVER STATE''))) SELECT ''INVALID'' AS State;
+ELSE IF (SELECT COUNT(*) FROM sys.server_permissions WHERE grantee_principal_id=SUSER_ID(@LoginName) AND state_desc=N''DENY'' AND permission_name IN (N''ALTER ANY LOGIN'',N''ALTER ANY SERVER ROLE'',N''VIEW ANY DATABASE'',N''VIEW ANY DEFINITION'',N''VIEW SERVER STATE''))<>5 SELECT ''INVALID'' AS State;
 ELSE SELECT @UserState AS State;
 """, (login, database, user))
     if len(rows) != 1:
@@ -674,9 +673,9 @@ def _test_login_exists(connection, login: str) -> bool:
 def _test_login_shape(connection, database: str, login: str) -> bool:
     rows = _rows(connection, f"""
 DECLARE @LoginName sysname=?,@DatabaseName sysname=?;
-SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.server_principals WHERE name=@LoginName AND type_desc=N'SQL_LOGIN' AND is_disabled=0 AND default_database_name=@DatabaseName AND is_policy_checked=1 AND is_expiration_checked=0)
+SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.server_principals AS principal_row INNER JOIN sys.sql_logins AS login_row ON login_row.principal_id=principal_row.principal_id WHERE principal_row.name=@LoginName AND principal_row.type_desc=N'SQL_LOGIN' AND principal_row.is_disabled=0 AND principal_row.default_database_name=@DatabaseName AND login_row.is_policy_checked=1 AND login_row.is_expiration_checked=0)
  AND NOT EXISTS (SELECT 1 FROM sys.server_role_members m INNER JOIN sys.server_principals p ON p.principal_id=m.member_principal_id WHERE p.name=@LoginName)
- AND (SELECT COUNT(*) FROM sys.server_permissions WHERE grantee_principal_id=SUSER_ID(@LoginName) AND state_desc=N'DENY' AND permission_name IN ({SERVER_DENY_IN_SQL}))=6
+ AND (SELECT COUNT(*) FROM sys.server_permissions WHERE grantee_principal_id=SUSER_ID(@LoginName) AND state_desc=N'DENY' AND permission_name IN ({SERVER_DENY_IN_SQL}))={len(SERVER_DENY_NAMES)}
  AND NOT EXISTS
  (
    SELECT 1 FROM sys.server_permissions

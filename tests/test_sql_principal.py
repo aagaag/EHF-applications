@@ -163,7 +163,7 @@ def test_create_login_binds_name_password_and_database_not_sql_text(monkeypatch)
 
 
 def test_test_login_creation_applies_the_exact_production_server_deny_set(monkeypatch) -> None:
-    """Break caught: a disposable login could retain server metadata visibility absent from production."""
+    """Break caught: a disposable login could reintroduce the login-blocking CONTROL SERVER deny."""
     helper = load_helper()
     cursor = FakeCursor()
     connection = FakeConnection(cursor)
@@ -181,11 +181,12 @@ def test_test_login_creation_applies_the_exact_production_server_deny_set(monkey
     statement, _ = cursor.executions[0]
     for permission_name in helper.EXPECTED_SERVER_DENIES:
         assert f"N'{permission_name}'" in statement
+    assert "N'CONTROL SERVER'" not in statement
     assert "N'DENY '+@Permission+N' TO '" in statement
 
 
 def test_test_login_shape_accepts_only_the_exact_server_permission_allowlist() -> None:
-    """Break caught: cleanup could accept a temporary login missing a deny or carrying an extra permission."""
+    """Break caught: cleanup could accept a temporary login missing a deny, CONTROL SERVER, or another extra permission."""
     helper = load_helper()
     suffix = "0123456789abcdef01234567"
     database = f"EHFApplications_Test_sqlperm_{suffix}"
@@ -198,6 +199,10 @@ def test_test_login_shape_accepts_only_the_exact_server_permission_allowlist() -
     statement, _ = exact.cursor_instance.executions[0]
     for permission_name in helper.EXPECTED_SERVER_DENIES:
         assert f"N'{permission_name}'" in statement
+    assert "INNER JOIN sys.sql_logins AS login_row" in statement
+    assert "login_row.is_policy_checked=1" in statement
+    assert "login_row.is_expiration_checked=0" in statement
+    assert "N'CONTROL SERVER'" not in statement
     assert "permission_name=N'CONNECT SQL' AND state_desc=N'GRANT'" in statement
     assert "state_desc=N'DENY'" in statement
 
@@ -235,12 +240,33 @@ def test_inspection_refuses_cross_database_mapping_or_ownership() -> None:
     helper.require_no_cross_database_access([], "EHFApplications")
 
 
+def test_production_and_cleanup_login_shape_queries_use_sql_logins_for_policy() -> None:
+    """Break caught: querying policy columns on server_principals fails on SQL Server."""
+    helper = load_helper()
+    production = FakeConnection(FakeCursor(rows=[("ABSENT",)]))
+    cleanup = FakeConnection(FakeCursor(rows=[(1,)]))
+
+    assert helper._inspect_production_state(production, "EHFApplications", "ehf_app", "ehf_app") == "ABSENT"
+    assert helper._test_login_shape(
+        cleanup,
+        "EHFApplications_Test_sqlperm_0123456789abcdef01234567",
+        "ehf_app_test_0123456789abcdef01234567",
+    )
+
+    production_statement, _ = production.cursor_instance.executions[0]
+    cleanup_statement, _ = cleanup.cursor_instance.executions[0]
+    for statement in (production_statement, cleanup_statement):
+        assert "INNER JOIN sys.sql_logins AS login_row" in statement
+        assert "login_row.is_policy_checked=1" in statement
+        assert "login_row.is_expiration_checked=0" in statement
+        assert "sys.server_principals WHERE name=@LoginName AND type_desc=N''SQL_LOGIN'' AND is_disabled=0 AND default_database_name=@DatabaseName AND is_policy_checked=1" not in statement
+
+
 def test_production_inspection_checks_its_own_database_owner_and_login_policy() -> None:
     """Break caught: ehf_app could own EHFApplications or weaken its password policy."""
     source = HELPER.read_text(encoding="utf-8")
     assert "owner_sid" in source
-    assert "is_policy_checked" in source
-    assert "is_expiration_checked" in source
+    assert "sys.sql_logins" in source
 
 
 def test_cross_database_probe_accepts_only_sql_servers_cannot_open_database_login_denial(
@@ -504,20 +530,20 @@ def test_cli_redacts_driver_errors(monkeypatch, capsys) -> None:
     assert "do-not-print" not in captured.err
 
 
-def test_production_server_deny_set_is_exact_and_contains_metadata_boundaries() -> None:
-    """Break caught: an existing login could retain broad server metadata access."""
+def test_production_server_deny_set_is_exact_and_excludes_the_login_blocking_deny() -> None:
+    """Break caught: CONTROL SERVER DENY would make SQL Server reject the runtime login with error 18456."""
     helper = load_helper()
 
     assert helper.EXPECTED_SERVER_DENIES == frozenset(
         {
             "ALTER ANY LOGIN",
             "ALTER ANY SERVER ROLE",
-            "CONTROL SERVER",
             "VIEW ANY DATABASE",
             "VIEW ANY DEFINITION",
             "VIEW SERVER STATE",
         }
     )
+    assert "CONTROL SERVER" not in helper.EXPECTED_SERVER_DENIES
 
 
 def test_odbc_components_are_braced_before_connecting(monkeypatch) -> None:

@@ -144,6 +144,8 @@ CLOSE dml_cursor; DEALLOCATE dml_cursor;
 SQL
 run_runtime_sql "$database" <<'SQL' >/dev/null 2>&1 || fail "The isolated server and metadata denial probe failed."
 DECLARE @DeniedPermissions TABLE (PermissionName sysname NOT NULL, ScopeName sysname NULL);
+-- Do not add an explicit DENY CONTROL SERVER: SQL Server then rejects this
+-- SQL login with error 18456. Its effective absence is still verified below.
 INSERT @DeniedPermissions VALUES
  (N'ALTER ANY LOGIN',NULL),(N'ALTER ANY SERVER ROLE',NULL),(N'CONTROL SERVER',NULL),
  (N'VIEW ANY DATABASE',NULL),(N'VIEW ANY DEFINITION',NULL),(N'VIEW SERVER STATE',NULL),
