@@ -17,6 +17,7 @@ SERVICE = ROOT / "infra" / "ehf.service"
 NGINX = ROOT / "infra" / "ehf.nginx.conf"
 DEPLOY = ROOT / "scripts" / "deploy-isab01.ps1"
 VERIFY = ROOT / "scripts" / "verify-isab01.ps1"
+IMPORT_2026 = ROOT / "scripts" / "import-call-2026.ps1"
 PWSH = shutil.which("pwsh") or shutil.which("powershell") or "powershell"
 SQL_LOGIN_TEST = ROOT / "infra" / "test-sql-login.sh"
 
@@ -47,6 +48,16 @@ def test_service_uses_systemd_credentials_and_hardens_a_loopback_only_runtime() 
     assert "EHF_SQL_PASSWORD=" not in source
     assert "EHF_INVITATIONS_ENABLED=true" not in source
     assert "EHF_PRODUCTION_MAIL_ENABLED=true" not in source
+
+
+def test_import_loads_document_keyring_through_a_transient_systemd_credential() -> None:
+    """Break caught: the importer could bypass the credential-path boundary with /etc secret files."""
+    source = IMPORT_2026.read_text(encoding="utf-8")
+
+    assert "systemd-run --quiet --wait --pipe --collect" in source
+    assert "LoadCredential=document-keyring:/etc/ehf/document-keyring" in source
+    assert 'EHF_DOCUMENT_ENCRYPTION_KEYRING_PATH="$CREDENTIALS_DIRECTORY/document-keyring"' in source
+    assert "export EHF_DOCUMENT_ENCRYPTION_KEYRING_PATH=/etc/ehf/document-keyring" not in source
 
 
 def test_nginx_only_serves_the_exact_ehf_host_and_loopback_upstream() -> None:

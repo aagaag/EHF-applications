@@ -40,7 +40,7 @@ def test_database_failure_after_object_write_rolls_back_the_applicant_and_object
     repository = FailingRepository()
     objects = MemoryObjectIngestor()
 
-    with pytest.raises(ImportExecutionError):
+    with pytest.raises(ImportExecutionError, match=r"document-registration \(_DocumentRegistrationError\)"):
         execute_import(request(tmp_path), repository, objects, mode=ImportMode.APPLY)
 
     assert repository.applications == {}

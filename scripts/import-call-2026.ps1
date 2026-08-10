@@ -65,14 +65,14 @@ test ! -e "$stage/../invalid"
 /usr/bin/install -m 0600 -o root -g root "$identity" "$stage/identity-parts.json"
 /usr/bin/install -m 0600 -o root -g root "$aliases" "$stage/folder-aliases.json"
 release=$( /usr/bin/readlink -f /opt/ehf/current )
-set -a
-. /etc/ehf/ehf.env
-set +a
-export EHF_DOCUMENT_ENCRYPTION_KEYRING_PATH=/etc/ehf/document-keyring
 python="$release/venv/bin/python"
 cd "$release"
 if [ "$apply_flag" = '--apply' ]; then
-  "$python" -m app.importer.run --source-root "$stage" --register "$stage/$register" --identity-parts "$stage/identity-parts.json" --folder-aliases "$stage/folder-aliases.json" --call-id "$call_id" --apply --sql-admin-credential-file "$sql_admin_path"
+  /usr/bin/systemd-run --quiet --wait --pipe --collect \
+    --property=Type=exec \
+    --property=LoadCredential=document-keyring:/etc/ehf/document-keyring \
+    /bin/sh -c 'set -eu; release=$1; shift; set -a; . /etc/ehf/ehf.env; set +a; export EHF_DOCUMENT_ENCRYPTION_KEYRING_PATH="$CREDENTIALS_DIRECTORY/document-keyring"; cd "$release"; exec "$@"' \
+    sh "$release" "$python" -m app.importer.run --source-root "$stage" --register "$stage/$register" --identity-parts "$stage/identity-parts.json" --folder-aliases "$stage/folder-aliases.json" --call-id "$call_id" --apply --sql-admin-credential-file "$sql_admin_path"
 else
   "$python" -m app.importer.run --source-root "$stage" --register "$stage/$register" --identity-parts "$stage/identity-parts.json" --folder-aliases "$stage/folder-aliases.json" --call-id "$call_id"
 fi

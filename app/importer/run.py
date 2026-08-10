@@ -682,12 +682,15 @@ def _import_applicant(
     exceptions: Counter[str],
 ) -> None:
     stored: list[object] = []
+    stage = "application-record"
     try:
         with repository.applicant_transaction():
             application_id = repository.application_for(planned.applicant, planned.source_row_hash)
+            stage = "import-row-record"
             row_id = repository.record_row(run_id, planned.row_number, application_id, planned.source_row_hash)
             for occurrence in planned.occurrences:
                 if not occurrence.is_pdf:
+                    stage = "non-pdf-occurrence-record"
                     repository.record_occurrence(
                         run_id, row_id, application_id, occurrence, None, "NON_PDF"
                     )
@@ -695,11 +698,14 @@ def _import_applicant(
                     exceptions["non-pdf-source"] += 1
                     continue
                 try:
+                    stage = "source-file-resolution"
                     source = _source_path(request.inventory.source_root, occurrence.relative_path)
+                    stage = "existing-document-lookup"
                     existing_version = repository.existing_version_for_content(
                         application_id, occurrence.sha256
                     )
                     if existing_version is not None:
+                        stage = "existing-occurrence-record"
                         repository.record_occurrence(
                             run_id,
                             row_id,
@@ -709,19 +715,25 @@ def _import_applicant(
                             "INGESTED",
                         )
                         continue
+                    stage = "document-classification"
                     document_type = _document_type(source)
+                    stage = "document-preparation"
                     document = repository.prepare_document(application_id, occurrence, document_type)
                     def register(stored_record: object) -> str:
+                        nonlocal stage
+                        stage = "document-registration"
                         try:
                             return repository.record_document(document, stored_record)
                         except Exception as error:
                             raise _DocumentRegistrationError from error
+                    stage = "document-admission"
                     stored_object = objects.ingest(
                         source,
                         document,
                         register,
                     )
                     stored.append(stored_object)
+                    stage = "source-occurrence-record"
                     repository.record_occurrence(
                         run_id, row_id, application_id, occurrence, str(document.version_id), "INGESTED"
                     )
@@ -737,13 +749,15 @@ def _import_applicant(
                         raise _DocumentRegistrationError(
                             "A non-empty source document failed admission."
                         )
-    except Exception:
+    except Exception as error:
         for stored_object in reversed(stored):
             try:
                 objects.discard(stored_object)
             except Exception:
                 pass
-        raise ImportExecutionError("An applicant transaction failed.") from None
+        raise ImportExecutionError(
+            f"An applicant transaction failed during {stage} ({type(error).__name__})."
+        ) from None
 
 
 def _result(
