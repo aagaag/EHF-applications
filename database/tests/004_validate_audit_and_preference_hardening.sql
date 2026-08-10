@@ -106,22 +106,18 @@ BEGIN TRY
              'default', 0, 0, 0);
     END TRY
     BEGIN CATCH
-        IF ERROR_NUMBER() <> 51033
+        DECLARE @DirectPreferenceErrorNumber int = ERROR_NUMBER();
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+        EXEC sys.sp_set_session_context
+            @key = N'EHF.UserPreferenceProcedure', @value = NULL;
+        IF @IsImpersonated = 1
         BEGIN
-            EXEC sys.sp_set_session_context
-                @key = N'EHF.UserPreferenceProcedure', @value = NULL;
             REVERT;
             SET @IsImpersonated = 0;
-            IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
-            THROW;
         END;
+        IF @DirectPreferenceErrorNumber <> 51033 THROW;
         SET @DirectPreferenceWriteRejected = 1;
     END CATCH;
-    EXEC sys.sp_set_session_context
-        @key = N'EHF.UserPreferenceProcedure', @value = NULL;
-    REVERT;
-    SET @IsImpersonated = 0;
-    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
 
     IF @DirectPreferenceWriteRejected <> 1
         THROW 51403, 'Caller-controlled session context enabled direct preference DML.', 1;
@@ -154,22 +150,26 @@ BEGIN TRY
             SET @IsImpersonated = 0;
         END TRY
         BEGIN CATCH
+            IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
             IF @IsImpersonated = 1
             BEGIN
+                EXEC sys.sp_set_session_context
+                    @key = N'EHF.UserPreferenceProcedure', @value = NULL;
                 REVERT;
                 SET @IsImpersonated = 0;
             END;
-            IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
             THROW;
         END CATCH;
     END TRY
     BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         IF @IsImpersonated = 1
         BEGIN
+            EXEC sys.sp_set_session_context
+                @key = N'EHF.UserPreferenceProcedure', @value = NULL;
             REVERT;
             SET @IsImpersonated = 0;
         END;
-        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         THROW;
     END CATCH;
 
@@ -202,6 +202,7 @@ BEGIN TRY
     END;
 END TRY
 BEGIN CATCH
+    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
     IF @IsImpersonated = 1
     BEGIN
         EXEC sys.sp_set_session_context
@@ -209,7 +210,6 @@ BEGIN CATCH
         REVERT;
         SET @IsImpersonated = 0;
     END;
-    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
     IF @CreatedValidatorUser = 1
     BEGIN
         DROP USER EHFPreferenceDmlValidator;

@@ -24,7 +24,7 @@ PUBLISHED_003_MIGRATION_SHA256 = bytes.fromhex(
     "472fdfb22cb2ea46f786059905e8c1f9491b7081e145bb8731f9b0c6dd4349ac"
 )
 CURRENT_003_VALIDATOR_SHA256 = bytes.fromhex(
-    "ae987bc057289e798da030f014b507d52a353b72f4510631d62d90caa08910f6"
+    "6997f8b31030b9b71190e67062d719d49b93cd67bdd7e43f4ded8f61a773c0ee"
 )
 
 
@@ -637,7 +637,7 @@ def assert_isolated_expected_failure(source: str, marker: str, expected_error: i
 
     assert re.search(r"BEGIN TRANSACTION;\s*BEGIN TRY", section)
     assert re.search(
-        rf"IF ERROR_NUMBER\(\) <> {expected_error}\s*(?:THROW;|BEGIN)",
+        rf"IF (?:ERROR_NUMBER\(\)|@\w*ErrorNumber) <> {expected_error}\s*(?:THROW;|BEGIN)",
         section,
     )
     assert "IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;" in section
@@ -692,6 +692,46 @@ def test_validator_004_isolates_expected_failures_and_cleans_up_successful_write
     assert re.search(r"BEGIN TRANSACTION;.*?ROLLBACK TRANSACTION;", successful_writes, re.DOTALL)
     assert "COMMIT TRANSACTION" not in validator
     assert "DROP USER EHFPreferenceDmlValidator" in validator
+
+
+def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None:
+    """Break caught: cleanup could execute inside a doomed trigger transaction and raise Msg 3930."""
+    validator_003 = (
+        VALIDATION_DIRECTORY / "003_validate_audit_and_preferences.sql"
+    ).read_text(encoding="utf-8")
+    validator_004 = (
+        VALIDATION_DIRECTORY / "004_validate_audit_and_preference_hardening.sql"
+    ).read_text(encoding="utf-8")
+
+    assert not re.search(
+        r"BEGIN CATCH\s+EXEC sys\.sp_set_session_context.*?"
+        r"IF XACT_STATE\(\) <> 0 ROLLBACK TRANSACTION;",
+        validator_003,
+        flags=re.DOTALL,
+    )
+    direct_section = validator_section(
+        validator_004, "-- ISOLATED EXPECTED FAILURE: direct preference DML"
+    )
+    assert "DECLARE @DirectPreferenceErrorNumber int = ERROR_NUMBER();" in direct_section
+
+    cleanup_catches = re.findall(
+        r"BEGIN CATCH(?P<body>.*?)(?=END CATCH;)",
+        validator_004,
+        flags=re.DOTALL,
+    )
+    for body in cleanup_catches:
+        cleanup_positions = [
+            position
+            for position in (
+                body.find("EXEC sys.sp_set_session_context"),
+                body.find("REVERT;"),
+            )
+            if position >= 0
+        ]
+        if cleanup_positions:
+            rollback_position = body.find("IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;")
+            assert rollback_position >= 0
+            assert rollback_position < min(cleanup_positions)
 
 
 def test_database_contract_validator_reports_version_four() -> None:

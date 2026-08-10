@@ -153,9 +153,9 @@ BEGIN TRY
     END CATCH;
 END TRY
 BEGIN CATCH
+    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
     EXEC sys.sp_set_session_context
         @key = N'EHF.UserPreferenceProcedure', @value = NULL;
-    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
     THROW;
 END CATCH;
 
