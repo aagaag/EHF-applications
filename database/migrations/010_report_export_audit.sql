@@ -120,7 +120,7 @@ BEGIN
     (
         SELECT
             @ActorGroup AS actorGroup,
-            @RowCount AS rowCount,
+            @RowCount AS [rowCount],
             N''XLSX'' AS format,
             @Outcome AS outcome,
             @FailureStage AS failureStage
