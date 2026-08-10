@@ -381,7 +381,7 @@ def _execute(connection, statement: str, parameters: Sequence[object] = ()) -> N
 def _rows(connection, statement: str, parameters: Sequence[object] = ()) -> list[object]:
     cursor = connection.cursor()
     cursor.execute(statement, *parameters)
-    return list(cursor.fetchall())
+    return [tuple(row) for row in cursor.fetchall()]
 
 
 def first_result_row(cursor):

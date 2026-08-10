@@ -200,6 +200,30 @@ def test_production_principal_inspection_uses_valid_outer_sql_and_collation_safe
     assert "CONVERT(varbinary(256),DB_NAME())" in source
 
 
+def test_sql_driver_rows_are_normalized_to_plain_tuples() -> None:
+    spec = importlib.util.spec_from_file_location("sql_principal_rows", HELPER)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class DriverRow:
+        def __iter__(self):
+            return iter(("Finances2",))
+
+    class Cursor:
+        def execute(self, *_args):
+            return self
+
+        def fetchall(self):
+            return [DriverRow()]
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+    assert module._rows(Connection(), "SELECT name") == [("Finances2",)]
+
+
 @pytest.mark.parametrize(
     ("script", "arguments"),
     (
