@@ -97,7 +97,7 @@ def _help_links(entries: tuple[NavigationEntry, ...]) -> str:
 
 def _cards(entries: tuple[NavigationEntry, ...]) -> str:
     return "".join(
-        f'<a class="shell-card" href="{escape(entry.href)}"><strong>{escape(entry.label)}</strong><span>{escape(entry.help_text)}</span><em>Preview surface</em></a>'
+        f'<a class="shell-card" href="{escape(entry.href)}"><strong>{escape(entry.label)}</strong><span>{escape(entry.help_text)}</span></a>'
         for entry in entries
     )
 

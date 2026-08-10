@@ -72,7 +72,7 @@ def test_access_resolver_requires_verified_full_entra_group_membership(monkeypat
     principal = resolver(_request())
 
     assert principal is not None
-    assert principal.groups == frozenset({"EHF-Applications-Administrators"})
+    assert principal.groups == frozenset({"EHF-Administrators"})
 
 
 def test_access_resolver_accepts_cloudflare_group_objects_with_entra_ids(monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -102,7 +102,7 @@ def test_access_resolver_accepts_cloudflare_group_objects_with_entra_ids(monkeyp
                 "name": "Example Person",
                 "idp": {"name": "Example Person"},
                 "groups": [
-                    {"id": "ADMIN-ID", "name": "EHF-Applications-Administrators"},
+                    {"id": "ADMIN-ID", "name": "EHF-Administrators"},
                     {"id": "unrelated-id", "name": "Unrelated Group"},
                 ],
             },
@@ -112,7 +112,7 @@ def test_access_resolver_accepts_cloudflare_group_objects_with_entra_ids(monkeyp
     principal = resolver(_request())
 
     assert principal is not None
-    assert principal.groups == frozenset({"EHF-Applications-Administrators"})
+    assert principal.groups == frozenset({"EHF-Administrators"})
 
 
 class _Connection:
@@ -124,7 +124,7 @@ class _Connection:
 
     def execute(self, statement: str, role: str):
         assert "GetInternalApplicationMetrics" in statement
-        assert role == "EHF-Applications-Trustees"
+        assert role == "EHF-Trustees"
         return SimpleNamespace(
             fetchall=lambda: [
                 ("Example Applicant", "PhD", 31, 4.5, None, 2, 0, 7, 5, 101, None, 110, "reviewed")
@@ -133,7 +133,7 @@ class _Connection:
 
 
 def test_sql_metric_repository_maps_role_scoped_projection() -> None:
-    records = SqlMetricRepository(lambda: _Connection()).load("EHF-Applications-Trustees")
+    records = SqlMetricRepository(lambda: _Connection()).load("EHF-Trustees")
 
     assert len(records) == 1
     assert records[0].applicant == "Example Applicant"

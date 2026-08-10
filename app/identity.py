@@ -49,8 +49,8 @@ class CloudflareAccessIdentityResolver:
         self._issuer = issuer.rstrip("/")
         self._audience = audience
         self._group_map = {
-            administrator_group_id.casefold(): "EHF-Applications-Administrators",
-            trustee_group_id.casefold(): "EHF-Applications-Trustees",
+            administrator_group_id.casefold(): "EHF-Administrators",
+            trustee_group_id.casefold(): "EHF-Trustees",
         }
         self._timeout = timeout_seconds
         self._keys = jwt.PyJWKClient(f"{self._issuer}/cdn-cgi/access/certs", cache_keys=True)

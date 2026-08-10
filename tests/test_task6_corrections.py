@@ -27,13 +27,18 @@ def _settings() -> Settings:
     return Settings.from_environment({"EHF_ALLOWED_HOST": "localhost"})
 
 
-def _client(identity: object | None = None, repository: object | None = None) -> TestClient:
+def _client(
+    identity: object | None = None,
+    repository: object | None = None,
+    metric_repository: object | None = None,
+) -> TestClient:
     return TestClient(
         create_app(
             _settings(),
             readiness_checks=ReadinessChecks(lambda _: None, lambda _: None),
             identity_resolver=(lambda _request: identity) if identity is not None else None,
             preference_repository=repository,
+            metric_repository=metric_repository,
         ),
         base_url="http://localhost",
     )
@@ -75,6 +80,27 @@ def test_authenticated_production_root_opens_the_internal_portal() -> None:
     assert response.headers["location"] == "/internal/"
     assert authorized.get("/").status_code == 200
     assert _client().get("/", follow_redirects=False).status_code == 404
+
+
+def test_dual_membership_uses_administrator_permissions() -> None:
+    from app.navigation import INTERNAL_GROUPS
+
+    class RecordingMetricRepository:
+        def __init__(self) -> None:
+            self.requested_roles: list[str] = []
+
+        def load(self, canonical_group: str) -> tuple[()]:
+            self.requested_roles.append(canonical_group)
+            return ()
+
+    metrics = RecordingMetricRepository()
+    response = _client(
+        _identity(INTERNAL_GROUPS.trustees, INTERNAL_GROUPS.administrators),
+        metric_repository=metrics,
+    ).get("/internal/")
+
+    assert response.status_code == 200
+    assert metrics.requested_roles == ["EHF-Administrators"]
 
 
 def test_default_and_production_internal_routes_fail_closed_while_development_simulation_is_explicit() -> None:

@@ -46,12 +46,14 @@ def test_preview_routes_are_honest_and_keep_internal_and_applicant_markup_separa
 
     assert response.status_code == 200
     assert "Preview only" in response.text
+    assert "Preview surface" not in response.text
     assert "Sign-in is not active" in response.text
     assert "Submission is not active" in response.text
 
     applicant = preview_client().get("/applicant/")
     assert applicant.status_code == 200
     assert "Preview only" in applicant.text
+    assert "Preview surface" not in applicant.text
     assert "internal" not in applicant.text.lower()
     assert "recommend" not in applicant.text.lower()
     assert "referee" not in applicant.text.lower()
@@ -86,8 +88,8 @@ def test_internal_authorization_indicator_uses_canonical_group_pills_only() -> N
         INTERNAL_GROUPS.trustees,
     )
     applicant_source = (PUBLIC / "applicant" / "index.html").read_text(encoding="utf-8")
-    assert INTERNAL_GROUPS.administrators == "EHF-Applications-Administrators"
-    assert INTERNAL_GROUPS.trustees == "EHF-Applications-Trustees"
+    assert INTERNAL_GROUPS.administrators == "EHF-Administrators"
+    assert INTERNAL_GROUPS.trustees == "EHF-Trustees"
     assert "Authorizations:" not in applicant_source
 
 

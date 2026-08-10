@@ -11,8 +11,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class InternalGroups:
-    administrators: str = "EHF-Applications-Administrators"
-    trustees: str = "EHF-Applications-Trustees"
+    administrators: str = "EHF-Administrators"
+    trustees: str = "EHF-Trustees"
 
 
 INTERNAL_GROUPS = InternalGroups()
