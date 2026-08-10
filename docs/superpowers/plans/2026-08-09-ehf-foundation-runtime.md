@@ -36,7 +36,7 @@ Expected: failure listing the missing bootstrap files.
 
 **Step 3: Add the minimum bootstrap files**
 
-Pin the runtime packages used by the current ISAB01 FastAPI/SQL baseline (`fastapi`, `uvicorn`, `pyodbc`, `python-multipart`, `python-docx`, `pypdf`, `pypdfium2`, `Pillow`, `PyJWT[crypto]`, `cryptography`, `openpyxl`) and test packages (`pytest`, `httpx`, `playwright`, `axe-playwright`). Document setup, test, import, deploy, rollback, and the explicit invitation-send gate in `README.md`.
+Pin the runtime packages used by the current ISAB01 FastAPI/SQL baseline (`fastapi`, `uvicorn`, `pyodbc`, `python-multipart`, `python-docx`, `pypdf`, `pypdfium2`, `Pillow`, `PyJWT[crypto]`, `cryptography`, `openpyxl`) and test packages (`pytest`, `httpx`, `playwright`, `axe-playwright-python`). Document setup, test, import, deploy, rollback, and the explicit invitation-send gate in `README.md`.
 
 **Step 4: Run the focused test and confirm success**
 
