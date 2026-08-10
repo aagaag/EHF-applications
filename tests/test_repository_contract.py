@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -51,6 +53,17 @@ def _read_requirement_lines(relative_path: str) -> list[str]:
 
 
 def _is_ignored(relative_path: str) -> bool:
+    if not (ROOT / ".git").exists():
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            shutil.copyfile(ROOT / ".gitignore", repository / ".gitignore")
+            subprocess.run(["git", "init", "--quiet"], cwd=repository, check=True)
+            result = subprocess.run(
+                ["git", "check-ignore", "--no-index", "--quiet", "--", relative_path],
+                cwd=repository,
+                check=False,
+            )
+            return result.returncode == 0
     result = subprocess.run(
         ["git", "check-ignore", "--no-index", "--quiet", "--", relative_path],
         cwd=ROOT,

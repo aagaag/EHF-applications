@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -784,6 +785,7 @@ def test_database_contract_validator_reports_version_nine() -> None:
     assert "WHERE MigrationCount = 9 AND CurrentVersion = 9" in validator
 
 
+@pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")
 def test_database_script_rejects_a_non_test_database_before_connecting() -> None:
     """Break caught: the integration harness could target a production database name."""
     completed = subprocess.run(

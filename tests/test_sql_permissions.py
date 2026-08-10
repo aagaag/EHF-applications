@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import re
 import subprocess
 import importlib.util
@@ -15,7 +16,7 @@ MIGRATION = MIGRATIONS / "005_application_permissions.sql"
 SETUP_SCRIPT = ROOT / "infra" / "setup-sql-login.sh"
 TEST_SCRIPT = ROOT / "infra" / "test-sql-login.sh"
 HELPER = ROOT / "infra" / "sql-principal.py"
-GIT_BASH = Path(r"C:\Program Files\Git\bin\bash.exe")
+GIT_BASH = Path(r"C:\Program Files\Git\bin\bash.exe") if os.name == "nt" else Path("/bin/bash")
 
 PROTECTED_TABLES = (
     "SchemaMigration",

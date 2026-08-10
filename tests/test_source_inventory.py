@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 
 import pytest
@@ -101,6 +102,7 @@ def test_inventory_writes_short_external_manifests_without_mutating_or_escaping_
         write_inventory_manifests(report, source_root / "output")
 
 
+@pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")
 def test_inventory_script_reports_synthetic_counts_and_leaves_its_source_unchanged(
     tmp_path: Path,
 ) -> None:
