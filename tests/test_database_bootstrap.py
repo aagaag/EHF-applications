@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import stat
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -84,6 +85,22 @@ def test_bootstrap_creates_only_the_exact_database_then_uses_checksum_migrations
     assert master.committed and application.committed
     assert migrations == ["applied"]
     assert validators == ["validated"]
+
+
+def test_master_creation_connection_is_autocommit_but_application_migration_is_not(monkeypatch) -> None:
+    helper = load_helper()
+    modes: list[bool] = []
+    driver = SimpleNamespace(
+        Error=RuntimeError,
+        connect=lambda *_args, **kwargs: modes.append(kwargs["autocommit"]) or object(),
+    )
+    monkeypatch.setitem(sys.modules, "pyodbc", driver)
+    monkeypatch.setattr(helper, "_read_admin_credential", lambda _path: "protected")
+
+    helper.connect_admin("master", Path("/protected/sql-admin-password"))
+    helper.connect_admin("EHFApplications", Path("/protected/sql-admin-password"))
+
+    assert modes == [True, False]
 
 
 @pytest.mark.parametrize(

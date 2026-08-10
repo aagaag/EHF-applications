@@ -78,7 +78,7 @@ def connect_admin(database: str, credential_path: Path):
             "UID={sa};"
             f"PWD={_odbc_component(credential)};"
             "Encrypt=yes;TrustServerCertificate=yes;Connection Timeout=15;",
-            autocommit=False,
+            autocommit=database == "master",
         )
     except pyodbc.Error as error:
         raise BootstrapError("The SQL bootstrap connection failed.") from error
