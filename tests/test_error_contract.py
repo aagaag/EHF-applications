@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from types import SimpleNamespace
 
 from fastapi import HTTPException
@@ -8,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.errors import correlation_id
-from app.http import is_safe_correlation_id
+from app.http import SecurityMiddleware, is_safe_correlation_id
 from app.main import ReadinessChecks, create_app
 
 
@@ -96,3 +97,65 @@ def test_error_fallback_correlation_id_is_safe_when_an_outer_boundary_is_missing
 
     assert is_safe_correlation_id(resolved)
     assert resolved != "unknown"
+
+
+def test_default_client_receives_redacted_500_without_the_original_exception(caplog) -> None:
+    """Break caught: ServerErrorMiddleware could re-raise a route exception to a default client."""
+    caplog.set_level(logging.INFO, logger="ehf.http")
+    app = create_app(
+        Settings.from_environment({"EHF_ALLOWED_HOST": "localhost"}),
+        readiness_checks=ReadinessChecks(lambda _: None, lambda _: None),
+    )
+
+    @app.get("/outer-exception")
+    def outer_exception() -> None:
+        raise RuntimeError("private/path token=not-for-logs")
+
+    response = TestClient(app, base_url="http://localhost").get(
+        "/outer-exception",
+        headers={"Authorization": "Bearer secret-not-for-logs"},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "internal_error"
+    assert "private/path" not in caplog.text
+    assert "secret-not-for-logs" not in caplog.text
+
+
+def test_exception_after_response_start_is_not_reraised_or_sent_twice() -> None:
+    """Break caught: a late route failure could leak through a second response or exception."""
+    async def failing_app(scope, receive, send) -> None:
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        raise RuntimeError("late private failure")
+
+    middleware = SecurityMiddleware(
+        failing_app,
+        Settings.from_environment({"EHF_ALLOWED_HOST": "localhost"}),
+    )
+
+    async def exercise() -> list[dict[str, object]]:
+        sent: list[dict[str, object]] = []
+
+        async def receive() -> dict[str, object]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: dict[str, object]) -> None:
+            sent.append(message)
+
+        await middleware(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/late-failure",
+                "headers": [(b"host", b"localhost")],
+                "client": ("127.0.0.1", 50000),
+            },
+            receive,
+            send,
+        )
+        return sent
+
+    sent = asyncio.run(exercise())
+
+    assert [message["type"] for message in sent].count("http.response.start") == 1
+    assert sent[-1] == {"type": "http.response.body", "body": b"", "more_body": False}

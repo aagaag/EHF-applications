@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -32,10 +33,57 @@ class ReadinessChecks:
     sql_probe: Probe
     storage_probe: Probe
     timeout_seconds: float = 1.0
+    max_concurrency: int = 2
 
     def __post_init__(self) -> None:
         if not 0 < self.timeout_seconds <= 15:
             raise ValueError("readiness timeout must be between zero and fifteen seconds")
+        if not 1 <= self.max_concurrency <= 4:
+            raise ValueError("readiness concurrency must be between one and four")
+
+
+class ReadinessGate:
+    """Bound active blocking readiness probes even after a request times out."""
+
+    def __init__(self, checks: ReadinessChecks) -> None:
+        self._checks = checks
+        self._permits = asyncio.BoundedSemaphore(checks.max_concurrency)
+
+    async def is_ready(self) -> bool:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._checks.timeout_seconds
+        try:
+            await asyncio.wait_for(self._permits.acquire(), timeout=self._remaining(deadline))
+        except TimeoutError:
+            return False
+
+        if self._remaining(deadline) <= 0:
+            self._permits.release()
+            return False
+
+        worker = asyncio.create_task(asyncio.to_thread(self._run_probes))
+        worker.add_done_callback(self._release_completed_worker)
+        try:
+            await asyncio.wait_for(asyncio.shield(worker), timeout=self._remaining(deadline))
+        except (TimeoutError, Exception):
+            return False
+        return True
+
+    def _run_probes(self) -> None:
+        self._checks.sql_probe(self._checks.timeout_seconds)
+        self._checks.storage_probe(self._checks.timeout_seconds)
+
+    def _release_completed_worker(self, worker: asyncio.Task[None]) -> None:
+        try:
+            worker.exception()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._permits.release()
+
+    @staticmethod
+    def _remaining(deadline: float) -> float:
+        return max(0.0, deadline - asyncio.get_running_loop().time())
 
 
 def create_app(
@@ -49,6 +97,7 @@ def create_app(
         sql_probe=lambda timeout: _probe_sql(resolved_settings, timeout),
         storage_probe=lambda timeout: _probe_storage(resolved_settings, timeout),
     )
+    readiness_gate = ReadinessGate(resolved_checks)
     application = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     application.add_middleware(SecurityMiddleware, settings=resolved_settings)
     application.add_exception_handler(StarletteHTTPException, http_exception_handler)
@@ -60,11 +109,8 @@ def create_app(
         return {"status": "live"}
 
     @application.get("/health/ready", response_model=None)
-    def ready() -> JSONResponse | dict[str, str]:
-        try:
-            resolved_checks.sql_probe(resolved_checks.timeout_seconds)
-            resolved_checks.storage_probe(resolved_checks.timeout_seconds)
-        except Exception:
+    async def ready() -> JSONResponse | dict[str, str]:
+        if not await readiness_gate.is_ready():
             return JSONResponse(status_code=503, content={"status": "unavailable"})
         return {"status": "ready"}
 
@@ -74,8 +120,11 @@ def create_app(
 def _probe_sql(settings: Settings, timeout_seconds: float) -> None:
     """Run a bounded constant SQL statement without retrieving application data."""
     bounded_seconds = max(1, math.ceil(timeout_seconds))
-    with connect(settings, connect_timeout_seconds=bounded_seconds) as connection:
-        connection.timeout = bounded_seconds
+    with connect(
+        settings,
+        connect_timeout_seconds=bounded_seconds,
+        query_timeout_seconds=bounded_seconds,
+    ) as connection:
         connection.execute("SELECT 1")
 
 

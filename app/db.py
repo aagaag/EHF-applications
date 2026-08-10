@@ -47,10 +47,11 @@ def connection_string(
     environ: Mapping[str, str] | None = None,
     *,
     connect_timeout_seconds: int = 15,
+    query_timeout_seconds: int = 15,
 ) -> str:
     """Build the dedicated EHF connection string from EHF-prefixed settings."""
-    if not 1 <= connect_timeout_seconds <= 15:
-        raise DatabaseError("connection timeout is invalid")
+    _validated_timeout(connect_timeout_seconds, "connection")
+    _validated_timeout(query_timeout_seconds, "query")
     values = os.environ if environ is None else environ
     server = _component(values, "EHF_SQL_SERVER", "tcp:127.0.0.1,1433")
     database = _component(values, "EHF_SQL_DATABASE", "EHFApplications")
@@ -75,6 +76,7 @@ def connect(
     environ: Mapping[str, str] | None = None,
     autocommit: bool = False,
     connect_timeout_seconds: int = 15,
+    query_timeout_seconds: int = 15,
 ) -> Iterator[Any]:
     """Open one configured EHF connection and apply the standard session options."""
     try:
@@ -88,6 +90,7 @@ def connect(
                 resolved_settings,
                 environ,
                 connect_timeout_seconds=connect_timeout_seconds,
+                query_timeout_seconds=query_timeout_seconds,
             ),
             autocommit=autocommit,
         )
@@ -95,9 +98,15 @@ def connect(
         raise DatabaseError("Database connection failed.") from None
     try:
         try:
+            connection.timeout = query_timeout_seconds
             connection.execute(_SESSION_OPTIONS)
         except pyodbc.Error:
             raise DatabaseError("Database session configuration failed.") from None
         yield connection
     finally:
         connection.close()
+
+
+def _validated_timeout(value: int, label: str) -> None:
+    if isinstance(value, bool) or not 1 <= value <= 15:
+        raise DatabaseError(f"{label} timeout is invalid")

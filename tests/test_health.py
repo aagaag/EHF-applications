@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import sys
+import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -109,9 +114,13 @@ def test_default_readiness_bounds_the_sql_connection_attempt(monkeypatch, tmp_pa
 
     @contextmanager
     def fake_connect(
-        supplied_settings: Settings, *, connect_timeout_seconds: int
+        supplied_settings: Settings,
+        *,
+        connect_timeout_seconds: int,
+        query_timeout_seconds: int,
     ) -> Iterator[FakeConnection]:
         assert supplied_settings is settings
+        assert query_timeout_seconds == 1
         calls.append(connect_timeout_seconds)
         yield FakeConnection()
 
@@ -121,3 +130,146 @@ def test_default_readiness_bounds_the_sql_connection_attempt(monkeypatch, tmp_pa
 
     assert response.status_code == 200
     assert calls == [1]
+
+
+def test_readiness_enforces_a_wall_clock_deadline_off_the_event_loop() -> None:
+    """Break caught: a ten-millisecond readiness budget could wait for a slow probe."""
+    import httpx
+
+    def slow_probe(_: float) -> None:
+        time.sleep(0.2)
+
+    app = create_app(
+        development_settings(),
+        readiness_checks=ReadinessChecks(
+            sql_probe=slow_probe,
+            storage_probe=lambda _: None,
+            timeout_seconds=0.01,
+            max_concurrency=1,
+        ),
+    )
+
+    async def exercise() -> tuple[int, dict[str, str], float]:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as session:
+            started = time.perf_counter()
+            response = await session.get("/health/ready")
+            elapsed = time.perf_counter() - started
+        return response.status_code, response.json(), elapsed
+
+    status, payload, elapsed = asyncio.run(exercise())
+
+    assert status == 503
+    assert payload == {"status": "unavailable"}
+    assert elapsed < 0.12
+
+
+def test_timed_out_readiness_work_keeps_the_gate_saturated_until_it_finishes() -> None:
+    """Break caught: repeated timeouts could create unlimited still-running probe threads."""
+    import httpx
+
+    entered = threading.Event()
+
+    def slow_probe(_: float) -> None:
+        entered.set()
+        time.sleep(0.2)
+
+    app = create_app(
+        development_settings(),
+        readiness_checks=ReadinessChecks(
+            sql_probe=slow_probe,
+            storage_probe=lambda _: None,
+            timeout_seconds=0.01,
+            max_concurrency=1,
+        ),
+    )
+
+    async def exercise() -> tuple[int, float, int]:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as session:
+            first = asyncio.create_task(session.get("/health/ready"))
+            assert await asyncio.to_thread(entered.wait, 0.1)
+            started = time.perf_counter()
+            second = await session.get("/health/ready")
+            elapsed = time.perf_counter() - started
+            first_response = await first
+        return first_response.status_code, elapsed, second.status_code
+
+    first_status, elapsed, second_status = asyncio.run(exercise())
+
+    assert first_status == 503
+    assert second_status == 503
+    assert elapsed < 0.12
+
+
+def test_late_timed_out_probe_errors_are_consumed_without_logging_details() -> None:
+    """Break caught: a late background probe error could escape the redacted readiness boundary."""
+    import httpx
+
+    def late_failure(_: float) -> None:
+        time.sleep(0.03)
+        raise RuntimeError("probe-secret-not-for-output")
+
+    app = create_app(
+        development_settings(),
+        readiness_checks=ReadinessChecks(
+            sql_probe=late_failure,
+            storage_probe=lambda _: None,
+            timeout_seconds=0.01,
+            max_concurrency=1,
+        ),
+    )
+
+    async def exercise() -> tuple[int, list[str]]:
+        loop = asyncio.get_running_loop()
+        diagnostics: list[str] = []
+        previous_handler = loop.get_exception_handler()
+        loop.set_exception_handler(
+            lambda _loop, context: diagnostics.append(str(context.get("exception") or context))
+        )
+        try:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as session:
+                response = await session.get("/health/ready")
+            await asyncio.sleep(0.08)
+        finally:
+            loop.set_exception_handler(previous_handler)
+        return response.status_code, diagnostics
+
+    status, diagnostics = asyncio.run(exercise())
+
+    assert status == 503
+    assert "probe-secret-not-for-output" not in str(diagnostics)
+
+
+def test_sql_query_timeout_is_set_before_session_options(monkeypatch) -> None:
+    """Break caught: session setup could run without the readiness query timeout."""
+    from app import db
+
+    observed_timeouts: list[int] = []
+
+    class FakeDriverError(Exception):
+        pass
+
+    class FakeConnection:
+        timeout = 0
+
+        def execute(self, statement: str) -> None:
+            observed_timeouts.append(self.timeout)
+
+        def close(self) -> None:
+            return None
+
+    fake_driver = SimpleNamespace(
+        Error=FakeDriverError,
+        connect=lambda *_args, **_kwargs: FakeConnection(),
+    )
+    monkeypatch.setitem(sys.modules, "pyodbc", fake_driver)
+
+    with db.connect(
+        SimpleNamespace(read_sql_credential=lambda: "test-password"),
+        query_timeout_seconds=2,
+    ):
+        pass
+
+    assert observed_timeouts == [2]
