@@ -162,6 +162,46 @@ def test_create_login_binds_name_password_and_database_not_sql_text(monkeypatch)
     assert connection.autocommit is True
 
 
+def test_test_login_creation_applies_the_exact_production_server_deny_set(monkeypatch) -> None:
+    """Break caught: a disposable login could retain server metadata visibility absent from production."""
+    helper = load_helper()
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+    suffix = "0123456789abcdef01234567"
+    login = f"ehf_app_test_{suffix}"
+    monkeypatch.setattr(helper, "read_credential", lambda *_: "Aa1._~" + "a" * 42)
+
+    helper.create_test_login(
+        connection,
+        f"EHFApplications_Test_sqlperm_{suffix}",
+        login,
+        Path("/protected/test-password"),
+    )
+
+    statement, _ = cursor.executions[0]
+    for permission_name in helper.EXPECTED_SERVER_DENIES:
+        assert f"N'{permission_name}'" in statement
+    assert "N'DENY '+@Permission+N' TO '" in statement
+
+
+def test_test_login_shape_accepts_only_the_exact_server_permission_allowlist() -> None:
+    """Break caught: cleanup could accept a temporary login missing a deny or carrying an extra permission."""
+    helper = load_helper()
+    suffix = "0123456789abcdef01234567"
+    database = f"EHFApplications_Test_sqlperm_{suffix}"
+    login = f"ehf_app_test_{suffix}"
+    exact = FakeConnection(FakeCursor(rows=[(1,)]))
+    unsafe = FakeConnection(FakeCursor(rows=[(0,)]))
+
+    assert helper._test_login_shape(exact, database, login)
+    assert not helper._test_login_shape(unsafe, database, login)
+    statement, _ = exact.cursor_instance.executions[0]
+    for permission_name in helper.EXPECTED_SERVER_DENIES:
+        assert f"N'{permission_name}'" in statement
+    assert "permission_name=N'CONNECT SQL' AND state_desc=N'GRANT'" in statement
+    assert "state_desc=N'DENY'" in statement
+
+
 def test_odbc_connection_uses_the_fixed_server_and_keeps_credential_out_of_output(
     monkeypatch,
 ) -> None:

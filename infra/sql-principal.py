@@ -48,16 +48,17 @@ TEST_LOGIN = re.compile(r"^ehf_app_test_([a-f0-9]{24})$")
 RUN_TOKEN = re.compile(r"^[a-f0-9]{32}$")
 SAFE_PASSWORD = re.compile(r"^[A-Za-z0-9._~-]{48}$")
 MARKER_NAME = "EHF.Task4RunToken"
-EXPECTED_SERVER_DENIES = frozenset(
-    {
-        "ALTER ANY LOGIN",
-        "ALTER ANY SERVER ROLE",
-        "CONTROL SERVER",
-        "VIEW ANY DATABASE",
-        "VIEW ANY DEFINITION",
-        "VIEW SERVER STATE",
-    }
+SERVER_DENY_NAMES = (
+    "ALTER ANY LOGIN",
+    "ALTER ANY SERVER ROLE",
+    "CONTROL SERVER",
+    "VIEW ANY DATABASE",
+    "VIEW ANY DEFINITION",
+    "VIEW SERVER STATE",
 )
+EXPECTED_SERVER_DENIES = frozenset(SERVER_DENY_NAMES)
+SERVER_DENY_VALUES_SQL = ",".join(f"(N'{name}')" for name in SERVER_DENY_NAMES)
+SERVER_DENY_IN_SQL = ",".join(f"N'{name}'" for name in SERVER_DENY_NAMES)
 MIGRATIONS = {
     "001_database_contract.sql": (1, "database_contract"),
     "002_application_core.sql": (2, "application_core"),
@@ -354,6 +355,19 @@ def first_result_row(cursor):
     return cursor.fetchone()
 
 
+def _server_deny_cursor_sql() -> str:
+    """Return SQL generated only from the fixed server-permission allowlist."""
+    return f"""
+DECLARE @Permission sysname;
+DECLARE DenyCursor CURSOR LOCAL FAST_FORWARD FOR SELECT PermissionName FROM (VALUES {SERVER_DENY_VALUES_SQL}) AS expected(PermissionName);
+OPEN DenyCursor; FETCH NEXT FROM DenyCursor INTO @Permission;
+WHILE @@FETCH_STATUS=0 BEGIN
+  SET @Ddl=N'DENY '+@Permission+N' TO '+QUOTENAME(@LoginName)+N';'; EXEC(@Ddl);
+  FETCH NEXT FROM DenyCursor INTO @Permission;
+END; CLOSE DenyCursor; DEALLOCATE DenyCursor;
+"""
+
+
 def create_production_login(connection, database: str, login: str, credential_file: Path) -> None:
     validate_command_arguments("create-production-login", SERVER, database, login, None, PRODUCTION_USER)
     if inspect_production(connection, database, login, PRODUCTION_USER) != "ABSENT":
@@ -361,20 +375,13 @@ def create_production_login(connection, database: str, login: str, credential_fi
     password = read_credential(credential_file, "application")
     _require_safe_password(password)
     connection.autocommit = True
-    _execute(connection, """
+    _execute(connection, f"""
 DECLARE @LoginName sysname=?; DECLARE @Password nvarchar(128)=?; DECLARE @DatabaseName sysname=?;
 IF SUSER_ID(@LoginName) IS NOT NULL THROW 51701, 'Expected login already exists.', 1;
 IF DB_ID(@DatabaseName) IS NULL THROW 51702, 'Expected database is unavailable.', 1;
 DECLARE @Ddl nvarchar(max)=N'CREATE LOGIN '+QUOTENAME(@LoginName)+N' WITH PASSWORD=N'+QUOTENAME(@Password,N'''')+N', CHECK_POLICY=ON, CHECK_EXPIRATION=OFF, DEFAULT_DATABASE='+QUOTENAME(@DatabaseName)+N';';
 EXEC(@Ddl);
-DECLARE @Permission sysname;
-DECLARE DenyCursor CURSOR LOCAL FAST_FORWARD FOR SELECT PermissionName FROM (VALUES
- (N'ALTER ANY LOGIN'),(N'ALTER ANY SERVER ROLE'),(N'CONTROL SERVER'),(N'VIEW ANY DATABASE'),(N'VIEW ANY DEFINITION'),(N'VIEW SERVER STATE')) AS expected(PermissionName);
-OPEN DenyCursor; FETCH NEXT FROM DenyCursor INTO @Permission;
-WHILE @@FETCH_STATUS=0 BEGIN
-  SET @Ddl=N'DENY '+@Permission+N' TO '+QUOTENAME(@LoginName)+N';'; EXEC(@Ddl);
-  FETCH NEXT FROM DenyCursor INTO @Permission;
-END; CLOSE DenyCursor; DEALLOCATE DenyCursor;
+{_server_deny_cursor_sql()}
 """, (login, password, database))
 
 
@@ -398,10 +405,11 @@ def create_test_login(connection, database: str, login: str, credential_file: Pa
     password = read_credential(credential_file, "test")
     _require_safe_password(password)
     connection.autocommit = True
-    _execute(connection, """
+    _execute(connection, f"""
 DECLARE @LoginName sysname=?; DECLARE @Password nvarchar(128)=?; DECLARE @DatabaseName sysname=?;
 IF SUSER_ID(@LoginName) IS NOT NULL THROW 51711, 'Test login already exists.', 1;
 DECLARE @Ddl nvarchar(max)=N'CREATE LOGIN '+QUOTENAME(@LoginName)+N' WITH PASSWORD=N'+QUOTENAME(@Password,N'''')+N', CHECK_POLICY=ON, CHECK_EXPIRATION=OFF, DEFAULT_DATABASE='+QUOTENAME(@DatabaseName)+N';'; EXEC(@Ddl);
+{_server_deny_cursor_sql()}
 """, (login, password, database))
 
 
@@ -664,11 +672,18 @@ def _test_login_exists(connection, login: str) -> bool:
 
 
 def _test_login_shape(connection, database: str, login: str) -> bool:
-    rows = _rows(connection, """
+    rows = _rows(connection, f"""
 DECLARE @LoginName sysname=?,@DatabaseName sysname=?;
-SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.server_principals WHERE name=@LoginName AND type_desc=N'SQL_LOGIN' AND is_disabled=0 AND default_database_name=@DatabaseName)
+SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.server_principals WHERE name=@LoginName AND type_desc=N'SQL_LOGIN' AND is_disabled=0 AND default_database_name=@DatabaseName AND is_policy_checked=1 AND is_expiration_checked=0)
  AND NOT EXISTS (SELECT 1 FROM sys.server_role_members m INNER JOIN sys.server_principals p ON p.principal_id=m.member_principal_id WHERE p.name=@LoginName)
- AND NOT EXISTS (SELECT 1 FROM sys.server_permissions WHERE grantee_principal_id=SUSER_ID(@LoginName) AND NOT (permission_name=N'CONNECT SQL' AND state_desc=N'GRANT')) THEN 1 ELSE 0 END;
+ AND (SELECT COUNT(*) FROM sys.server_permissions WHERE grantee_principal_id=SUSER_ID(@LoginName) AND state_desc=N'DENY' AND permission_name IN ({SERVER_DENY_IN_SQL}))=6
+ AND NOT EXISTS
+ (
+   SELECT 1 FROM sys.server_permissions
+   WHERE grantee_principal_id=SUSER_ID(@LoginName)
+     AND NOT (permission_name=N'CONNECT SQL' AND state_desc=N'GRANT')
+     AND NOT (state_desc=N'DENY' AND permission_name IN ({SERVER_DENY_IN_SQL}))
+ ) THEN 1 ELSE 0 END;
 """, (login, database))
     return len(rows) == 1 and int(rows[0][0]) == 1
 
