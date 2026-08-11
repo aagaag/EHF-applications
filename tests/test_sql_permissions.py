@@ -223,6 +223,41 @@ def test_permission_validator_requires_the_exact_permission_rows_and_states() ->
     assert "The runtime role has an unapproved permission row or state." in validator
 
 
+def test_permission_validator_includes_the_complete_applicant_runtime_surface() -> None:
+    """Break caught: a legitimate portal grant could be rejected as an unapproved runtime permission."""
+    validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(
+        encoding="utf-8"
+    )
+
+    for procedure in (
+        "SaveApplicantSectionDraft",
+        "ConfirmApplicantSection",
+        "SubmitApplicantFinalConfirmation",
+        "GetApplicantFacingApplication",
+        "ValidateApplicantUploadSlot",
+        "GetApplicantDocumentSlots",
+    ):
+        assert f"(N'{procedure}')" in validator
+    for table in (
+        "ApplicantInvitation",
+        "ApplicantPreAuthContext",
+        "ApplicantVerificationChallenge",
+        "ApplicantSession",
+        "ApplicantRateLimitBucket",
+        "ApplicantSectionDraft",
+        "ApplicantFieldCorrection",
+        "ApplicantSectionConfirmation",
+        "ApplicantFinalConfirmation",
+        "ApplicantReopenScope",
+        "ApplicantDocumentSubmission",
+    ):
+        assert f"(N'{table}')" in validator
+    assert "(N'vw_ApplicantFacingApplication')" in validator
+    assert "DECLARE @DeniedProcedures TABLE" in validator
+    assert "(N'ReopenApplicantScope')" in validator
+    assert "N'EXECUTE', N'DENY'" in validator
+
+
 def test_permission_validator_normalizes_catalog_collation_in_both_exact_set_comparisons() -> None:
     """Break caught: either side of the exact-set comparison could fail on SQL Server catalog collation."""
     validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(encoding="utf-8")

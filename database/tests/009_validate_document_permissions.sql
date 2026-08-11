@@ -49,8 +49,8 @@ BEGIN TRY
     VALUES (@ApplicantId, N'Permission', N'Validator');
     INSERT dbo.Application (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus)
     VALUES (@ApplicationId, @CallId, @ApplicantId, 'IMPORTED');
-    INSERT dbo.DocumentSlot (DocumentSlotId, ApplicationId, SlotCode, CreatedByIdentity)
-    VALUES (@SlotId, @ApplicationId, 'RECOMMENDATION', N'validator');
+    INSERT dbo.DocumentSlot (DocumentSlotId, ApplicationId, SlotCode, SlotLabel, CreatedByIdentity)
+    VALUES (@SlotId, @ApplicationId, 'RECOMMENDATION', N'Recommendation', N'validator');
     INSERT dbo.Document (DocumentId, DocumentSlotId, DocumentType, CreatedByIdentity)
     VALUES (@DocumentId, @SlotId, 'RECOMMENDATION_LETTER', N'validator');
     INSERT dbo.StoredObject

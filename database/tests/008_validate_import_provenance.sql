@@ -26,8 +26,8 @@ BEGIN TRY
     INSERT dbo.Application (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus)
     VALUES (@ApplicationAId, @CallId, @ApplicantAId, 'IMPORTED'),
         (@ApplicationBId, @CallId, @ApplicantBId, 'IMPORTED');
-    INSERT dbo.DocumentSlot (DocumentSlotId, ApplicationId, SlotCode, CreatedByIdentity)
-    VALUES (@SlotId, @ApplicationAId, 'CV', N'validator');
+    INSERT dbo.DocumentSlot (DocumentSlotId, ApplicationId, SlotCode, SlotLabel, CreatedByIdentity)
+    VALUES (@SlotId, @ApplicationAId, 'CV', N'Curriculum vitae', N'validator');
     INSERT dbo.Document (DocumentId, DocumentSlotId, DocumentType, CreatedByIdentity)
     VALUES (@DocumentId, @SlotId, 'CV', N'validator');
     INSERT dbo.StoredObject

@@ -34,8 +34,8 @@ BEGIN
     VALUES (@ApplicantId, N''Synthetic'', N''Document'');
     INSERT dbo.Application (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus)
     VALUES (@ApplicationId, @CallId, @ApplicantId, ''IMPORTED'');
-    INSERT dbo.DocumentSlot (DocumentSlotId, ApplicationId, SlotCode, CreatedByIdentity)
-    VALUES (@SlotId, @ApplicationId, ''CV'', N''validator'');
+    INSERT dbo.DocumentSlot (DocumentSlotId, ApplicationId, SlotCode, SlotLabel, CreatedByIdentity)
+    VALUES (@SlotId, @ApplicationId, ''CV'', N''Curriculum vitae'', N''validator'');
     INSERT dbo.Document (DocumentId, DocumentSlotId, DocumentType, CreatedByIdentity)
     VALUES (@DocumentId, @SlotId, ''CV'', N''validator'');
     INSERT dbo.StoredObject
@@ -50,8 +50,8 @@ BEGIN
     INSERT dbo.DocumentVersion (DocumentVersionId, DocumentId, StoredObjectId, VersionNumber, Classification, CreatedByIdentity)
     VALUES (@VersionId, @DocumentId, @ObjectId, 1, ''UNREVIEWED'', N''validator'');
     UPDATE dbo.DocumentSlot SET ActiveDocumentVersionId = @VersionId WHERE DocumentSlotId = @SlotId;
-    INSERT dbo.DocumentSlot (DocumentSlotId, ApplicationId, SlotCode, CreatedByIdentity)
-    VALUES (@RecommendationSlotId, @ApplicationId, ''RECOMMENDATION'', N''validator'');
+    INSERT dbo.DocumentSlot (DocumentSlotId, ApplicationId, SlotCode, SlotLabel, CreatedByIdentity)
+    VALUES (@RecommendationSlotId, @ApplicationId, ''RECOMMENDATION'', N''Recommendation'', N''validator'');
     INSERT dbo.Document (DocumentId, DocumentSlotId, DocumentType, CreatedByIdentity)
     VALUES (@RecommendationDocumentId, @RecommendationSlotId, ''RECOMMENDATION_LETTER'', N''validator'');
     INSERT dbo.Recommendation (RecommendationId, DocumentId, ArrivalChannel, CreatedByIdentity)

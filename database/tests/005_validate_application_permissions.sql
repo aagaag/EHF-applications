@@ -26,7 +26,12 @@ DECLARE @ApprovedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
 INSERT @ApprovedProcedures VALUES
     (N'RuntimeHealth'), (N'SetUserPreference'), (N'GetUserPreference'),
     (N'SetApplicationStatus'), (N'ValidateApplicationInvitation'),
-    (N'GetInternalApplicationMetrics'), (N'RecordReportExportAudit');
+    (N'GetInternalApplicationMetrics'), (N'RecordReportExportAudit'),
+    (N'SaveApplicantSectionDraft'), (N'ConfirmApplicantSection'),
+    (N'SubmitApplicantFinalConfirmation'), (N'GetApplicantFacingApplication'),
+    (N'ValidateApplicantUploadSlot'), (N'GetApplicantDocumentSlots');
+DECLARE @DeniedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
+INSERT @DeniedProcedures VALUES (N'ReopenApplicantScope');
 DECLARE @ProtectedTables TABLE (TableName sysname NOT NULL PRIMARY KEY);
 INSERT @ProtectedTables VALUES
     (N'SchemaMigration'), (N'FellowshipCall'), (N'Applicant'), (N'ApplicantContact'),
@@ -35,7 +40,13 @@ INSERT @ProtectedTables VALUES
     (N'FieldProvenance'), (N'ApplicationSectionVersion'), (N'AuditEvent'), (N'UserPreference'),
     (N'DocumentSlot'), (N'Document'), (N'StoredObject'), (N'DocumentVersion'),
     (N'Recommendation'), (N'ImportRun'), (N'ImportRow'), (N'SourceOccurrence'),
-    (N'CallSourceOccurrence'), (N'ImportException'), (N'ClassificationDecision');
+    (N'CallSourceOccurrence'), (N'ImportException'), (N'ClassificationDecision'),
+    (N'ApplicantInvitation'), (N'ApplicantPreAuthContext'),
+    (N'ApplicantVerificationChallenge'), (N'ApplicantSession'),
+    (N'ApplicantRateLimitBucket'), (N'ApplicantSectionDraft'),
+    (N'ApplicantFieldCorrection'), (N'ApplicantSectionConfirmation'),
+    (N'ApplicantFinalConfirmation'), (N'ApplicantReopenScope'),
+    (N'ApplicantDocumentSubmission');
 DECLARE @RequiredDmlDenies TABLE (TableName sysname NOT NULL, PermissionName sysname NOT NULL, PRIMARY KEY (TableName, PermissionName));
 INSERT @RequiredDmlDenies
 SELECT TableName, PermissionName
@@ -43,7 +54,8 @@ FROM @ProtectedTables
 CROSS JOIN (VALUES (N'SELECT'), (N'INSERT'), (N'UPDATE'), (N'DELETE')) AS permission_name(PermissionName);
 DECLARE @ProtectedViews TABLE (ViewName sysname NOT NULL PRIMARY KEY);
 INSERT @ProtectedViews VALUES
-    (N'vw_ApplicantVisibleDocumentVersion'), (N'vw_InternalDocumentVersion');
+    (N'vw_ApplicantVisibleDocumentVersion'), (N'vw_InternalDocumentVersion'),
+    (N'vw_ApplicantFacingApplication');
 DECLARE @ExpectedPermissions TABLE
 (
     ClassId tinyint NOT NULL,
@@ -68,6 +80,9 @@ INSERT @ExpectedPermissions (ClassId, MajorId, MinorId, PermissionName, StateDes
 INSERT @ExpectedPermissions (ClassId, MajorId, MinorId, PermissionName, StateDesc)
 SELECT 1, OBJECT_ID(N'dbo.' + approved.ProcedureName, N'P'), 0, N'EXECUTE', N'GRANT'
 FROM @ApprovedProcedures AS approved;
+INSERT @ExpectedPermissions (ClassId, MajorId, MinorId, PermissionName, StateDesc)
+SELECT 1, OBJECT_ID(N'dbo.' + denied.ProcedureName, N'P'), 0, N'EXECUTE', N'DENY'
+FROM @DeniedProcedures AS denied;
 INSERT @ExpectedPermissions (ClassId, MajorId, MinorId, PermissionName, StateDesc)
 SELECT 1, OBJECT_ID(N'dbo.' + required_deny.TableName, N'U'), 0, required_deny.PermissionName, N'DENY'
 FROM @RequiredDmlDenies AS required_deny;

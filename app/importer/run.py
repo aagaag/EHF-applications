@@ -456,9 +456,10 @@ class SqlImportRepository:
         if row is None:
             slot_id = str(uuid4())
             self._connection.execute(
-                "INSERT dbo.DocumentSlot (DocumentSlotId, ApplicationId, SlotCode, CreatedByIdentity) VALUES (?, ?, ?, 'ISAB01_IMPORT')",
+                "INSERT dbo.DocumentSlot (DocumentSlotId, ApplicationId, SlotCode, SlotLabel, CreatedByIdentity) VALUES (?, ?, ?, ?, 'ISAB01_IMPORT')",
                 slot_id,
                 document.application_id,
+                document.slot_code,
                 document.slot_code,
             )
             self._connection.execute(
