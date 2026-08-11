@@ -53,6 +53,10 @@ def test_populated_preview_places_reports_directly_after_workspaces_without_appl
     assert html.count('data-report-sort-direction="descending"') == 13
     assert 'aria-label="Sort Applicant ascending"' in html
     assert 'aria-label="Sort GS identity certainty descending"' in html
+    assert 'data-report-filter' in html
+    assert '<option value="completed">Completed applications</option>' in html
+    assert '<option value="missing">Applications where anything is missing</option>' in html
+    assert 'data-report-status="missing"' in html
     assert 'href="/internal/reports/metrics.xlsx"' in html
     assert ">Download Excel<" in html
     assert "Citations by anagraphic age" in html

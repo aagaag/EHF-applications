@@ -138,6 +138,14 @@
     });
   });
 
+  const reportFilter = document.querySelector("[data-report-filter]");
+  const reportFilterEmpty = document.querySelector("[data-report-filter-empty]");
+  reportFilter?.addEventListener("change", () => {
+    const rows = [...document.querySelectorAll("[data-report-row]")];
+    rows.forEach((row) => { row.hidden = row.dataset.reportStatus !== reportFilter.value; });
+    if (reportFilterEmpty) reportFilterEmpty.hidden = rows.some((row) => !row.hidden);
+  });
+
   const timestamp = document.querySelector("[data-last-modified]");
   if (timestamp) {
     const modified = new Date(document.lastModified);

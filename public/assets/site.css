@@ -87,7 +87,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .report-card circle { fill: var(--accent); fill-opacity: .75; stroke: var(--surface); stroke-width: 2; }
 .report-card .plot-axis { fill: none; stroke: var(--text); stroke-width: 1.2; }
 .report-card text { fill: var(--muted); font: 14px Aptos, "Segoe UI", system-ui, sans-serif; text-anchor: middle; }
-.report-actions { display: flex; justify-content: flex-end; margin-top: 1rem; }
+.report-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: .8rem; margin-top: 1rem; }
+.report-filter { display: grid; flex: 1 1 20rem; max-width: 24rem; gap: .3rem; font-weight: 800; }
+.report-filter select { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: .65rem; padding: .55rem .7rem; background: var(--surface); color: var(--text); font: inherit; }
 .report-download { display: inline-flex; min-height: 44px; align-items: center; border-radius: .75rem; padding: .7rem 1rem; background: var(--accent-dark); color: #fff; font-weight: 800; text-decoration: none; }
 .report-download:hover, .report-download:focus-visible { filter: brightness(.92); }
 .report-table { width: 100%; min-width: 0; margin-top: 1rem; border: 1px solid var(--line); border-radius: 1rem; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
@@ -104,6 +106,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .report-data-row:focus-visible { position: relative; outline: 3px solid var(--focus); outline-offset: -3px; }
 .report-data-row > span::before { display: none; content: attr(data-label); color: var(--muted); font-size: .72rem; font-weight: 800; }
 .report-interaction-hint { font-weight: 700; }
+.report-filter-empty { margin-top: .75rem; border: 1px dashed var(--line); border-radius: .8rem; padding: .8rem; background: var(--surface); color: var(--muted); }
 .missing-value { color: var(--missing); font-weight: 800; }
 .report-details-modal { width: min(52rem, 94vw); max-height: 90vh; border: 1px solid var(--line); border-radius: 1rem; padding: 0; background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 .report-details-modal::backdrop { background: rgba(0, 0, 0, .55); }

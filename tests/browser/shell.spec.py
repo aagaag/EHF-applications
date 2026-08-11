@@ -256,3 +256,84 @@ def test_report_field_triangles_sort_text_and_numbers_with_missing_values_last()
             assert Axe().run(page).violations_count == 0
         finally:
             browser.close()
+
+
+def test_report_dropdown_filters_completed_and_missing_applications_only() -> None:
+    """Break caught: the completeness filter could misclassify rows or expose extra categories."""
+    pytest.importorskip("playwright.sync_api")
+    from axe_playwright_python.sync_playwright import Axe
+    from playwright.sync_api import sync_playwright
+
+    from app.identity import AuthenticatedIdentity
+    from app.internal_preview import PreviewApplicantMetric, render_internal_preview
+    from app.navigation import INTERNAL_GROUPS
+    from app.preferences import Identity
+
+    principal = AuthenticatedIdentity(
+        Identity("development:administrator", "preview@example.invalid", "Preview"),
+        frozenset({INTERNAL_GROUPS.administrators}),
+    )
+    complete = PreviewApplicantMetric(
+        applicant="Complete Applicant",
+        degree="PhD",
+        age=36,
+        academic_age=8.5,
+        gender="Female",
+        first_author_papers=7,
+        last_author_papers=2,
+        total_papers=18,
+        h_index=12,
+        total_citations=640,
+        orcid="0000-0002-1825-0097",
+        google_scholar_citations=710,
+        identity_certainty="High",
+    )
+    incomplete = PreviewApplicantMetric(
+        applicant="Missing Applicant",
+        degree="MD",
+        age=41,
+        academic_age=10,
+        gender=None,
+        first_author_papers=6,
+        last_author_papers=3,
+        total_papers=20,
+        h_index=14,
+        total_citations=800,
+        orcid="0000-0001-5109-3700",
+        google_scholar_citations=850,
+        identity_certainty="High",
+    )
+    html = render_internal_preview(principal, simulation=True, records=(complete, incomplete))
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover - environment-specific browser installation
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page(viewport={"width": 390, "height": 844})
+            page.set_content(html, wait_until="domcontentloaded")
+            page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+            page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
+
+            dropdown = page.get_by_label("Filter applicants")
+            selectable = dropdown.locator("option:not([disabled])").all_inner_texts()
+            assert selectable == [
+                "Completed applications",
+                "Applications where anything is missing",
+            ]
+            assert page.locator("[data-report-row]:visible").count() == 2
+
+            dropdown.select_option("completed")
+            assert page.locator('[data-report-row][data-report-status="completed"]:visible').count() == 1
+            assert page.locator('[data-report-row][data-report-status="missing"]:visible').count() == 0
+            assert page.get_by_text("Complete Applicant", exact=True).is_visible()
+
+            dropdown.select_option("missing")
+            assert page.locator('[data-report-row][data-report-status="completed"]:visible').count() == 0
+            assert page.locator('[data-report-row][data-report-status="missing"]:visible').count() == 1
+            assert page.get_by_text("Missing Applicant", exact=True).is_visible()
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+            assert Axe().run(page).violations_count == 0
+        finally:
+            browser.close()

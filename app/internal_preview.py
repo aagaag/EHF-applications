@@ -107,7 +107,12 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
     return (
         '<section id="reports" aria-labelledby="reports-heading"><div class="section-heading">'
         '<h2 id="reports-heading">Reports</h2><p>Source citation counts plotted against the age observations in the 2026 register. The graph uses total citations where recorded and otherwise the Google Scholar count.</p><p class="report-interaction-hint">Use the triangles beside any field title to sort ascending or descending. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
-        '<div class="report-actions"><a class="report-download" href="/internal/reports/metrics.xlsx">Download Excel</a></div>'
+        '<div class="report-actions"><label class="report-filter" for="report-applicant-filter">Filter applicants'
+        '<select id="report-applicant-filter" data-report-filter>'
+        '<option value="" selected disabled>Select application status</option>'
+        '<option value="completed">Completed applications</option>'
+        '<option value="missing">Applications where anything is missing</option>'
+        '</select></label><a class="report-download" href="/internal/reports/metrics.xlsx">Download Excel</a></div>'
         f'{_report_table(records)}'
         '<div class="report-grid">'
         f'{_scatterplot(records, "Citations by anagraphic age", "age")}'
@@ -139,6 +144,7 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
         '<div class="report-table" role="table" aria-label="2026 applicant metrics">'
         f'<div class="report-header" role="row">{header}</div>'
         f'<div class="report-data" role="rowgroup">{rows}</div></div>{empty}'
+        '<p class="report-filter-empty" data-report-filter-empty role="status" hidden>No applications match the selected filter.</p>'
         '<dialog class="report-details-modal" data-report-modal aria-labelledby="report-details-title" aria-modal="true">'
         '<div class="report-details-panel"><div class="report-details-header">'
         '<h3 id="report-details-title" data-report-details-title>Application details</h3>'
@@ -175,8 +181,9 @@ def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str
         f'<span role="cell" data-label="{escape(label)}">{_display_markup(value)}</span>'
         for label, value in zip(headers, values, strict=True)
     )
+    status = "missing" if any(value in (None, "") for value in values) else "completed"
     return (
-        f'<div class="report-data-row" role="row" data-report-row tabindex="0" '
+        f'<div class="report-data-row" role="row" data-report-row tabindex="0" data-report-status="{status}" '
         f'aria-label="Open full details for {escape(record.applicant)}">{cells}</div>'
     )
 
