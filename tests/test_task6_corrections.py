@@ -57,8 +57,9 @@ def test_internal_rendering_uses_one_filtered_inventory_for_navigation_help_card
 
     administrator = _client(_identity(INTERNAL_GROUPS.administrators)).get("/internal/")
     assert administrator.status_code == 200
-    for text in ("Overview", "Applications", "Reports", "Operations", "Operations help"):
+    for text in ("Overview", "Reports", "Operations", "Operations help"):
         assert text in administrator.text
+    assert 'href="#applications"' not in administrator.text
     assert INTERNAL_GROUPS.administrators in administrator.text
     assert INTERNAL_GROUPS.trustees in administrator.text
 
@@ -66,7 +67,7 @@ def test_internal_rendering_uses_one_filtered_inventory_for_navigation_help_card
     assert trustee.status_code == 200
     assert "Operations" not in trustee.text
     assert "Operations help" not in trustee.text
-    assert "Applications" in trustee.text
+    assert 'href="#applications"' not in trustee.text
 
 
 def test_authenticated_production_root_opens_the_internal_portal() -> None:

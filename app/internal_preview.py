@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from html import escape
 from math import isfinite
 
@@ -33,15 +33,6 @@ class PreviewApplicantMetric:
     orcid: str | None = None
     google_scholar_citations: int | None = None
     identity_certainty: str | None = None
-
-    @property
-    def populated_fields(self) -> int:
-        return sum(
-            getattr(self, field.name) not in (None, "")
-            for field in fields(self)
-            if field.name != "applicant"
-        )
-
 
 def render_internal_preview(
     principal: AuthenticatedIdentity,
@@ -77,7 +68,7 @@ def render_internal_preview(
 <main class="site-main" id="main-content" tabindex="-1"><header class="site-hero" id="overview"><h1>Charles Weissmann Fellowships</h1><p>Internal workspace preview for the Ernst Hadorn Foundation.</p></header>
 <div class="preview-notice" role="status">Preview only<span>{escape(notice)} Submission is not active. Communication sending is not active. {escape(record_notice)}</span></div>
 <section aria-labelledby="workspaces-heading"><div class="section-heading"><h2 id="workspaces-heading">Workspaces</h2><p>The current application register is available below for administrator inspection.</p></div><div class="shell-grid">{_cards(entries)}</div></section>
-{_record_section(records)}{_report_section(records)}{_sections(entries, exclude=frozenset({"applications", "reports"}))}<section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance preview</h2><p>Preferences load and save server-side only after secure sign-in is active.</p></div>{_appearance_controls()}</section></main>
+{_report_section(records)}{_sections(entries, exclude=frozenset({"reports"}))}<section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance preview</h2><p>Preferences load and save server-side only after secure sign-in is active.</p></div>{_appearance_controls()}</section></main>
 <footer class="site-footer">EHF Fellowships · internal preview · Page last modified: <time data-last-modified></time></footer><script src="/assets/theme.js"></script><script src="/assets/shell.js"></script></body></html>"""
 
 
@@ -112,54 +103,10 @@ def _sections(
     )
 
 
-def _record_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
-    count = len(records)
-    label = f"{count} application loaded" if count == 1 else f"{count} applications imported"
-    if not records:
-        body = '<div class="application-empty" role="status">No application records are loaded.</div>'
-    else:
-        body = '<div class="application-register" aria-label="2026 application register">' + "".join(
-            _record_row(index, record) for index, record in enumerate(records, start=1)
-        ) + "</div>"
-    return (
-        '<section id="applications" aria-labelledby="applications-heading">'
-        '<div class="section-heading"><h2 id="applications-heading">Applications</h2>'
-        f'<p>{escape(label)}. All values shown are source observations awaiting applicant confirmation.</p></div>'
-        f"{body}</section>"
-    )
-
-
-def _record_row(index: int, record: PreviewApplicantMetric) -> str:
-    cells = (
-        ("Degree", record.degree),
-        ("Age", _number(record.age)),
-        ("Academic age", _number(record.academic_age)),
-        ("Gender", record.gender),
-        ("First-author papers", record.first_author_papers),
-        ("Last-author papers", record.last_author_papers),
-        ("Total papers", record.total_papers),
-        ("h-index", record.h_index),
-        ("Total citations", record.total_citations),
-        ("ORCID", record.orcid),
-        ("Google Scholar citations", record.google_scholar_citations),
-        ("GS identity certainty", record.identity_certainty),
-    )
-    completeness = round(record.populated_fields / 12 * 100)
-    cell_markup = "".join(
-        f'<span class="application-field" data-field="{escape(label)}"><small>{escape(label)}</small><span>{escape(_display(value))}</span></span>'
-        for label, value in cells
-    )
-    return (
-        f'<a class="application-row" id="application-{index:02d}" href="#application-{index:02d}" aria-label="Inspect {escape(record.applicant)}">'
-        f'<span class="application-name"><small>Applicant</small><strong>{escape(record.applicant)}</strong>'
-        f'<em>{completeness}% of register fields present</em></span>{cell_markup}</a>'
-    )
-
-
 def _report_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
     return (
         '<section id="reports" aria-labelledby="reports-heading"><div class="section-heading">'
-        '<h2 id="reports-heading">Reports</h2><p>Source citation counts plotted against the age observations in the 2026 register. The graph uses total citations where recorded and otherwise the Google Scholar count.</p></div>'
+        '<h2 id="reports-heading">Reports</h2><p>Source citation counts plotted against the age observations in the 2026 register. The graph uses total citations where recorded and otherwise the Google Scholar count.</p><p class="report-interaction-hint">Double-click a row, or focus it and press Enter, to view all details.</p></div>'
         '<div class="report-actions"><a class="report-download" href="/internal/reports/metrics.xlsx">Download Excel</a></div>'
         f'{_report_table(records)}'
         '<div class="report-grid">'
@@ -185,6 +132,12 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
         '<div class="report-table" role="table" aria-label="2026 applicant metrics">'
         f'<div class="report-header" role="row">{header}</div>'
         f'<div class="report-data" role="rowgroup">{rows}</div></div>{empty}'
+        '<dialog class="report-details-modal" data-report-modal aria-labelledby="report-details-title" aria-modal="true">'
+        '<div class="report-details-panel"><div class="report-details-header">'
+        '<h3 id="report-details-title" data-report-details-title>Application details</h3>'
+        '<button type="button" class="report-details-close" data-report-modal-close aria-label="Close details">×</button>'
+        '</div><p>All source observations for this application.</p>'
+        '<dl class="report-details-list" data-report-details></dl></div></dialog>'
     )
 
 
@@ -196,10 +149,13 @@ def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str
         record.google_scholar_citations, record.identity_certainty,
     )
     cells = "".join(
-        f'<span role="cell" data-label="{escape(label)}">{escape(_display(value))}</span>'
+        f'<span role="cell" data-label="{escape(label)}">{_display_markup(value)}</span>'
         for label, value in zip(headers, values, strict=True)
     )
-    return f'<div class="report-data-row" role="row">{cells}</div>'
+    return (
+        f'<div class="report-data-row" role="row" data-report-row tabindex="0" '
+        f'aria-label="Open full details for {escape(record.applicant)}">{cells}</div>'
+    )
 
 
 def _scatterplot(
@@ -230,8 +186,10 @@ def _scatterplot(
     return f'<article class="report-card"><h3>{escape(title)}</h3>{plot}</article>'
 
 
-def _display(value: object | None) -> str:
-    return "Missing" if value in (None, "") else str(value)
+def _display_markup(value: object | None) -> str:
+    if value in (None, ""):
+        return '<strong class="missing-value">Missing</strong>'
+    return escape(str(value))
 
 
 def _number(value: float | int | None) -> str | None:

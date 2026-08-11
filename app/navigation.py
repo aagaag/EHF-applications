@@ -36,13 +36,6 @@ _INTERNAL_INVENTORY = (
         frozenset({INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}),
     ),
     NavigationEntry(
-        "applications",
-        "Applications",
-        "#applications",
-        "Review the current application register and missing source observations.",
-        frozenset({INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}),
-    ),
-    NavigationEntry(
         "reports",
         "Reports",
         "#reports",

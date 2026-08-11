@@ -75,6 +75,8 @@ def test_authorized_navigation_and_help_share_one_filtered_inventory() -> None:
 
     assert navigation_entries(administrator_inventory) == help_entries(administrator_inventory)
     assert navigation_entries(trustee_inventory) == help_entries(trustee_inventory)
+    assert all(entry.key != "applications" for entry in administrator_inventory)
+    assert all(entry.key != "applications" for entry in trustee_inventory)
     assert all(entry.key != "operations" for entry in trustee_inventory)
     assert unauthorized_inventory == ()
 

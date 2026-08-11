@@ -68,6 +68,42 @@
     button.addEventListener("click", () => { const key = button.dataset.appearanceFlag; preferences[key] = !preferences[key]; syncButtons(); apply(); save(); });
   });
 
+  const reportModal = document.querySelector("[data-report-modal]");
+  const reportDetails = reportModal?.querySelector("[data-report-details]");
+  const reportTitle = reportModal?.querySelector("[data-report-details-title]");
+  let activeReportRow = null;
+  const openReportDetails = (row) => {
+    if (!reportModal || !reportDetails || !reportTitle) return;
+    const cells = [...row.querySelectorAll('[role="cell"]')];
+    reportTitle.textContent = cells[0]?.textContent.trim() || "Application details";
+    reportDetails.replaceChildren(...cells.map((cell) => {
+      const item = document.createElement("div");
+      item.className = "report-details-item";
+      const term = document.createElement("dt");
+      term.textContent = cell.dataset.label || "Detail";
+      const description = document.createElement("dd");
+      description.textContent = cell.textContent.trim();
+      if (cell.querySelector(".missing-value")) description.className = "missing-value";
+      item.append(term, description);
+      return item;
+    }));
+    activeReportRow = row;
+    reportModal.showModal();
+  };
+  document.querySelectorAll("[data-report-row]").forEach((row) => {
+    row.addEventListener("dblclick", () => openReportDetails(row));
+    row.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openReportDetails(row);
+    });
+  });
+  reportModal?.querySelector("[data-report-modal-close]")?.addEventListener("click", () => reportModal.close());
+  reportModal?.addEventListener("close", () => {
+    activeReportRow?.focus();
+    activeReportRow = null;
+  });
+
   const timestamp = document.querySelector("[data-last-modified]");
   if (timestamp) {
     const modified = new Date(document.lastModified);

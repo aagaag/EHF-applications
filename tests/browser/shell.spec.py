@@ -124,3 +124,74 @@ def test_applicant_preview_is_accessible_and_closed_mobile_drawer_is_not_tabbabl
             assert Axe().run(page).violations_count == 0
         finally:
             browser.close()
+
+
+def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values() -> None:
+    """Break caught: report rows could stop opening details or hide incomplete fields."""
+    pytest.importorskip("playwright.sync_api")
+    from axe_playwright_python.sync_playwright import Axe
+    from playwright.sync_api import sync_playwright
+
+    from app.identity import AuthenticatedIdentity
+    from app.internal_preview import PreviewApplicantMetric, render_internal_preview
+    from app.navigation import INTERNAL_GROUPS
+    from app.preferences import Identity
+
+    principal = AuthenticatedIdentity(
+        Identity("development:administrator", "preview@example.invalid", "Preview"),
+        frozenset({INTERNAL_GROUPS.administrators}),
+    )
+    html = render_internal_preview(
+        principal,
+        simulation=True,
+        records=(
+            PreviewApplicantMetric(
+                applicant="Applicant One",
+                degree="PhD",
+                age=36,
+                academic_age=8.5,
+                gender=None,
+                first_author_papers=7,
+                last_author_papers=2,
+                total_papers=18,
+                h_index=12,
+                total_citations=640,
+                orcid="0000-0002-1825-0097",
+                google_scholar_citations=710,
+                identity_certainty="High",
+            ),
+        ),
+    )
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover - environment-specific browser installation
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page(viewport={"width": 1024, "height": 768})
+            page.set_content(html, wait_until="domcontentloaded")
+            page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+            page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
+
+            row = page.locator("[data-report-row]")
+            row.dblclick()
+
+            modal = page.locator("[data-report-modal]")
+            assert modal.get_attribute("open") == ""
+            assert modal.get_by_role("heading", name="Applicant One").count() == 1
+            assert modal.locator("dt").count() == 13
+            assert modal.locator("dd").count() == 13
+            assert modal.locator("dd", has_text="Missing").count() == 1
+            assert modal.locator("dd", has_text="0000-0002-1825-0097").count() == 1
+
+            missing = modal.locator(".missing-value")
+            assert missing.evaluate("node => getComputedStyle(node).color") == "rgb(180, 35, 24)"
+            assert missing.evaluate("node => getComputedStyle(node).fontWeight") == "800"
+            assert Axe().run(page).violations_count == 0
+
+            modal.get_by_role("button", name="Close details").click()
+            assert modal.get_attribute("open") is None
+            assert page.evaluate("document.activeElement === document.querySelector('[data-report-row]')")
+        finally:
+            browser.close()

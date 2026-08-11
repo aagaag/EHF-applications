@@ -15,7 +15,7 @@ def _administrator() -> AuthenticatedIdentity:
     )
 
 
-def test_populated_preview_renders_realistic_rows_and_two_accessible_scatterplots() -> None:
+def test_populated_preview_places_reports_directly_after_workspaces_without_application_cards() -> None:
     records = (
         PreviewApplicantMetric(
             applicant="Applicant One",
@@ -36,15 +36,19 @@ def test_populated_preview_renders_realistic_rows_and_two_accessible_scatterplot
 
     html = render_internal_preview(_administrator(), simulation=True, records=records)
 
-    assert "36 applications imported" not in html
-    assert "1 application loaded" in html
+    after_workspaces = html.split("</section>", 1)[1].lstrip()
+
+    assert after_workspaces.startswith('<section id="reports"')
+    assert 'id="applications"' not in html
+    assert 'href="#applications"' not in html
+    assert 'class="application-row"' not in html
     assert "Applicant One" in html
-    assert 'class="application-row"' in html
-    assert 'data-field="Gender"' in html
-    assert "Missing" in html
     assert html.count('role="img"') == 2
     assert 'class="report-table"' in html
     assert html.count('class="report-data-row"') == len(records)
+    assert html.count('data-report-row tabindex="0"') == len(records)
+    assert 'data-report-modal aria-labelledby="report-details-title"' in html
+    assert html.count('<strong class="missing-value">Missing</strong>') == 1
     assert 'href="/internal/reports/metrics.xlsx"' in html
     assert ">Download Excel<" in html
     assert "Citations by anagraphic age" in html
@@ -56,6 +60,7 @@ def test_empty_preview_remains_honest() -> None:
     html = render_internal_preview(_administrator(), simulation=True, records=())
 
     assert "No application records are loaded" in html
+    assert 'id="applications"' not in html
     assert 'class="application-row"' not in html
     assert 'class="report-table"' in html
     assert 'class="report-data-row"' not in html
