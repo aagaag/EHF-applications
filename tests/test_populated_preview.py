@@ -49,6 +49,10 @@ def test_populated_preview_places_reports_directly_after_workspaces_without_appl
     assert html.count('data-report-row tabindex="0"') == len(records)
     assert 'data-report-modal aria-labelledby="report-details-title"' in html
     assert html.count('<strong class="missing-value">Missing</strong>') == 1
+    assert html.count('data-report-sort-direction="ascending"') == 13
+    assert html.count('data-report-sort-direction="descending"') == 13
+    assert 'aria-label="Sort Applicant ascending"' in html
+    assert 'aria-label="Sort GS identity certainty descending"' in html
     assert 'href="/internal/reports/metrics.xlsx"' in html
     assert ">Download Excel<" in html
     assert "Citations by anagraphic age" in html

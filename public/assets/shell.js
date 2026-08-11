@@ -104,6 +104,40 @@
     activeReportRow = null;
   });
 
+  const reportCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  document.querySelectorAll("[data-report-sort]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const table = button.closest(".report-table");
+      const data = table?.querySelector(".report-data");
+      const index = Number(button.dataset.reportSortIndex);
+      const kind = button.dataset.reportSortKind;
+      const direction = button.dataset.reportSortDirection;
+      if (!data || !Number.isInteger(index)) return;
+      const rows = [...data.children].filter((row) => row.matches("[data-report-row]"));
+      rows.sort((leftRow, rightRow) => {
+        const left = leftRow.querySelectorAll('[role="cell"]')[index];
+        const right = rightRow.querySelectorAll('[role="cell"]')[index];
+        const leftMissing = Boolean(left?.querySelector(".missing-value"));
+        const rightMissing = Boolean(right?.querySelector(".missing-value"));
+        if (leftMissing || rightMissing) {
+          if (leftMissing === rightMissing) return 0;
+          return leftMissing ? 1 : -1;
+        }
+        const leftText = left?.textContent.trim() || "";
+        const rightText = right?.textContent.trim() || "";
+        const comparison = kind === "number"
+          ? Number(leftText.replaceAll(",", "")) - Number(rightText.replaceAll(",", ""))
+          : reportCollator.compare(leftText, rightText);
+        return direction === "descending" ? -comparison : comparison;
+      });
+      data.append(...rows);
+      table.querySelectorAll("[data-report-sort]").forEach((control) => control.setAttribute("aria-pressed", "false"));
+      table.querySelectorAll('[role="columnheader"]').forEach((header) => header.removeAttribute("aria-sort"));
+      button.setAttribute("aria-pressed", "true");
+      button.closest('[role="columnheader"]')?.setAttribute("aria-sort", direction);
+    });
+  });
+
   const timestamp = document.querySelector("[data-last-modified]");
   if (timestamp) {
     const modified = new Date(document.lastModified);

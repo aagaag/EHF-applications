@@ -93,11 +93,16 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .report-table { width: 100%; min-width: 0; margin-top: 1rem; border: 1px solid var(--line); border-radius: 1rem; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
 .report-header, .report-data-row { display: grid; min-width: 0; grid-template-columns: minmax(0, 1.4fr) repeat(12, minmax(0, 1fr)); }
 .report-header { background: var(--nav-background); color: var(--nav-text); font-size: .74rem; font-weight: 800; }
-.report-header span, .report-data-row span { min-width: 0; padding: .65rem .45rem; overflow-wrap: anywhere; }
+.report-header > span, .report-data-row > span { min-width: 0; padding: .65rem .45rem; overflow-wrap: anywhere; }
+.report-header > span { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .3rem; }
+.report-column-label { min-width: 0; flex: 1 1 2.5rem; overflow-wrap: anywhere; }
+.report-sort-buttons { display: inline-flex; flex: 0 0 auto; gap: .15rem; }
+.report-sort-button { display: inline-grid; width: 26px; height: 26px; place-items: center; border: 1px solid currentColor; border-radius: .3rem; padding: 0; background: transparent; color: var(--nav-text); cursor: pointer; font: inherit; line-height: 1; }
+.report-sort-button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
 .report-data-row { border-top: 1px solid var(--line); font-size: .8rem; cursor: pointer; }
 .report-data-row:hover { background: var(--accent-quiet); }
 .report-data-row:focus-visible { position: relative; outline: 3px solid var(--focus); outline-offset: -3px; }
-.report-data-row span::before { display: none; content: attr(data-label); color: var(--muted); font-size: .72rem; font-weight: 800; }
+.report-data-row > span::before { display: none; content: attr(data-label); color: var(--muted); font-size: .72rem; font-weight: 800; }
 .report-interaction-hint { font-weight: 700; }
 .missing-value { color: var(--missing); font-weight: 800; }
 .report-details-modal { width: min(52rem, 94vw); max-height: 90vh; border: 1px solid var(--line); border-radius: 1rem; padding: 0; background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
@@ -118,7 +123,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .app-nav-backdrop { display: none; }
 
 @media (max-width: 1024px) { .shell-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 1300px) { .report-header { display: none; } .report-data-row { grid-template-columns: repeat(4, minmax(0, 1fr)); } .report-data-row span { display: grid; gap: .15rem; } .report-data-row span::before { display: block; } }
+@media (max-width: 1300px) { .report-header { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .45rem; padding: .5rem; background: var(--surface); color: var(--text); } .report-header > span { align-items: center; border: 1px solid var(--line); border-radius: .5rem; background: var(--surface-soft); } .report-sort-button { width: 32px; height: 32px; color: var(--text); } .report-data-row { grid-template-columns: repeat(4, minmax(0, 1fr)); } .report-data-row > span { display: grid; gap: .15rem; } .report-data-row > span::before { display: block; } }
 @media (max-width: 980px) { .report-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 720px) {
   body { padding-left: 0; }
@@ -129,7 +134,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .site-main { width: 94%; margin-inline: 3%; padding-top: 5rem; }
   .site-footer { width: 94%; margin: 0 3%; }
   .shell-grid { grid-template-columns: minmax(0, 1fr); }
+  .report-header { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-details-list { grid-template-columns: minmax(0, 1fr); }
 }
-@media (max-width: 520px) { .report-data-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .report-header { grid-template-columns: minmax(0, 1fr); } .report-data-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; } }

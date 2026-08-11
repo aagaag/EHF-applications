@@ -106,7 +106,7 @@ def _sections(
 def _report_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
     return (
         '<section id="reports" aria-labelledby="reports-heading"><div class="section-heading">'
-        '<h2 id="reports-heading">Reports</h2><p>Source citation counts plotted against the age observations in the 2026 register. The graph uses total citations where recorded and otherwise the Google Scholar count.</p><p class="report-interaction-hint">Double-click a row, or focus it and press Enter, to view all details.</p></div>'
+        '<h2 id="reports-heading">Reports</h2><p>Source citation counts plotted against the age observations in the 2026 register. The graph uses total citations where recorded and otherwise the Google Scholar count.</p><p class="report-interaction-hint">Use the triangles beside any field title to sort ascending or descending. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
         '<div class="report-actions"><a class="report-download" href="/internal/reports/metrics.xlsx">Download Excel</a></div>'
         f'{_report_table(records)}'
         '<div class="report-grid">'
@@ -118,12 +118,19 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
 
 def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
     headers = (
-        "Applicant", "Degree", "Age", "Academic age (years)", "Gender",
-        "First-author papers", "Last-author papers", "Total papers", "h-index",
-        "Total citations", "ORCID", "Google Scholar citations", "GS identity certainty",
+        ("Applicant", "text"), ("Degree", "text"), ("Age", "number"),
+        ("Academic age (years)", "number"), ("Gender", "text"),
+        ("First-author papers", "number"), ("Last-author papers", "number"),
+        ("Total papers", "number"), ("h-index", "number"),
+        ("Total citations", "number"), ("ORCID", "text"),
+        ("Google Scholar citations", "number"), ("GS identity certainty", "text"),
     )
-    header = "".join(f'<span role="columnheader">{escape(label)}</span>' for label in headers)
-    rows = "".join(_report_row(record, headers) for record in records)
+    labels = tuple(label for label, _kind in headers)
+    header = "".join(
+        _report_header(index, label, kind)
+        for index, (label, kind) in enumerate(headers)
+    )
+    rows = "".join(_report_row(record, labels) for record in records)
     empty = (
         '<p class="report-empty" role="status">No application metrics are available.</p>'
         if not records else ""
@@ -138,6 +145,22 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
         '<button type="button" class="report-details-close" data-report-modal-close aria-label="Close details">×</button>'
         '</div><p>All source observations for this application.</p>'
         '<dl class="report-details-list" data-report-details></dl></div></dialog>'
+    )
+
+
+def _report_header(index: int, label: str, kind: str) -> str:
+    escaped_label = escape(label)
+    buttons = "".join(
+        f'<button type="button" class="report-sort-button" data-report-sort '
+        f'data-report-sort-index="{index}" data-report-sort-kind="{kind}" '
+        f'data-report-sort-direction="{direction}" aria-label="Sort {escaped_label} {direction}" '
+        f'aria-pressed="false"><span aria-hidden="true">{triangle}</span></button>'
+        for direction, triangle in (("ascending", "▲"), ("descending", "▼"))
+    )
+    return (
+        f'<span role="columnheader" data-report-column="{escaped_label}">'
+        f'<span class="report-column-label">{escaped_label}</span>'
+        f'<span class="report-sort-buttons">{buttons}</span></span>'
     )
 
 

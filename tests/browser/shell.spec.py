@@ -195,3 +195,64 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             assert page.evaluate("document.activeElement === document.querySelector('[data-report-row]')")
         finally:
             browser.close()
+
+
+def test_report_field_triangles_sort_text_and_numbers_with_missing_values_last() -> None:
+    """Break caught: field sort controls could disappear or order numeric and missing values incorrectly."""
+    pytest.importorskip("playwright.sync_api")
+    from axe_playwright_python.sync_playwright import Axe
+    from playwright.sync_api import sync_playwright
+
+    from app.identity import AuthenticatedIdentity
+    from app.internal_preview import PreviewApplicantMetric, render_internal_preview
+    from app.navigation import INTERNAL_GROUPS
+    from app.preferences import Identity
+
+    principal = AuthenticatedIdentity(
+        Identity("development:administrator", "preview@example.invalid", "Preview"),
+        frozenset({INTERNAL_GROUPS.administrators}),
+    )
+    html = render_internal_preview(
+        principal,
+        simulation=True,
+        records=(
+            PreviewApplicantMetric(applicant="Applicant Z", age=41),
+            PreviewApplicantMetric(applicant="Applicant A", age=29),
+            PreviewApplicantMetric(applicant="Applicant M", age=None),
+        ),
+    )
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover - environment-specific browser installation
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page(viewport={"width": 390, "height": 844})
+            page.set_content(html, wait_until="domcontentloaded")
+            page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+            page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
+
+            def applicant_order() -> list[str]:
+                return page.locator("[data-report-row] [role='cell']:first-child").all_inner_texts()
+
+            assert page.locator("[data-report-sort]").count() == 26
+            assert page.get_by_role("button", name="Sort Applicant ascending").is_visible()
+
+            page.get_by_role("button", name="Sort Applicant ascending").click()
+            assert applicant_order() == ["Applicant A", "Applicant M", "Applicant Z"]
+            assert page.locator('[data-report-column="Applicant"]').get_attribute("aria-sort") == "ascending"
+
+            page.get_by_role("button", name="Sort Applicant descending").click()
+            assert applicant_order() == ["Applicant Z", "Applicant M", "Applicant A"]
+            assert page.locator('[data-report-column="Applicant"]').get_attribute("aria-sort") == "descending"
+
+            page.get_by_role("button", name="Sort Age ascending").click()
+            assert applicant_order() == ["Applicant A", "Applicant Z", "Applicant M"]
+
+            page.get_by_role("button", name="Sort Age descending").click()
+            assert applicant_order() == ["Applicant Z", "Applicant A", "Applicant M"]
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+            assert Axe().run(page).violations_count == 0
+        finally:
+            browser.close()
