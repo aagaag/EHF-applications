@@ -14,7 +14,9 @@ ADD ApplicantUploadMode varchar(12) NOT NULL
     OpenedByIdentity nvarchar(255) NULL,
     OpenedAtUtc datetime2(7) NULL,
     RowVersion rowversion NOT NULL;
+');
 
+EXEC(N'
 UPDATE dbo.DocumentSlot SET SlotLabel = CONVERT(nvarchar(200), SlotCode) WHERE SlotLabel IS NULL;
 ALTER TABLE dbo.DocumentSlot ALTER COLUMN SlotLabel nvarchar(200) NOT NULL;
 

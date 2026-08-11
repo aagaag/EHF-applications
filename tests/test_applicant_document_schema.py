@@ -30,5 +30,14 @@ def test_document_slot_release_enforces_session_scope_open_mode_and_history() ->
     assert "@ApplicationId" not in upload_procedure
 
 
+def test_document_slot_columns_compile_before_slot_label_is_referenced() -> None:
+    """Break caught: SQL Server cannot reference a newly added column in the same dynamic batch."""
+    source = MIGRATION.read_text(encoding="utf-8")
+
+    assert source.index("');") < source.index(
+        "UPDATE dbo.DocumentSlot SET SlotLabel"
+    )
+
+
 def test_document_slot_validator_is_present() -> None:
     assert "ValidateApplicantUploadSlot" in VALIDATOR.read_text(encoding="utf-8")
