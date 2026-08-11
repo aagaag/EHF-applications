@@ -696,6 +696,17 @@ def test_database_script_requires_and_applies_015() -> None:
     assert "Applied 15 migration\\(s\\)\\." in script
 
 
+def test_sql_login_harness_executes_validator_artifacts_not_migrations_twice() -> None:
+    """Break caught: the isolated validator loop could accidentally rerun migration 007 or 009."""
+    script = (ROOT / "infra" / "test-sql-login.sh").read_text(encoding="utf-8")
+    validation_loop = script.split("for validation_file in ", 1)[1].split("; do", 1)[0]
+
+    assert "007_validate_document_store.sql" in validation_loop
+    assert "009_validate_document_permissions.sql" in validation_loop
+    assert " 007_document_store.sql" not in validation_loop
+    assert " 009_document_permissions.sql" not in validation_loop
+
+
 def test_database_script_enables_quoted_identifier_for_every_sqlcmd_session() -> None:
     """Break caught: a fresh validator session could reject filtered-index DML."""
     script = DATABASE_SCRIPT.read_text(encoding="utf-8")

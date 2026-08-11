@@ -258,6 +258,27 @@ def test_permission_validator_includes_the_complete_applicant_runtime_surface() 
     assert "N'EXECUTE', N'DENY'" in validator
 
 
+def test_real_login_probe_covers_applicant_tables_and_finalization_executor() -> None:
+    """Break caught: catalog validation could pass while the real SQL login retained applicant access."""
+    script = (ROOT / "infra" / "test-sql-login.sh").read_text(encoding="utf-8")
+
+    for table, column in {
+        "ApplicantInvitation": "InvitationTokenSha256",
+        "ApplicantPreAuthContext": "ApplicantInvitationId",
+        "ApplicantVerificationChallenge": "ApplicantInvitationId",
+        "ApplicantSession": "ApplicationId",
+        "ApplicantRateLimitBucket": "ScopeType",
+        "ApplicantSectionDraft": "SectionCode",
+        "ApplicantFieldCorrection": "FieldCode",
+        "ApplicantSectionConfirmation": "SectionCode",
+        "ApplicantFinalConfirmation": "ApplicationId",
+        "ApplicantReopenScope": "ScopeType",
+        "ApplicantDocumentSubmission": "SubmissionStatus",
+    }.items():
+        assert f"(N'{table}',N'{column}')" in script
+    assert "HAS_PERMS_BY_NAME(N'EHFFinalConfirmationProcedureExecutor'" in script
+
+
 def test_permission_validator_normalizes_catalog_collation_in_both_exact_set_comparisons() -> None:
     """Break caught: either side of the exact-set comparison could fail on SQL Server catalog collation."""
     validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(encoding="utf-8")

@@ -100,7 +100,7 @@ for migration_file in 001_database_contract.sql 002_application_core.sql 003_aud
   run_admin_sql "$database" "$migration_file" >/dev/null 2>&1 || fail "The isolated EHF migration failed without credential details."
   run_helper record-test-migration --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --migration-file "$migration_file" >/dev/null || fail "The isolated EHF migration record failed."
 done
-for validation_file in 001_validate_database_contract.sql 002_validate_application_core.sql 003_validate_audit_and_preferences.sql 004_validate_audit_and_preference_hardening.sql 005_validate_application_permissions.sql 006_validate_user_preference_read.sql 007_document_store.sql 008_validate_import_provenance.sql 009_document_permissions.sql 010_validate_report_export_audit.sql 011_validate_applicant_access.sql 012_validate_applicant_drafts.sql 013_validate_applicant_confirmations.sql 014_validate_applicant_projection.sql 015_validate_applicant_document_slots.sql; do
+for validation_file in 001_validate_database_contract.sql 002_validate_application_core.sql 003_validate_audit_and_preferences.sql 004_validate_audit_and_preference_hardening.sql 005_validate_application_permissions.sql 006_validate_user_preference_read.sql 007_validate_document_store.sql 008_validate_import_provenance.sql 009_validate_document_permissions.sql 010_validate_report_export_audit.sql 011_validate_applicant_access.sql 012_validate_applicant_drafts.sql 013_validate_applicant_confirmations.sql 014_validate_applicant_projection.sql 015_validate_applicant_document_slots.sql; do
   run_admin_sql "$database" "$validation_file" >/dev/null 2>&1 || fail "The isolated EHF SQL validator failed without credential details."
 done
 run_helper create-test-login --server "$server" --admin-credential-file "$admin_password_file" --database "$database" --login "$login" --credential-file "$test_password_file" >/dev/null || fail "The isolated test login creation failed."
@@ -137,7 +137,13 @@ INSERT @DmlTargets VALUES
  (N'DocumentVersion',N'VersionNumber'),(N'Recommendation',N'ArrivalChannel'),
  (N'ImportRun',N'ImporterVersion'),(N'ImportRow',N'SourceRowNumber'),(N'SourceOccurrence',N'SourceLocatorSha256'),
  (N'CallSourceOccurrence',N'SourceLocatorSha256'),(N'ImportException',N'ExceptionCode'),
- (N'ClassificationDecision',N'Classification');
+ (N'ClassificationDecision',N'Classification'),
+ (N'ApplicantInvitation',N'InvitationTokenSha256'),(N'ApplicantPreAuthContext',N'ApplicantInvitationId'),
+ (N'ApplicantVerificationChallenge',N'ApplicantInvitationId'),(N'ApplicantSession',N'ApplicationId'),
+ (N'ApplicantRateLimitBucket',N'ScopeType'),(N'ApplicantSectionDraft',N'SectionCode'),
+ (N'ApplicantFieldCorrection',N'FieldCode'),(N'ApplicantSectionConfirmation',N'SectionCode'),
+ (N'ApplicantFinalConfirmation',N'ApplicationId'),(N'ApplicantReopenScope',N'ScopeType'),
+ (N'ApplicantDocumentSubmission',N'SubmissionStatus');
 DECLARE @TableName sysname,@ColumnName sysname,@Sql nvarchar(max),@Denied bit;
 DECLARE dml_cursor CURSOR LOCAL FAST_FORWARD FOR SELECT TableName,ColumnName FROM @DmlTargets;
 OPEN dml_cursor; FETCH NEXT FROM dml_cursor INTO @TableName,@ColumnName;
@@ -185,6 +191,8 @@ END;
 CLOSE permission_cursor; DEALLOCATE permission_cursor;
 IF COALESCE(HAS_PERMS_BY_NAME(N'EHFReportExportAuditExecutor',N'USER',N'IMPERSONATE'),0)<>0
   THROW 51658,'Report audit executor impersonation is available.',1;
+IF COALESCE(HAS_PERMS_BY_NAME(N'EHFFinalConfirmationProcedureExecutor',N'USER',N'IMPERSONATE'),0)<>0
+  THROW 51659,'Final-confirmation executor impersonation is available.',1;
 DECLARE @Denied bit=0;
 BEGIN TRY EXECUTE AS LOGIN='sa'; END TRY BEGIN CATCH IF ERROR_NUMBER() NOT IN (15406,15517) THROW; SET @Denied=1; END CATCH;
 IF @Denied=0 THROW 51649,'Impersonation succeeded.',1;
