@@ -54,6 +54,21 @@ def _metadata(group: str = INTERNAL_GROUPS.trustees) -> ReportExportMetadata:
     )
 
 
+def _contrast_ratio(first: str, second: str) -> float:
+    def luminance(value: str) -> float:
+        channels = [int(value[index:index + 2], 16) / 255 for index in (0, 2, 4)]
+        linear = [
+            channel / 12.92
+            if channel <= 0.04045
+            else ((channel + 0.055) / 1.055) ** 2.4
+            for channel in channels
+        ]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    lighter, darker = sorted((luminance(first), luminance(second)), reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
 def test_workbook_preserves_the_approved_metrics_contract_and_native_charts() -> None:
     workbook = load_workbook(BytesIO(build_metrics_workbook(_records(), _metadata())))
 
@@ -82,6 +97,69 @@ def test_workbook_preserves_the_approved_metrics_contract_and_native_charts() ->
     ).casefold()
     for forbidden in ("email", "token", "password", "recommendation", "document path"):
         assert forbidden not in all_text
+
+
+def test_workbook_charts_use_distinct_shared_colors_and_top_15_surname_labels() -> None:
+    """Break caught: exported plots could collapse applicants into one unlabeled series."""
+    records = tuple(
+        PreviewApplicantMetric(
+            applicant=f"Given Surname{index:02d}",
+            age=30 + index,
+            academic_age=3 + index,
+            total_citations=index,
+        )
+        for index in range(18)
+    )
+    workbook = load_workbook(BytesIO(build_metrics_workbook(records, _metadata())))
+    charts = workbook["Charts"]._charts
+
+    assert len(charts) == 2
+    colors_by_chart: list[list[str]] = []
+    for chart, ages in zip(
+        charts,
+        (
+            [float(record.age) for record in records if record.age is not None],
+            [
+                float(record.academic_age)
+                for record in records
+                if record.academic_age is not None
+            ],
+        ),
+        strict=True,
+    ):
+        assert len(chart.series) == 18
+        colors = [
+            series.marker.graphicalProperties.solidFill.srgbClr
+            for series in chart.series
+        ]
+        colors_by_chart.append(colors)
+        assert len(set(colors)) == 18
+        assert all(
+            _contrast_ratio(
+                series.marker.graphicalProperties.line.solidFill.srgbClr,
+                "FFFFFF",
+            ) >= 3
+            for series in chart.series
+        )
+        assert all(series.graphicalProperties.line.noFill for series in chart.series)
+        assert all(
+            series.xVal.numRef.f.endswith(f"${4 + index}")
+            for index, series in enumerate(chart.series)
+        )
+
+        labelled = [series for series in chart.series if series.dLbls is not None]
+        assert len(labelled) == 15
+        assert {series.tx.v for series in labelled} == {
+            f"Surname{index:02d}" for index in range(3, 18)
+        }
+        assert all(series.dLbls.showSerName for series in labelled)
+        assert all(series.dLbls.dLblPos == "r" for series in labelled)
+        assert chart.x_axis.scaling.max >= max(ages) + (max(ages) - min(ages)) * 0.2
+        assert chart.y_axis.scaling.max > max(
+            record.total_citations for record in records
+        )
+
+    assert colors_by_chart[1] == colors_by_chart[0]
 
 
 def test_export_metadata_is_bounded_and_identifies_the_export() -> None:

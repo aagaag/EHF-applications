@@ -84,9 +84,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .report-card { min-width: 0; border: 1px solid var(--line); border-radius: 1rem; padding: 1rem; background: var(--surface); box-shadow: var(--shadow); }
 .report-card h3 { margin: 0 0 .7rem; font-size: 1rem; }
 .report-card svg { display: block; width: 100%; height: auto; overflow: visible; }
-.report-card circle { fill: var(--accent); fill-opacity: .75; stroke: var(--surface); stroke-width: 2; }
+.report-card circle { fill-opacity: .86; stroke: var(--text); stroke-width: 2; }
+.report-card .plot-point:focus { outline: none; stroke: var(--focus); stroke-width: 4; }
 .report-card .plot-axis { fill: none; stroke: var(--text); stroke-width: 1.2; }
 .report-card text { fill: var(--muted); font: 14px Aptos, "Segoe UI", system-ui, sans-serif; text-anchor: middle; }
+.report-card .plot-callout-halo { fill: none; stroke: var(--text); stroke-width: 4; }
+.report-card .plot-callout-line { fill: none; stroke-width: 1.5; }
+.report-card .plot-callout-label { fill: var(--text); stroke: var(--surface); stroke-width: 3px; paint-order: stroke; font-size: 14px; font-weight: 800; }
+.report-card .plot-callout-label[data-side="left"] { text-anchor: end; }
+.report-card .plot-callout-label[data-side="right"] { text-anchor: start; }
 .report-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: .8rem; margin-top: 1rem; }
 .report-filter { display: grid; flex: 1 1 20rem; max-width: 24rem; gap: .3rem; font-weight: 800; }
 .report-filter select { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: .65rem; padding: .55rem .7rem; background: var(--surface); color: var(--text); font: inherit; }
@@ -139,6 +145,34 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .shell-grid { grid-template-columns: minmax(0, 1fr); }
   .report-header { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-details-list { grid-template-columns: minmax(0, 1fr); }
+}
+
+.applicant-auth-main, .applicant-review-main { width: 94%; margin-inline: 3%; }
+.applicant-auth-card, .application-progress, .review-section { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); padding: clamp(1rem, 2vw, 1.5rem); box-shadow: var(--shadow); }
+.applicant-auth-card form, .review-form { display: grid; gap: 1rem; }
+.applicant-auth-card input, .review-field input, .review-field select, .review-field textarea { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--line); border-radius: .55rem; background: var(--surface); color: var(--text); padding: .7rem; font: inherit; }
+.applicant-auth-card label, .review-field label { font-weight: 700; }
+.review-nav-link { width: 100%; border: 0; text-align: left; font: inherit; cursor: pointer; }
+.review-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.review-field { display: grid; min-width: 0; gap: .35rem; }
+.review-field-wide { grid-column: 1 / -1; }
+.field-help, .character-counter { color: var(--muted); font-size: .9rem; }
+.review-actions { display: flex; flex-wrap: wrap; gap: .8rem; align-items: center; }
+.primary-action, .secondary-action, .confirm-action { min-height: 44px; border: 1px solid var(--line); border-radius: .65rem; padding: .65rem 1rem; font: 700 1rem/1.2 Aptos, "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+.primary-action { background: #1769aa; color: #fff; }
+.secondary-action { background: var(--surface-soft); color: var(--text); }
+.confirm-action { margin-inline-start: auto; background: #d98200; color: #111; }
+.form-status { min-height: 1.5rem; font-weight: 700; }
+.application-progress progress { width: 100%; min-height: 1rem; accent-color: #1769aa; }
+.document-slot-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; width: 100%; min-width: 0; }
+.document-slot-card { min-width: 0; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); padding: 1rem; overflow-wrap: anywhere; }
+.document-upload-form { display: grid; min-width: 0; gap: .7rem; }
+.document-upload-form input { max-width: 100%; min-height: 44px; }
+
+@media (max-width: 720px) {
+  .review-fields { grid-template-columns: minmax(0, 1fr); }
+  .review-actions { align-items: stretch; flex-direction: column; }
+  .confirm-action { margin-inline-start: 0; margin-top: .5rem; }
 }
 @media (max-width: 520px) { .report-header { grid-template-columns: minmax(0, 1fr); } .report-data-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; } }

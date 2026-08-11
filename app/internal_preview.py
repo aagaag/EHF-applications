@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from html import escape
-from math import isfinite
+from textwrap import wrap
 
+from app.citation_plots import CitationPlotPoint, citation_plot_points
 from app.identity import AuthenticatedIdentity
 from app.navigation import (
     NavigationEntry,
@@ -191,29 +192,111 @@ def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str
 def _scatterplot(
     records: tuple[PreviewApplicantMetric, ...], title: str, age_field: str
 ) -> str:
-    points = [
-        (float(getattr(record, age_field)), float(_citation_count(record)), record.applicant)
-        for record in records
-        if _finite(getattr(record, age_field)) and _finite(_citation_count(record))
-    ]
+    points = citation_plot_points(records, age_field)
     if not points:
         plot = '<p class="report-empty">Not enough complete values to draw this report.</p>'
     else:
-        xs, ys = zip(*((point[0], point[1]) for point in points))
+        xs = tuple(point.age for point in points)
+        ys = tuple(point.citations for point in points)
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = 0.0, max(ys) or 1.0
         span_x = max(max_x - min_x, 1.0)
         span_y = max(max_y - min_y, 1.0)
+        positioned = tuple(
+            (
+                point,
+                120 + ((point.age - min_x) / span_x) * 360,
+                330 - ((point.citations - min_y) / span_y) * 300,
+            )
+            for point in points
+        )
         circles = "".join(
-            f'<circle cx="{42 + ((x - min_x) / span_x) * 516:.1f}" cy="{256 - ((y - min_y) / span_y) * 218:.1f}" r="5"><title>{escape(name)}: age {_number(x)}, {int(y):,} citations</title></circle>'
-            for x, y, name in points
+            _plot_point(point, x, y) for point, x, y in positioned
         )
         plot = (
-            f'<svg viewBox="0 0 600 300" role="img" aria-label="{escape(title)}; {len(points)} candidates">'
-            '<path class="plot-axis" d="M42 26V256H570" />'
-            f'{circles}<text x="306" y="290">Age (years)</text><text x="14" y="150" transform="rotate(-90 14 150)">Total citations</text></svg>'
+            f'<svg viewBox="0 0 600 400" role="img" aria-label="{escape(title)}; {len(points)} candidates">'
+            '<path class="plot-axis" d="M120 30V330H480" />'
+            f'{circles}{_plot_callouts(positioned)}'
+            '<text x="300" y="386">Age (years)</text>'
+            '<text x="18" y="180" transform="rotate(-90 18 180)">Total citations</text></svg>'
         )
     return f'<article class="report-card"><h3>{escape(title)}</h3>{plot}</article>'
+
+
+def _plot_point(point: CitationPlotPoint, x: float, y: float) -> str:
+    description = (
+        f"{point.applicant}: age {_number(point.age)}, "
+        f"{int(point.citations):,} citations"
+    )
+    escaped_description = escape(description)
+    return (
+        f'<circle class="plot-point" tabindex="0" '
+        f'aria-label="{escaped_description}" cx="{x:.1f}" cy="{y:.1f}" r="6" '
+        f'fill="{point.color}"><title>{escaped_description}</title></circle>'
+    )
+
+
+def _plot_callouts(
+    positioned: tuple[tuple[CitationPlotPoint, float, float], ...]
+) -> str:
+    labelled = sorted(
+        (position for position in positioned if position[0].labelled),
+        key=lambda position: (position[1], position[2], position[0].source_index),
+    )
+    split_at = (len(labelled) + 1) // 2
+    sides = (("left", labelled[:split_at]), ("right", labelled[split_at:]))
+    callouts: list[str] = []
+    for side, side_points in sides:
+        ordered = sorted(
+            side_points, key=lambda position: (position[2], position[0].source_index)
+        )
+        for slot, (point, x, y) in enumerate(ordered):
+            label_y = _callout_y(slot, len(ordered))
+            if side == "left":
+                path = f"M{x:.1f} {y:.1f} L116 {y:.1f} L112 {label_y:.1f}"
+                label_x = 106
+            else:
+                path = f"M{x:.1f} {y:.1f} L484 {y:.1f} L488 {label_y:.1f}"
+                label_x = 494
+            callouts.append(
+                f'<g class="plot-callout"><path class="plot-callout-halo" '
+                f'd="{path}" /><path class="plot-callout-line" '
+                f'stroke="{point.color}" d="{path}" />'
+                f'{_plot_callout_label(point.surname, side, label_x, label_y)}</g>'
+            )
+    return "".join(callouts)
+
+
+def _plot_callout_label(surname: str, side: str, x: int, y: float) -> str:
+    lines = wrap(
+        surname,
+        width=16,
+        break_long_words=True,
+        break_on_hyphens=True,
+    ) or ["Applicant"]
+    attributes = (
+        f'class="plot-callout-label" data-side="{side}" '
+        f'x="{x}" y="{y:.1f}" aria-label="{escape(surname)}"'
+    )
+    if len(lines) == 1:
+        line = lines[0]
+        width = min(100.0, max(8.0, len(line) * 7.2))
+        return (
+            f'<text {attributes} textLength="{width:.1f}" '
+            f'lengthAdjust="spacingAndGlyphs">{escape(line)}</text>'
+        )
+    offset = -((len(lines) - 1) * 6.5)
+    tspans = "".join(
+        f'<tspan x="{x}" y="{y + offset + index * 13:.1f}" '
+        f'textLength="{min(100.0, max(8.0, len(line) * 7.2)):.1f}" '
+        f'lengthAdjust="spacingAndGlyphs">{escape(line)}</tspan>'
+        for index, line in enumerate(lines)
+    )
+    return f'<text {attributes}>{tspans}</text>'
+
+
+def _callout_y(slot: int, total: int) -> float:
+    return 180.0 if total <= 1 else 42.0 + slot * (276.0 / (total - 1))
 
 
 def _display_markup(value: object | None) -> str:
@@ -227,21 +310,6 @@ def _number(value: float | int | None) -> str | None:
         return None
     numeric = float(value)
     return str(int(numeric)) if numeric.is_integer() else f"{numeric:.1f}"
-
-
-def _finite(value: object | None) -> bool:
-    try:
-        return value is not None and isfinite(float(value))
-    except (TypeError, ValueError):
-        return False
-
-
-def _citation_count(record: PreviewApplicantMetric) -> int | None:
-    return (
-        record.total_citations
-        if record.total_citations is not None
-        else record.google_scholar_citations
-    )
 
 
 def _authorization_pills(groups: tuple[str, ...]) -> str:

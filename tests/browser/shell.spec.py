@@ -337,3 +337,110 @@ def test_report_dropdown_filters_completed_and_missing_applications_only() -> No
             assert Axe().run(page).violations_count == 0
         finally:
             browser.close()
+
+
+def test_citation_plot_callouts_remain_distinct_accessible_and_responsive() -> None:
+    """Break caught: colored call-outs could overlap the page or lose accessible identity."""
+    pytest.importorskip("playwright.sync_api")
+    from axe_playwright_python.sync_playwright import Axe
+    from playwright.sync_api import sync_playwright
+
+    from app.identity import AuthenticatedIdentity
+    from app.internal_preview import PreviewApplicantMetric, render_internal_preview
+    from app.navigation import INTERNAL_GROUPS
+    from app.preferences import Identity
+
+    principal = AuthenticatedIdentity(
+        Identity("development:administrator", "preview@example.invalid", "Preview"),
+        frozenset({INTERNAL_GROUPS.administrators}),
+    )
+    records = tuple(
+        PreviewApplicantMetric(
+            applicant=f"Given Exceptionally-Long-Hyphenated-Surname{index:02d}",
+            age=30 + index,
+            academic_age=3 + index,
+            total_citations=index,
+        )
+        for index in range(18)
+    )
+    html = render_internal_preview(principal, simulation=True, records=records)
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover - environment-specific browser installation
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            for width, height in ((1024, 768), (390, 844)):
+                page = browser.new_page(viewport={"width": width, "height": height})
+                page.set_content(html, wait_until="domcontentloaded")
+                page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+
+                assert page.locator(".plot-point").count() == 36
+                assert page.locator(".plot-callout").count() == 30
+                assert page.locator(".plot-callout-halo").count() == 30
+                assert page.locator(".plot-callout-label tspan").count() == 90
+                first_chart_colors = page.locator(
+                    ".report-card:first-child .plot-point"
+                ).evaluate_all(
+                    "nodes => nodes.map(node => getComputedStyle(node).fill)"
+                )
+                assert len(set(first_chart_colors)) == 18
+                assert page.locator(
+                    '.plot-point[aria-label="Given Exceptionally-Long-Hyphenated-Surname17: age 47, 17 citations"]'
+                ).count() == 1
+                assert page.locator(".plot-callout-label").evaluate_all(
+                    """nodes => nodes.every(node => {
+                        const label = node.getBoundingClientRect();
+                        const svg = node.ownerSVGElement.getBoundingClientRect();
+                        return label.left >= svg.left - 0.5
+                            && label.right <= svg.right + 0.5
+                            && label.left >= -0.5
+                            && label.right <= window.innerWidth + 0.5;
+                    })"""
+                )
+                for skin in ("default", "high-contrast", "soft-earth", "blue"):
+                    page.evaluate(
+                        "skin => document.documentElement.dataset.skin = skin", skin
+                    )
+                    contrast = page.locator(".report-card:first-child").evaluate(
+                        """card => {
+                            const channels = value => value.match(/[0-9.]+/g)
+                                .slice(0, 3).map(Number);
+                            const luminance = value => {
+                                const rgb = channels(value).map(channel => {
+                                    const normalized = channel / 255;
+                                    return normalized <= 0.04045
+                                        ? normalized / 12.92
+                                        : ((normalized + 0.055) / 1.055) ** 2.4;
+                                });
+                                return 0.2126 * rgb[0] + 0.7152 * rgb[1]
+                                    + 0.0722 * rgb[2];
+                            };
+                            const ratio = (first, second) => {
+                                const values = [luminance(first), luminance(second)]
+                                    .sort((a, b) => b - a);
+                                return (values[0] + 0.05) / (values[1] + 0.05);
+                            };
+                            const surface = getComputedStyle(card).backgroundColor;
+                            return {
+                                point: ratio(
+                                    getComputedStyle(card.querySelector('.plot-point')).stroke,
+                                    surface
+                                ),
+                                leader: ratio(
+                                    getComputedStyle(card.querySelector('.plot-callout-halo')).stroke,
+                                    surface
+                                ),
+                            };
+                        }"""
+                    )
+                    assert contrast["point"] >= 3
+                    assert contrast["leader"] >= 3
+                assert page.evaluate(
+                    "document.documentElement.scrollWidth <= window.innerWidth"
+                )
+                assert Axe().run(page).violations_count == 0
+                page.close()
+        finally:
+            browser.close()

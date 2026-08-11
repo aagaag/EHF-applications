@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from app.identity import AuthenticatedIdentity
 from app.internal_preview import PreviewApplicantMetric, render_internal_preview
 from app.navigation import INTERNAL_GROUPS
@@ -72,3 +74,37 @@ def test_empty_preview_remains_honest() -> None:
     assert 'class="application-row"' not in html
     assert 'class="report-table"' in html
     assert 'class="report-data-row"' not in html
+
+
+def test_citation_plots_color_every_applicant_and_label_top_15_surnames() -> None:
+    """Break caught: plot points could become monochrome or label the wrong applicants."""
+    records = tuple(
+        PreviewApplicantMetric(
+            applicant=f"Given Surname{index:02d}",
+            age=30 + index,
+            academic_age=3 + index,
+            total_citations=index,
+        )
+        for index in range(18)
+    )
+
+    html = render_internal_preview(_administrator(), simulation=True, records=records)
+
+    point_colors = re.findall(
+        r'<circle class="plot-point"[^>]+fill="(#[0-9A-F]{6})"', html
+    )
+    callout_labels = re.findall(
+        r'<text class="plot-callout-label"[^>]*>([^<]+)</text>', html
+    )
+
+    assert len(point_colors) == 36
+    assert len(set(point_colors[:18])) == 18
+    assert point_colors[18:] == point_colors[:18]
+    assert len(callout_labels) == 30
+    assert sorted(callout_labels) == sorted(
+        [f"Surname{index:02d}" for index in range(3, 18)] * 2
+    )
+    for index in range(3):
+        assert f">Surname{index:02d}</text>" not in html
+    assert html.count('class="plot-point" tabindex="0" aria-label=') == 36
+    assert 'aria-label="Given Surname17: age 47, 17 citations"' in html

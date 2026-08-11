@@ -9,9 +9,11 @@ from typing import Any, Callable, Protocol
 
 from openpyxl import Workbook
 from openpyxl.chart import Reference, ScatterChart, Series
+from openpyxl.chart.label import DataLabelList
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+from app.citation_plots import citation_plot_points
 from app.internal_preview import PreviewApplicantMetric
 
 
@@ -211,10 +213,9 @@ def _write_charts_sheet(sheet, records: tuple[PreviewApplicantMetric, ...]) -> N
                 value = safe_excel_text(value)
             sheet.cell(row_number, column, value)
 
-    last_row = max(4, 3 + len(records))
-    for title, x_column, anchor in (
-        ("Citations by anagraphic age", 2, "F3"),
-        ("Citations by academic age", 3, "F20"),
+    for title, x_column, age_field, anchor in (
+        ("Citations by anagraphic age", 2, "age", "F3"),
+        ("Citations by academic age", 3, "academic_age", "F20"),
     ):
         chart = ScatterChart()
         chart.title = title
@@ -225,13 +226,38 @@ def _write_charts_sheet(sheet, records: tuple[PreviewApplicantMetric, ...]) -> N
         chart.varyColors = False
         chart.x_axis.title = "Age (years)"
         chart.y_axis.title = "Total citations"
-        x_values = Reference(sheet, min_col=x_column, min_row=4, max_row=last_row)
-        y_values = Reference(sheet, min_col=4, min_row=4, max_row=last_row)
-        series = Series(y_values, x_values, title="Citations")
-        series.marker.symbol = "circle"
-        series.marker.size = 6
-        series.graphicalProperties.line.noFill = True
-        chart.series.append(series)
+        points = citation_plot_points(records, age_field)
+        if points:
+            ages = tuple(point.age for point in points)
+            citations = tuple(point.citations for point in points)
+            age_span = max(max(ages) - min(ages), 1.0)
+            chart.x_axis.scaling.min = max(0.0, min(ages) - age_span * 0.04)
+            chart.x_axis.scaling.max = max(ages) + age_span * 0.32
+            chart.y_axis.scaling.min = 0.0
+            chart.y_axis.scaling.max = max(max(citations) * 1.12, 1.0)
+        for point in points:
+            source_row = 4 + point.source_index
+            x_values = Reference(
+                sheet, min_col=x_column, min_row=source_row, max_row=source_row
+            )
+            y_values = Reference(
+                sheet, min_col=4, min_row=source_row, max_row=source_row
+            )
+            series = Series(y_values, x_values, title=point.surname)
+            series.marker.symbol = "circle"
+            series.marker.size = 7
+            series.marker.graphicalProperties.solidFill = point.color[1:]
+            series.marker.graphicalProperties.line.solidFill = "1D2525"
+            series.graphicalProperties.line.noFill = True
+            if point.labelled:
+                series.dLbls = DataLabelList(
+                    dLblPos="r",
+                    showLegendKey=False,
+                    showVal=False,
+                    showCatName=False,
+                    showSerName=True,
+                )
+            chart.series.append(series)
         sheet.add_chart(chart, anchor)
 
     sheet.column_dimensions["A"].width = 28
