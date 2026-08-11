@@ -16,11 +16,16 @@ from app.security_headers import is_security_header, security_headers
 
 
 MAX_REQUEST_BODY_BYTES = 1_048_576
+MAX_APPLICANT_UPLOAD_BODY_BYTES = 26 * 1024 * 1024
 MAX_DECLARED_CONTENT_LENGTH = 9_223_372_036_854_775_807
 _SAFE_CORRELATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 _AUTHORITY_HOSTNAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 _BRACKETED_IPV6 = re.compile(r"\[([0-9A-Fa-f:.]+)\](?::([0-9]+))?\Z")
 _DECIMAL = re.compile(r"[0-9]+\Z")
+_APPLICANT_UPLOAD_PATH = re.compile(
+    r"/api/applicant/documents/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-"
+    r"[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}/upload\Z"
+)
 _LOGGER = logging.getLogger("ehf.http")
 
 
@@ -88,7 +93,8 @@ class SecurityMiddleware:
             _log_completion(scope, 400, request_id)
             return
 
-        if declared_length is not None and declared_length > MAX_REQUEST_BODY_BYTES:
+        body_limit = request_body_limit(scope)
+        if declared_length is not None and declared_length > body_limit:
             await _send_response(
                 error_response(
                     413, "request_too_large", "Request body is too large", request_id, private=private
@@ -98,7 +104,7 @@ class SecurityMiddleware:
             _log_completion(scope, 413, request_id)
             return
 
-        buffered_body = await _read_bounded_body(receive)
+        buffered_body = await _read_bounded_body(receive, body_limit)
         if buffered_body is None:
             await _send_response(
                 error_response(
@@ -252,7 +258,8 @@ def _is_private_request(scope: Mapping[str, Any], raw_headers: list[tuple[bytes,
 
 
 async def _read_bounded_body(
-    receive: Callable[..., Awaitable[dict[str, Any]]]
+    receive: Callable[..., Awaitable[dict[str, Any]]],
+    limit: int = MAX_REQUEST_BODY_BYTES,
 ) -> "BufferedBody | None":
     messages: list[dict[str, Any]] = []
     total = 0
@@ -264,11 +271,21 @@ async def _read_bounded_body(
             return BufferedBody(messages, total, disconnected=True)
         body = bytes(message.get("body", b""))
         total += len(body)
-        if total > MAX_REQUEST_BODY_BYTES:
+        if total > limit:
             return None
         messages.append(message)
         if not message.get("more_body", False):
             return BufferedBody(messages, total, disconnected=False)
+
+
+def request_body_limit(scope: Mapping[str, Any]) -> int:
+    """Allow a larger bounded body only for the session-scoped PDF upload endpoint."""
+    if (
+        str(scope.get("method", "")).upper() == "POST"
+        and _APPLICANT_UPLOAD_PATH.fullmatch(str(scope.get("path", ""))) is not None
+    ):
+        return MAX_APPLICANT_UPLOAD_BODY_BYTES
+    return MAX_REQUEST_BODY_BYTES
 
 
 @dataclass(frozen=True, slots=True)

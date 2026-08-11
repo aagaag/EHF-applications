@@ -61,6 +61,11 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/008_import_provenance.sql",
     "database/migrations/009_document_permissions.sql",
     "database/migrations/010_report_export_audit.sql",
+    "database/migrations/011_applicant_access.sql",
+    "database/migrations/012_applicant_drafts.sql",
+    "database/migrations/013_applicant_confirmations.sql",
+    "database/migrations/014_applicant_projection.sql",
+    "database/migrations/015_applicant_document_slots.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -71,6 +76,11 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/008_validate_import_provenance.sql",
     "database/tests/009_validate_document_permissions.sql",
     "database/tests/010_validate_report_export_audit.sql",
+    "database/tests/011_validate_applicant_access.sql",
+    "database/tests/012_validate_applicant_drafts.sql",
+    "database/tests/013_validate_applicant_confirmations.sql",
+    "database/tests/014_validate_applicant_projection.sql",
+    "database/tests/015_validate_applicant_document_slots.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",

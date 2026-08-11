@@ -103,3 +103,19 @@ class SqlPreferenceRepository:
             compact=bool(row[6]),
             reduce_motion=bool(row[7]),
         )
+
+
+class InMemoryPreferenceRepository:
+    """Identity-scoped preference store for synthetic and local acceptance runs."""
+
+    def __init__(self) -> None:
+        self._preferences: dict[str, AppearancePreference] = {}
+
+    def load(self, identity: Identity) -> AppearancePreference:
+        return self._preferences.get(identity.key, AppearancePreference())
+
+    def save(
+        self, identity: Identity, preference: AppearancePreference
+    ) -> AppearancePreference:
+        self._preferences[identity.key] = preference
+        return preference

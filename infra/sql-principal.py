@@ -69,6 +69,11 @@ MIGRATIONS = {
     "008_import_provenance.sql": (8, "import_provenance"),
     "009_document_permissions.sql": (9, "document_permissions"),
     "010_report_export_audit.sql": (10, "report_export_audit"),
+    "011_applicant_access.sql": (11, "applicant_access"),
+    "012_applicant_drafts.sql": (12, "applicant_drafts"),
+    "013_applicant_confirmations.sql": (13, "applicant_confirmations"),
+    "014_applicant_projection.sql": (14, "applicant_projection"),
+    "015_applicant_document_slots.sql": (15, "applicant_document_slots"),
 }
 COMMANDS = (
     "inspect-production",
@@ -103,6 +108,11 @@ SQLCMD_ARTIFACTS = frozenset(
         "008_validate_import_provenance.sql",
         "009_validate_document_permissions.sql",
         "010_validate_report_export_audit.sql",
+        "011_validate_applicant_access.sql",
+        "012_validate_applicant_drafts.sql",
+        "013_validate_applicant_confirmations.sql",
+        "014_validate_applicant_projection.sql",
+        "015_validate_applicant_document_slots.sql",
     }
 )
 

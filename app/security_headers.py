@@ -6,8 +6,10 @@ from collections.abc import Mapping
 
 
 CONTENT_SECURITY_POLICY = (
-    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; "
-    "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    "default-src 'none'; script-src 'self' https://challenges.cloudflare.com; "
+    "style-src 'self'; img-src 'self'; connect-src 'self' https://challenges.cloudflare.com; "
+    "frame-src https://challenges.cloudflare.com; base-uri 'none'; form-action 'self'; "
+    "frame-ancestors 'none'"
 )
 _SECURITY_HEADER_NAMES = frozenset(
     {

@@ -17,6 +17,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import Settings
+from app.auth.applicant import ApplicantAuthService
+from app.auth.rate_limit import InMemoryRateLimiter
+from app.auth.turnstile import TurnstileVerifier
+from app.applicant.projection import ApplicantProjectionService
+from app.applicant.review import ApplicantReviewService
+from app.applicant.documents import ApplicantDocumentService
+from app.applicant.finalize import FinalizationService
 from app.db import connect
 from app.errors import (
     http_exception_handler,
@@ -41,6 +48,15 @@ from app.report_exports import (
     SqlReportAuditRepository,
     build_metrics_workbook,
 )
+from app.routes.applicant_auth import (
+    CSRF_COOKIE,
+    SESSION_COOKIE,
+    register_applicant_auth_routes,
+)
+from app.routes.applicant_data import register_applicant_data_routes
+from app.routes.applicant_review import register_applicant_review_routes
+from app.routes.applicant_documents import register_applicant_document_routes
+from app.routes.applicant_finalize import register_applicant_finalize_routes
 from app.http import SecurityMiddleware
 
 
@@ -115,6 +131,14 @@ def create_app(
     preference_repository: PreferenceRepository | None = None,
     metric_repository: MetricRepository | None = None,
     report_audit_repository: ReportAuditRepository | None = None,
+    applicant_auth_service: ApplicantAuthService | None = None,
+    applicant_turnstile: TurnstileVerifier | None = None,
+    applicant_rate_limiter: InMemoryRateLimiter | None = None,
+    applicant_projection_service: ApplicantProjectionService | None = None,
+    applicant_review_service: ApplicantReviewService | None = None,
+    applicant_document_service: ApplicantDocumentService | None = None,
+    applicant_finalization_service: FinalizationService | None = None,
+    applicant_turnstile_site_key: str | None = None,
 ) -> FastAPI:
     """Create the HTTP service without starting application workflows."""
     resolved_settings = settings or Settings.from_environment()
@@ -143,9 +167,6 @@ def create_app(
 
     public_root = Path(__file__).resolve().parents[1] / "public"
     application.mount("/assets", StaticFiles(directory=public_root / "assets"), name="assets")
-    application.mount(
-        "/applicant", StaticFiles(directory=public_root / "applicant", html=True), name="applicant"
-    )
 
     def authenticated(request: Request) -> AuthenticatedIdentity:
         principal = resolve_identity(request)
@@ -208,15 +229,39 @@ def create_app(
     @application.get("/api/preferences")
     def get_preferences(request: Request) -> dict[str, str | bool]:
         principal = resolve_identity(request)
-        if principal is None:
+        applicant_session = None
+        if principal is None and applicant_auth_service is not None:
+            applicant_session = applicant_auth_service.authenticate(
+                request.cookies.get(SESSION_COOKIE, "")
+            )
+        if principal is None and applicant_session is None:
             raise HTTPException(status_code=401)
-        return _preference_response(preferences.load(principal.identity))
+        identity = (
+            principal.identity
+            if principal is not None
+            else _applicant_preference_identity(applicant_session.application_id)
+        )
+        return _preference_response(preferences.load(identity))
 
     @application.post("/api/preferences")
     async def save_preferences(request: Request) -> dict[str, str | bool]:
         principal = resolve_identity(request)
-        if principal is None:
+        applicant_session = None
+        if principal is None and applicant_auth_service is not None:
+            applicant_session = applicant_auth_service.authenticate(
+                request.cookies.get(SESSION_COOKIE, "")
+            )
+        if principal is None and applicant_session is None:
             raise HTTPException(status_code=401)
+        if applicant_session is not None:
+            csrf_header = request.headers.get("x-csrf-token", "")
+            csrf_cookie = request.cookies.get(CSRF_COOKIE, "")
+            if (
+                not csrf_header
+                or csrf_header != csrf_cookie
+                or not applicant_auth_service.valid_csrf(applicant_session, csrf_header)
+            ):
+                raise HTTPException(status_code=403)
         try:
             payload = await request.json()
             preference = AppearancePreference(
@@ -227,7 +272,12 @@ def create_app(
             )
         except (KeyError, TypeError, ValueError):
             raise HTTPException(status_code=400) from None
-        return _preference_response(preferences.save(principal.identity, preference))
+        identity = (
+            principal.identity
+            if principal is not None
+            else _applicant_preference_identity(applicant_session.application_id)
+        )
+        return _preference_response(preferences.save(identity, preference))
 
     if resolved_settings.environment == "development":
         preview_real_data_enabled = (
@@ -266,6 +316,57 @@ def create_app(
             return JSONResponse(status_code=503, content={"status": "unavailable"})
         return {"status": "ready"}
 
+    applicant_dependencies_ready = (
+        applicant_auth_service is not None
+        and applicant_turnstile is not None
+        and applicant_rate_limiter is not None
+    )
+    applicant_routes_enabled = (
+        resolved_settings.environment != "production"
+        or resolved_settings.invitations_enabled
+    )
+    if resolved_settings.invitations_enabled and not applicant_dependencies_ready:
+        raise RuntimeError("Applicant invitations are enabled without the required portal services.")
+    if applicant_routes_enabled and applicant_dependencies_ready:
+        register_applicant_auth_routes(
+            application,
+            auth=applicant_auth_service,
+            turnstile=applicant_turnstile,
+            rate_limiter=applicant_rate_limiter,
+            verify_page=public_root / "applicant" / "verify.html",
+            turnstile_site_key=(
+                applicant_turnstile_site_key
+                or os.environ.get("EHF_TURNSTILE_SITE_KEY", "").strip()
+            ),
+        )
+        if applicant_projection_service is not None:
+            register_applicant_data_routes(
+                application,
+                auth=applicant_auth_service,
+                projection=applicant_projection_service,
+            )
+        if applicant_review_service is not None:
+            register_applicant_review_routes(
+                application,
+                auth=applicant_auth_service,
+                review=applicant_review_service,
+            )
+        if applicant_document_service is not None:
+            register_applicant_document_routes(
+                application,
+                auth=applicant_auth_service,
+                documents=applicant_document_service,
+            )
+        if applicant_finalization_service is not None:
+            register_applicant_finalize_routes(
+                application,
+                auth=applicant_auth_service,
+                finalization=applicant_finalization_service,
+            )
+    application.mount(
+        "/applicant", StaticFiles(directory=public_root / "applicant", html=True), name="applicant"
+    )
+
     return application
 
 
@@ -276,6 +377,14 @@ def _preference_response(preference: AppearancePreference) -> dict[str, str | bo
         "compact": preference.compact,
         "reduceMotion": preference.reduce_motion,
     }
+
+
+def _applicant_preference_identity(application_id: object) -> Identity:
+    return Identity(
+        f"applicant:{application_id}",
+        "applicant-preference@ehf.invalid",
+        "EHF applicant",
+    )
 
 
 def _production_identity_resolver(settings: Settings) -> IdentityResolver:

@@ -7,7 +7,13 @@ from fastapi import Response
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.http import MAX_REQUEST_BODY_BYTES, effective_host, is_safe_correlation_id
+from app.http import (
+    MAX_APPLICANT_UPLOAD_BODY_BYTES,
+    MAX_REQUEST_BODY_BYTES,
+    effective_host,
+    is_safe_correlation_id,
+    request_body_limit,
+)
 from app.main import ReadinessChecks, create_app
 
 
@@ -27,8 +33,10 @@ def test_all_responses_receive_restrictive_security_headers_and_no_store() -> No
 
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["content-security-policy"] == (
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
-        "connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+        "default-src 'none'; script-src 'self' https://challenges.cloudflare.com; "
+        "style-src 'self'; img-src 'self'; connect-src 'self' https://challenges.cloudflare.com; "
+        "frame-src https://challenges.cloudflare.com; base-uri 'none'; form-action 'self'; "
+        "frame-ancestors 'none'"
     )
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["x-content-type-options"] == "nosniff"
@@ -147,6 +155,17 @@ def test_oversized_declared_and_streamed_bodies_are_rejected_before_routing() ->
         return response.status_code
 
     assert asyncio.run(exercise_stream()) == 413
+
+
+def test_only_applicant_pdf_upload_route_receives_the_bounded_larger_body_limit() -> None:
+    upload_scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/applicant/documents/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/upload",
+    }
+    assert request_body_limit(upload_scope) == MAX_APPLICANT_UPLOAD_BODY_BYTES
+    assert request_body_limit({**upload_scope, "method": "GET"}) == MAX_REQUEST_BODY_BYTES
+    assert request_body_limit({**upload_scope, "path": "/api/applicant/documents/upload"}) == MAX_REQUEST_BODY_BYTES
 
 
 def test_misleading_content_length_cannot_bypass_streaming_body_limit() -> None:

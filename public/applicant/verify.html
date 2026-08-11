@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>EHF Fellowships — verify invitation</title>
+    <link rel="stylesheet" href="../assets/site.css">
+  </head>
+  <body data-shell>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <aside class="app-nav" id="application-navigation" aria-label="Application navigation" data-open="false">
+      <div class="app-nav-top">
+        <span class="app-nav-home"><img src="../assets/isab-logo.svg" alt="ISAB"><span class="app-nav-title">EHF Fellowships</span></span>
+        <span class="app-nav-domain">ehf.isab.science</span>
+        <span class="app-nav-purpose">Securely review and complete your fellowship application.</span>
+      </div>
+      <nav class="app-nav-list app-nav-lower" aria-label="Help navigation">
+        <a class="app-nav-link" href="#help">Help</a>
+      </nav>
+    </aside>
+    <main class="site-main applicant-auth-main" id="main-content" tabindex="-1">
+      <header class="site-hero">
+        <h1>Verify your invitation</h1>
+        <p>For your privacy, no application information is shown until verification is complete.</p>
+      </header>
+      <section class="applicant-auth-card" aria-labelledby="verification-heading">
+        <div class="section-heading">
+          <h2 id="verification-heading">One-time verification</h2>
+          <p>Request a code, then enter the six digits sent to the registered address.</p>
+        </div>
+        <div class="cf-turnstile" data-turnstile-widget data-sitekey="__EHF_TURNSTILE_SITE_KEY__" data-action="applicant-code-request" data-callback="ehfApplicantTurnstileVerified" data-expired-callback="ehfApplicantTurnstileExpired" data-error-callback="ehfApplicantTurnstileError"></div>
+        <button type="button" class="primary-action" data-request-code disabled>Request verification code</button>
+        <form data-verification-form>
+          <label for="verification-code">One-time verification code</label>
+          <input id="verification-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required>
+          <button type="submit" class="primary-action">Continue securely</button>
+        </form>
+        <p class="form-status" role="status" aria-live="polite" data-auth-status></p>
+      </section>
+      <section id="help" class="section-heading">
+        <h2>Help</h2>
+        <p>If you did not receive a code, wait a few minutes and request another one. Contact the Foundation using the contact details in your invitation if the problem continues.</p>
+      </section>
+    </main>
+    <script src="../assets/applicant-auth.js"></script>
+  </body>
+</html>

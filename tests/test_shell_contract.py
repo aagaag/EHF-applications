@@ -41,7 +41,7 @@ def test_task_six_public_assets_exist_and_preserve_the_official_logo() -> None:
 
 
 def test_preview_routes_are_honest_and_keep_internal_and_applicant_markup_separate() -> None:
-    """Break caught: a preview could imply active sign-in/submission or expose internal workspaces."""
+    """Break caught: an applicant surface could omit the real workflow or expose internal workspaces."""
     response = preview_client().get("/__preview/internal/administrator/")
 
     assert response.status_code == 200
@@ -52,7 +52,11 @@ def test_preview_routes_are_honest_and_keep_internal_and_applicant_markup_separa
 
     applicant = preview_client().get("/applicant/")
     assert applicant.status_code == 200
-    assert "Preview only" in applicant.text
+    assert "Your secure applicant workspace" in applicant.text
+    assert "Review your application" in applicant.text
+    assert "Application documents" in applicant.text
+    assert "Final review and submission" in applicant.text
+    assert "scientific-contribution statement" in applicant.text
     assert "Preview surface" not in applicant.text
     assert "internal" not in applicant.text.lower()
     assert "recommend" not in applicant.text.lower()

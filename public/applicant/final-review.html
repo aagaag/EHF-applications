@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>EHF Fellowships — final review</title>
+    <link rel="stylesheet" href="../assets/site.css">
+  </head>
+  <body data-shell>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <button class="app-nav-toggle" type="button" aria-controls="application-navigation" aria-expanded="false" aria-label="Open application navigation"><span aria-hidden="true">☰</span> Menu</button>
+    <div class="app-nav-backdrop" hidden></div>
+    <aside class="app-nav" id="application-navigation" aria-label="Application navigation" data-open="false">
+      <div class="app-nav-top">
+        <a class="app-nav-home" href="/applicant/review"><img src="../assets/isab-logo.svg" alt="ISAB"><span class="app-nav-title">EHF Fellowships</span></a>
+        <span class="app-nav-domain">ehf.isab.science</span>
+        <span class="app-nav-purpose">Review, correct, and complete your fellowship application.</span>
+      </div>
+      <div class="app-nav-scroll">
+        <nav class="app-nav-list" aria-label="Application sections">
+          <a class="app-nav-link" href="/applicant/review">Application information</a>
+          <a class="app-nav-link" href="/applicant/documents">Documents</a>
+          <a class="app-nav-link" href="/applicant/final-review" aria-current="page">Final review</a>
+        </nav>
+      </div>
+      <nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation">
+        <span class="app-nav-heading">Settings</span><a class="app-nav-link" href="#appearance">Appearance</a>
+        <a class="app-nav-link" href="#help">Help</a>
+      </nav>
+    </aside>
+    <main class="site-main applicant-review-main" id="main-content" tabindex="-1">
+      <header class="site-hero">
+        <h1>Final review and submission</h1>
+        <p>Check that every application section is confirmed and every required document has been accepted.</p>
+      </header>
+      <section class="review-section" aria-labelledby="reviewed-content-heading">
+        <div class="section-heading">
+          <h2 id="reviewed-content-heading">Your reviewed application</h2>
+          <p>Read every value and applicant-visible document below before submitting.</p>
+        </div>
+        <div data-final-application aria-live="polite">Loading your reviewed application…</div>
+      </section>
+      <section class="review-section final-review-panel" aria-labelledby="completion-heading">
+        <div class="section-heading">
+          <h2 id="completion-heading">Completion status</h2>
+          <p data-final-summary>Loading your completion status…</p>
+        </div>
+        <ul class="completion-list" data-final-items aria-live="polite"></ul>
+        <p class="field-help">Submission locks your application. If a correction is later requested, only the specified section or document will be reopened.</p>
+        <div class="review-actions final-submit-actions">
+          <button class="primary-action" type="button" data-final-submit disabled>Submit completed application</button>
+        </div>
+        <p class="form-status" role="status" aria-live="polite" data-final-status></p>
+      </section>
+      <section id="help" class="section-heading">
+        <h2>Help</h2>
+        <p>If an item remains unresolved, return to the corresponding page, complete it, and confirm it before trying again.</p>
+      </section>
+      <section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance</h2><p>Choose the display that is most comfortable for you. Your preference is saved securely for this application.</p></div><div class="appearance-controls"><div class="appearance-control-row"><button type="button" data-skin-choice="default" aria-pressed="true">Production default</button><button type="button" data-skin-choice="high-contrast" aria-pressed="false">High contrast</button><button type="button" data-skin-choice="soft-earth" aria-pressed="false">Soft green/brown</button><button type="button" data-skin-choice="blue" aria-pressed="false">Blue</button></div><div class="appearance-control-row"><button type="button" data-appearance-flag="invert" aria-pressed="false">Invert colours</button><button type="button" data-appearance-flag="compact" aria-pressed="false">Compact spacing</button><button type="button" data-appearance-flag="reduceMotion" aria-pressed="false">Reduce motion</button></div></div></section>
+    </main>
+    <script src="../assets/theme.js"></script>
+    <script src="../assets/shell.js"></script>
+    <script src="../assets/applicant-finalize.js"></script>
+  </body>
+</html>

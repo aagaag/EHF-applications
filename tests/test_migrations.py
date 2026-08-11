@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_report_export_audit() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 7
-    assert sorted(connection.records) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    assert applied == 12
+    assert sorted(connection.records) == list(range(1, 16))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,16 +290,16 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_ten_migrations() -> None:
-    """Break caught: a new database could omit 010 or apply the release out of order."""
+def test_fresh_repository_run_applies_all_fifteen_migrations() -> None:
+    """Break caught: a new database could omit 015 or apply the release out of order."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
     connection = FakeConnection()
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    assert applied == 10
+    assert [migration.version for migration in migrations] == list(range(1, 16))
+    assert applied == 15
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -411,6 +411,11 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "008_import_provenance.sql",
         "009_document_permissions.sql",
         "010_report_export_audit.sql",
+        "011_applicant_access.sql",
+        "012_applicant_drafts.sql",
+        "013_applicant_confirmations.sql",
+        "014_applicant_projection.sql",
+        "015_applicant_document_slots.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -423,6 +428,11 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "008_validate_import_provenance.sql",
         "009_validate_document_permissions.sql",
         "010_validate_report_export_audit.sql",
+        "011_validate_applicant_access.sql",
+        "012_validate_applicant_drafts.sql",
+        "013_validate_applicant_confirmations.sql",
+        "014_validate_applicant_projection.sql",
+        "015_validate_applicant_document_slots.sql",
     ]
 
 
@@ -456,6 +466,17 @@ def test_every_table_has_a_primary_key_and_database_generated_utc_timestamp() ->
         "CallSourceOccurrence",
         "ImportException",
         "ClassificationDecision",
+        "ApplicantInvitation",
+        "ApplicantPreAuthContext",
+        "ApplicantVerificationChallenge",
+        "ApplicantSession",
+        "ApplicantRateLimitBucket",
+        "ApplicantSectionDraft",
+        "ApplicantFieldCorrection",
+        "ApplicantSectionConfirmation",
+        "ApplicantFinalConfirmation",
+        "ApplicantReopenScope",
+        "ApplicantDocumentSubmission",
     }
     for table_name, block in blocks.items():
         assert re.search(r"\bPRIMARY KEY\b", block, flags=re.IGNORECASE), table_name
@@ -481,6 +502,14 @@ def test_mutable_tables_have_rowversion_and_immutable_tables_reject_update_delet
         "Bibliometrics",
         "ContributionStatement",
         "UserPreference",
+        "ApplicantInvitation",
+        "ApplicantPreAuthContext",
+        "ApplicantVerificationChallenge",
+        "ApplicantSession",
+        "ApplicantRateLimitBucket",
+        "ApplicantSectionDraft",
+        "ApplicantReopenScope",
+        "ApplicantDocumentSubmission",
     }
     for table_name in mutable_tables:
         assert re.search(r"\bRowVersion\s+rowversion\b", blocks[table_name], re.IGNORECASE)
@@ -499,6 +528,9 @@ def test_mutable_tables_have_rowversion_and_immutable_tables_reject_update_delet
         "ImportRow",
         "SourceOccurrence",
         "ClassificationDecision",
+        "ApplicantFieldCorrection",
+        "ApplicantSectionConfirmation",
+        "ApplicantFinalConfirmation",
     }:
         assert re.search(
             rf"CREATE TRIGGER .*?\s+ON\s+dbo\.{table_name}.*?"
@@ -633,8 +665,8 @@ def test_user_preference_guard_uses_unspoofable_module_execution_context() -> No
         assert contract_fragment.casefold() in validator.casefold(), contract_fragment
 
 
-def test_database_script_requires_and_applies_010() -> None:
-    """Break caught: the isolated harness could stop before report-export auditing."""
+def test_database_script_requires_and_applies_015() -> None:
+    """Break caught: the isolated harness could stop before controlled uploads."""
     script = DATABASE_SCRIPT.read_text(encoding="utf-8")
 
     assert "004_audit_and_preference_hardening.sql" in script
@@ -651,7 +683,17 @@ def test_database_script_requires_and_applies_010() -> None:
     assert "009_validate_document_permissions.sql" in script
     assert "010_report_export_audit.sql" in script
     assert "010_validate_report_export_audit.sql" in script
-    assert "Applied 10 migration\\(s\\)\\." in script
+    assert "011_applicant_access.sql" in script
+    assert "011_validate_applicant_access.sql" in script
+    assert "012_applicant_drafts.sql" in script
+    assert "012_validate_applicant_drafts.sql" in script
+    assert "013_applicant_confirmations.sql" in script
+    assert "013_validate_applicant_confirmations.sql" in script
+    assert "014_applicant_projection.sql" in script
+    assert "014_validate_applicant_projection.sql" in script
+    assert "015_applicant_document_slots.sql" in script
+    assert "015_validate_applicant_document_slots.sql" in script
+    assert "Applied 15 migration\\(s\\)\\." in script
 
 
 def test_database_script_enables_quoted_identifier_for_every_sqlcmd_session() -> None:
@@ -779,14 +821,14 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_ten() -> None:
-    """Break caught: post-upgrade validation could still require the old 005 tip."""
+def test_database_contract_validator_reports_version_fifteen() -> None:
+    """Break caught: post-upgrade validation could still require the old 014 tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 10" in validator
-    assert "WHERE MigrationCount = 10 AND CurrentVersion = 10" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 15" in validator
+    assert "WHERE MigrationCount = 15 AND CurrentVersion = 15" in validator
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")
