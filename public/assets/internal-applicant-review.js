@@ -4,7 +4,17 @@
   const documentQueue = document.querySelector("[data-document-queue]");
   const detail = document.querySelector("[data-change-detail]");
   const status = document.querySelector("[data-review-status]");
+  let canReturnForCorrection = false;
   const show = (message) => { if (status) status.textContent = message; };
+  const legacyFields = new Set(["genderSelfDescription", "degreeCategory", "phdDate", "noGoogleScholarProfile", "googleScholarCitationTotal"]);
+  const formatValue = (field, value) => {
+    if (value === null || value === undefined || value === "") return "Missing";
+    if (field === "degrees" && Array.isArray(value)) return value.length ? value.map((row) => `${row.degreeType || "Degree"} — ${row.conferralDate || "date not provided"}`).join("; ") : "None listed";
+    if (field === "publications" && Array.isArray(value)) return value.length ? value.map((row) => row.doi).filter(Boolean).join("; ") : "None listed";
+    if (typeof value === "boolean") return value ? "Yes" : "No";
+    if (Array.isArray(value) || typeof value === "object") return JSON.stringify(value);
+    return String(value);
+  };
   const button = (label, action, value, className = "secondary-action") => {
     const item = document.createElement("button"); item.type = "button"; item.className = className; item.textContent = label; item.dataset.action = action; item.dataset.value = value; return item;
   };
@@ -23,7 +33,9 @@
     ]);
     if (!access.ok || !changes.ok || !documents.ok) throw new Error("queue unavailable");
     const accessItems = (await access.json()).requests || [];
-    const changeItems = (await changes.json()).submissions || [];
+    const changePayload = await changes.json();
+    const changeItems = changePayload.submissions || [];
+    canReturnForCorrection = Boolean(changePayload.capabilities?.returnForCorrection);
     const documentItems = (await documents.json()).submissions || [];
     if (!accessItems.length) empty(accessQueue, "No access requests await action."); else accessQueue.replaceChildren(...accessItems.map((item) => card(item.displayName, [item.email, `Requested ${item.requestedAtUtc}`, `Status: ${item.status}`], item.status === "APPROVED" ? [button("Bind approved Entra identity", "access-provision", item.requestId, "primary-action")] : [button("Approve access", "access-approve", item.requestId, "primary-action"), button("Reject access", "access-reject", item.requestId, "secondary-action")])));
     if (!changeItems.length) empty(changeQueue, "No application changes await approval."); else changeQueue.replaceChildren(...changeItems.map((item) => card(`Application ${item.applicationId}`, [`Submitted ${item.submittedAtUtc}`], [button("Inspect changes", "change-open", item.confirmationId, "primary-action")])));
@@ -39,8 +51,10 @@
         const response = await fetch(`/api/internal/applicant-submissions/${value}`, { credentials: "same-origin" }); if (!response.ok) throw new Error();
         const bundle = await response.json();
         const original = bundle.baseline?.applicant || {};
-        const lines = Object.entries(bundle.drafts || {}).flatMap(([section, values]) => Object.entries(values || {}).map(([field, proposed]) => `${section} — ${field}: ${String(original[field] ?? "Missing")} → ${String(proposed ?? "Missing")}`));
-        detail.replaceChildren(card("Proposed application record", lines, [button("Approve complete change set", "change-approve", value, "primary-action")])); detail.scrollIntoView({ behavior: "smooth", block: "start" }); return;
+        const lines = Object.entries(bundle.drafts || {}).flatMap(([section, values]) => Object.entries(values || {}).filter(([field]) => !legacyFields.has(field)).map(([field, proposed]) => `${section} — ${field}: ${formatValue(field, original[field])} → ${formatValue(field, proposed)}`));
+        const actions = [button("Approve complete change set", "change-approve", value, "primary-action")];
+        if (canReturnForCorrection) actions.push(button("Return one section for correction", "change-return", value, "secondary-action"));
+        detail.replaceChildren(card("Proposed application record", lines, actions)); detail.scrollIntoView({ behavior: "smooth", block: "start" }); return;
       }
       let response;
       if (action === "access-approve" || action === "access-reject") response = await postEmpty(`/api/internal/applicant-access-requests/${value}/review/${action.endsWith("approve") ? "approve" : "reject"}`);
@@ -51,7 +65,21 @@
         if (!entraObjectId) return;
         response = await fetch(`/api/internal/applicant-access-requests/${value}/provision`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ applicationId, entraObjectId }) });
       }
-      if (action === "change-approve") response = await postEmpty(`/api/internal/applicant-submissions/${value}/approve`);
+      if (action === "change-approve") {
+        response = await postEmpty(`/api/internal/applicant-submissions/${value}/approve`);
+        if (response.status === 409) {
+          const blocked = await response.json();
+          show(blocked.message || "One section must be returned to the applicant before approval.");
+          return;
+        }
+      }
+      if (action === "change-return") {
+        const section = (window.prompt("Section to return: identity, employment, qualifications, publications, or contribution", "employment") || "").trim().toLowerCase();
+        if (!["identity", "employment", "qualifications", "publications", "contribution"].includes(section)) { show("Choose one of the listed application sections."); return; }
+        const reason = (window.prompt("Explain what the applicant must correct") || "").trim();
+        if (!reason) return;
+        response = await fetch(`/api/internal/applicant-submissions/${value}/return-for-correction`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ section, reason }) });
+      }
       if (action === "document-accept") response = await postEmpty(`/api/internal/applicant-document-submissions/${value}/accept`);
       if (action === "document-reject") { const reason = window.prompt("Reason for rejection"); if (!reason) return; response = await fetch(`/api/internal/applicant-document-submissions/${value}/reject`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) }); }
       if (!response?.ok) throw new Error(); show("Review decision recorded."); await load();

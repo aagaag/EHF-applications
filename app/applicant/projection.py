@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from app.auth.applicant import ApplicantSessionContext
+from app.applicant.fields import upgrade_legacy_applicant
 
 
 _APPLICANT_FIELDS = (
@@ -18,7 +19,6 @@ _APPLICANT_FIELDS = (
     "birthMonth",
     "birthYear",
     "gender",
-    "genderSelfDescription",
     "institute",
     "principalInvestigator",
     "positionTitle",
@@ -29,8 +29,7 @@ _APPLICANT_FIELDS = (
     "researchArea",
     "clinicalWorkPercent",
     "firstAuthorDeclaration",
-    "degreeCategory",
-    "phdDate",
+    "degrees",
     "firstAuthorPaperCount",
     "lastAuthorPaperCount",
     "totalPaperCount",
@@ -38,8 +37,8 @@ _APPLICANT_FIELDS = (
     "applicantReportedCitationTotal",
     "orcid",
     "googleScholarProfileUrl",
-    "noGoogleScholarProfile",
-    "googleScholarCitationTotal",
+    "hasGoogleScholarProfile",
+    "publications",
     "contributionStatement",
     "locked",
 )
@@ -109,7 +108,7 @@ class ApplicantProjectionService:
             if (visible := _visible_document(document)) is not None
         ]
         return {
-            "applicant": _allow(raw.applicant, _APPLICANT_FIELDS),
+            "applicant": _allow(upgrade_legacy_applicant(raw.applicant), _APPLICANT_FIELDS),
             "sections": {
                 code: _allow(section, _SECTION_FIELDS)
                 for code, section in raw.sections.items()

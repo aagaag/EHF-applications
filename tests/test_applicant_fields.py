@@ -20,15 +20,24 @@ def test_inventory_contains_every_approved_applicant_field_once() -> None:
     assert len(codes) == len(set(codes))
     assert set(codes) == {
         "fullName", "preferredName", "registeredEmail", "alternativeEmail", "telephone",
-        "birthMonth", "birthYear", "gender", "genderSelfDescription", "institute",
+        "birthMonth", "birthYear", "gender", "institute",
         "principalInvestigator", "positionTitle", "postdoctoralEmploymentStatus",
         "employmentStartDate", "employmentEndDate", "futureStartDate", "researchArea",
-        "clinicalWorkPercent", "firstAuthorDeclaration", "degreeCategory", "phdDate",
+        "clinicalWorkPercent", "firstAuthorDeclaration", "degrees",
         "firstAuthorPaperCount", "lastAuthorPaperCount", "totalPaperCount", "hIndex",
         "applicantReportedCitationTotal", "orcid", "googleScholarProfileUrl",
-        "noGoogleScholarProfile", "googleScholarCitationTotal", "contributionStatement",
+        "hasGoogleScholarProfile", "publications", "contributionStatement",
     }
     assert {item["code"] for item in field_metadata()} == set(codes)
+    gender = next(field for field in FIELD_INVENTORY if field.code == "gender")
+    assert gender.options == ("Female", "Male", "Non-binary", "Prefer not to say")
+    postdoc = next(
+        field for field in FIELD_INVENTORY
+        if field.code == "postdoctoralEmploymentStatus"
+    )
+    assert postdoc.kind == "boolean"
+    assert postdoc.label == "Are you currently employed in a postdoctoral position?"
+    assert "present UZH appointment" in postdoc.help
 
 
 def test_partial_autosave_normalizes_unicode_and_preserves_zero_as_a_value() -> None:
@@ -58,7 +67,11 @@ def test_partial_autosave_normalizes_unicode_and_preserves_zero_as_a_value() -> 
         ("identity", {"registeredEmail": "not-an-email"}, "registeredEmail"),
         ("identity", {"birthMonth": 13}, "birthMonth"),
         ("employment", {"clinicalWorkPercent": 100.01}, "clinicalWorkPercent"),
-        ("qualifications", {"degreeCategory": "PHD", "phdDate": ""}, "phdDate"),
+        (
+            "qualifications",
+            {"degrees": [{"degreeType": "PhD", "conferralDate": "not-a-date"}]},
+            "degrees",
+        ),
         ("publications", {"firstAuthorPaperCount": -1}, "firstAuthorPaperCount"),
         ("publications", {"orcid": "0000-0000-0000-0000"}, "orcid"),
         (
@@ -91,13 +104,103 @@ def test_final_confirmation_requires_all_fields_and_profile_or_no_profile_choice
                 "applicantReportedCitationTotal": 10,
                 "orcid": "0000-0002-1825-0097",
                 "googleScholarProfileUrl": "",
-                "noGoogleScholarProfile": False,
-                "googleScholarCitationTotal": 10,
+                "hasGoogleScholarProfile": None,
+                "publications": [],
             },
             final=True,
         )
 
+    assert "hasGoogleScholarProfile" in raised.value.errors
+
+
+def test_repeatable_degrees_accept_only_complete_supported_rows() -> None:
+    normalized = validate_section(
+        "qualifications",
+        {
+            "degrees": [
+                {"degreeType": "BSc", "conferralDate": "2011-06-30"},
+                {"degreeType": "MA", "conferralDate": "2013-09-15"},
+                {"degreeType": "MD", "conferralDate": "2017-12-01"},
+                {"degreeType": "PhD", "conferralDate": "2019-05-20"},
+            ]
+        },
+        final=True,
+    )
+
+    assert normalized["degrees"] == [
+        {"degreeType": "BSc", "conferralDate": date(2011, 6, 30)},
+        {"degreeType": "MA", "conferralDate": date(2013, 9, 15)},
+        {"degreeType": "MD", "conferralDate": date(2017, 12, 1)},
+        {"degreeType": "PhD", "conferralDate": date(2019, 5, 20)},
+    ]
+
+    for invalid in (
+        [],
+        [{"degreeType": "MSc", "conferralDate": "2019-05-20"}],
+        [{"degreeType": "PhD"}],
+        [{"degreeType": "PhD", "conferralDate": "2019-05-20", "notes": "x"}],
+    ):
+        with pytest.raises(FieldValidationError) as raised:
+            validate_section("qualifications", {"degrees": invalid}, final=True)
+        assert "degrees" in raised.value.errors
+
+
+def test_incomplete_degree_row_can_autosave_but_cannot_be_confirmed() -> None:
+    values = {"degrees": [{"degreeType": "MD", "conferralDate": ""}]}
+
+    assert validate_section("qualifications", values, final=False) == {
+        "degrees": [{"degreeType": "MD", "conferralDate": None}]
+    }
+    with pytest.raises(FieldValidationError) as raised:
+        validate_section("qualifications", values, final=True)
+    assert "degrees" in raised.value.errors
+
+
+def test_google_scholar_url_is_required_only_for_a_public_profile() -> None:
+    no_profile = validate_section(
+        "publications",
+        {"hasGoogleScholarProfile": False, "googleScholarProfileUrl": ""},
+        final=False,
+    )
+    assert no_profile == {
+        "hasGoogleScholarProfile": False,
+        "googleScholarProfileUrl": None,
+    }
+
+    with pytest.raises(FieldValidationError) as raised:
+        validate_section(
+            "publications",
+            {"hasGoogleScholarProfile": True, "googleScholarProfileUrl": ""},
+            final=False,
+        )
     assert "googleScholarProfileUrl" in raised.value.errors
+
+
+def test_publication_list_persists_only_normalized_confirmed_dois() -> None:
+    normalized = validate_section(
+        "publications",
+        {
+            "publications": [
+                {"doi": " https://doi.org/10.1000/ABC.123 ", "confirmed": True},
+            ]
+        },
+        final=False,
+    )
+    assert normalized["publications"] == [
+        {"doi": "10.1000/abc.123", "confirmed": True}
+    ]
+
+    for invalid in (
+        [{"doi": "not a doi", "confirmed": True}],
+        [{"doi": "10.1000/example", "confirmed": False}],
+        [
+            {"doi": "10.1000/example", "confirmed": True},
+            {"doi": "https://doi.org/10.1000/EXAMPLE", "confirmed": True},
+        ],
+    ):
+        with pytest.raises(FieldValidationError) as raised:
+            validate_section("publications", {"publications": invalid}, final=False)
+        assert "publications" in raised.value.errors
 
 
 def test_gender_is_optional_and_never_derived_from_name() -> None:

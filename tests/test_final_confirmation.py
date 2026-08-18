@@ -16,6 +16,7 @@ from app.applicant.documents import ApplicantDocumentService, DocumentSlotReposi
 from app.applicant.drafts import DraftLocked, InMemoryDraftRepository
 from app.applicant.finalize import FinalizationBlocked, FinalizationService
 from app.applicant.review import ApplicantReviewService
+from app.applicant.publications import PublicationLookupReceipts
 from app.auth.applicant import ApplicantSessionContext
 from app.documents.keys import load_keyring
 from app.documents.malware import ScanResult
@@ -56,7 +57,13 @@ def _services(tmp_path: Path) -> tuple[
 ]:
     drafts = InMemoryDraftRepository()
     confirmations = SectionConfirmationService()
-    review = ApplicantReviewService(drafts, confirmations)
+    review = ApplicantReviewService(
+        drafts,
+        confirmations,
+        PublicationLookupReceipts(
+            b"synthetic-publication-receipt-secret-at-least-32-bytes"
+        ),
+    )
     slots = DocumentSlotRepository()
     credential = tmp_path / "k.json"
     credential.write_text(
@@ -90,22 +97,24 @@ def _complete_sections(review: ApplicantReviewService) -> None:
             "institute": "Synthetic UZH Institute",
             "principalInvestigator": "Synthetic PI",
             "positionTitle": "Postdoctoral researcher",
-            "postdoctoralEmploymentStatus": "Employed",
+            "postdoctoralEmploymentStatus": True,
             "employmentStartDate": "2025-01-01",
             "employmentEndDate": "2027-12-31",
             "researchArea": "Molecular life sciences",
             "clinicalWorkPercent": 0,
             "firstAuthorDeclaration": True,
         },
-        "qualifications": {"degreeCategory": "MD"},
+        "qualifications": {
+            "degrees": [{"degreeType": "MD", "conferralDate": "2018-06-30"}]
+        },
         "publications": {
             "firstAuthorPaperCount": 2,
             "lastAuthorPaperCount": 0,
             "totalPaperCount": 5,
             "hIndex": 3,
             "applicantReportedCitationTotal": 50,
-            "noGoogleScholarProfile": True,
-            "googleScholarCitationTotal": 50,
+            "hasGoogleScholarProfile": False,
+            "publications": [],
         },
         "contribution": {"contributionStatement": "A synthetic scientific contribution."},
     }

@@ -74,11 +74,15 @@ def test_pilot_projection_fixture_contains_no_source_values_and_preserves_missin
 
     assert applicant["fullName"] == "Synthetic EHF test applicant"
     assert applicant["registeredEmail"] is None
-    assert applicant["phdDate"] is None
+    assert applicant["degrees"] == []
     assert applicant["hIndex"] is None
     assert applicant["contributionStatement"] is None
     assert applicant["firstAuthorPaperCount"] == 3
     assert applicant["lastAuthorPaperCount"] == 1
     assert applicant["totalPaperCount"] == 8
+    assert applicant["hasGoogleScholarProfile"] is None
+    assert applicant["publications"] == []
+    assert "genderSelfDescription" not in applicant
+    assert "googleScholarCitationTotal" not in applicant
     assert "Sevasti" not in repr(projection)
     assert "Gaspari" not in repr(projection)

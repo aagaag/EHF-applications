@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -15,12 +16,18 @@ class DraftLocked(RuntimeError):
     pass
 
 
+class CorrectionRequired(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class DraftSnapshot:
     application_id: UUID
     section: str
     values: dict[str, Any]
     row_version: int
+    return_reason: str | None = None
+    returned_at_utc: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -11,6 +11,21 @@
     .replace(/^document:/, "Required document: ")
     .replaceAll("_", " ");
 
+  const formatValue = (field, value) => {
+    if (value === null || value === undefined || value === "") return "Not provided";
+    if (field.kind === "boolean") return value === true ? "Yes" : value === false ? "No" : String(value);
+    if (field.kind === "degree_list" && Array.isArray(value)) {
+      return value.length
+        ? value.map((row) => `${row.degreeType || "Degree"} — ${row.conferralDate || "date not provided"}`).join("; ")
+        : "None listed";
+    }
+    if (field.kind === "publication_list" && Array.isArray(value)) {
+      return value.length ? value.map((row) => row.doi).filter(Boolean).join("; ") : "None listed";
+    }
+    if (Array.isArray(value) || typeof value === "object") return JSON.stringify(value);
+    return String(value);
+  };
+
   const render = ({ ready, unresolved }) => {
     if (!summary || !items || !submit) return;
     items.replaceChildren();
@@ -45,7 +60,7 @@
         const detail = document.createElement("dd");
         term.textContent = field.label;
         const value = values[field.code];
-        detail.textContent = value === null || value === undefined || value === "" ? "Not provided" : String(value);
+        detail.textContent = formatValue(field, value);
         list.append(term, detail);
       });
       section.append(heading, list);

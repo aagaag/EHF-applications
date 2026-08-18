@@ -243,7 +243,7 @@ def test_published_003_migration_and_current_validator_are_byte_stable() -> None
     assert hashlib.sha256(validator_payload).digest() == CURRENT_003_VALIDATOR_SHA256
 
 
-def test_original_003_prefix_upgrades_through_entra_applicant_workflow() -> None:
+def test_original_003_prefix_upgrades_through_applicant_form_simplification() -> None:
     """Break caught: an original-003 database could skip the current security release."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_entra_applicant_workflow() -> None
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 13
-    assert sorted(connection.records) == list(range(1, 17))
+    assert applied == 14
+    assert sorted(connection.records) == list(range(1, 18))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,16 +290,16 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_sixteen_migrations() -> None:
-    """Break caught: a new database could omit 016 or apply the release out of order."""
+def test_fresh_repository_run_applies_all_seventeen_migrations() -> None:
+    """Break caught: a new database could omit 017 or apply the release out of order."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
     connection = FakeConnection()
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 17))
-    assert applied == 16
+    assert [migration.version for migration in migrations] == list(range(1, 18))
+    assert applied == 17
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -417,6 +417,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "014_applicant_projection.sql",
         "015_applicant_document_slots.sql",
         "016_entra_applicant_workflow.sql",
+        "017_applicant_form_simplification.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -435,6 +436,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "014_validate_applicant_projection.sql",
         "015_validate_applicant_document_slots.sql",
         "016_validate_entra_applicant_workflow.sql",
+        "017_validate_applicant_form_simplification.sql",
     ]
 
 
@@ -707,7 +709,9 @@ def test_database_script_requires_and_applies_015() -> None:
     assert "015_validate_applicant_document_slots.sql" in script
     assert "016_entra_applicant_workflow.sql" in script
     assert "016_validate_entra_applicant_workflow.sql" in script
-    assert "Applied 16 migration\\(s\\)\\." in script
+    assert "017_applicant_form_simplification.sql" in script
+    assert "017_validate_applicant_form_simplification.sql" in script
+    assert "Applied 17 migration\\(s\\)\\." in script
 
 
 def test_sql_login_harness_executes_validator_artifacts_not_migrations_twice() -> None:
@@ -852,8 +856,8 @@ def test_database_contract_validator_reports_version_sixteen() -> None:
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 16" in validator
-    assert "WHERE MigrationCount = 16 AND CurrentVersion = 16" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 17" in validator
+    assert "WHERE MigrationCount = 17 AND CurrentVersion = 17" in validator
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")

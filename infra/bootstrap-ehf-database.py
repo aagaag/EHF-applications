@@ -124,6 +124,7 @@ def run_validators(connection) -> None:
         "014_validate_applicant_projection.sql",
         "015_validate_applicant_document_slots.sql",
         "016_validate_entra_applicant_workflow.sql",
+        "017_validate_applicant_form_simplification.sql",
     ]:
         raise BootstrapError("The EHF validator set is incomplete or unexpected.")
     try:

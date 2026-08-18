@@ -151,11 +151,24 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .applicant-auth-card, .application-progress, .review-section { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); padding: clamp(1rem, 2vw, 1.5rem); box-shadow: var(--shadow); }
 .applicant-auth-card form, .review-form { display: grid; gap: 1rem; }
 .applicant-auth-card input, .review-field input, .review-field select, .review-field textarea { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--line); border-radius: .55rem; background: var(--surface); color: var(--text); padding: .7rem; font: inherit; }
-.applicant-auth-card label, .review-field label { font-weight: 700; }
+.applicant-auth-card label, .review-field label, .review-field legend { font-weight: 700; }
 .review-nav-link { width: 100%; border: 0; text-align: left; font: inherit; cursor: pointer; }
 .review-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.review-fields-identity { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.review-fields-employment { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .review-field { display: grid; min-width: 0; gap: .35rem; }
 .review-field-wide { grid-column: 1 / -1; }
+.review-field-fullName, .review-field-registeredEmail, .review-field-alternativeEmail { grid-column: span 2; }
+.repeatable-field { margin: 0; border: 1px solid var(--line); border-radius: .8rem; padding: 1rem; }
+.repeatable-field legend { padding-inline: .35rem; }
+.repeatable-rows { display: grid; gap: .75rem; min-width: 0; margin-block: .75rem; }
+.degree-row { display: grid; grid-template-columns: minmax(8rem, .75fr) minmax(10rem, 1fr) auto; gap: .75rem; align-items: end; min-width: 0; border-bottom: 1px solid var(--line); padding-bottom: .75rem; }
+.doi-lookup-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: end; margin-top: .75rem; }
+.publication-preview, .publication-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: center; border: 1px solid var(--line); border-radius: .75rem; background: var(--surface-soft); padding: .8rem; }
+.publication-summary { display: grid; min-width: 0; gap: .25rem; overflow-wrap: anywhere; }
+.publication-summary span { color: var(--muted); }
+.add-row-action { justify-self: start; }
+.remove-row-action { min-width: max-content; }
 .field-help, .character-counter { color: var(--muted); font-size: .9rem; }
 .review-actions { display: flex; flex-wrap: wrap; gap: .8rem; align-items: center; }
 .primary-action, .secondary-action, .confirm-action { min-height: 44px; border: 1px solid var(--line); border-radius: .65rem; padding: .65rem 1rem; font: 700 1rem/1.2 Aptos, "Segoe UI", system-ui, sans-serif; cursor: pointer; }
@@ -163,6 +176,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .secondary-action { background: var(--surface-soft); color: var(--text); }
 .confirm-action { margin-inline-start: auto; background: #d98200; color: #111; }
 .form-status { min-height: 1.5rem; font-weight: 700; }
+.correction-notice { border-left: .35rem solid var(--warning); border-radius: .45rem; padding: .75rem .9rem; background: var(--surface-soft); color: var(--text); font-weight: 700; }
 .application-progress progress { width: 100%; min-height: 1rem; accent-color: #1769aa; }
 .document-slot-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; width: 100%; min-width: 0; }
 .document-slot-card { min-width: 0; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); padding: 1rem; overflow-wrap: anywhere; }
@@ -171,8 +185,18 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 @media (max-width: 720px) {
   .review-fields { grid-template-columns: minmax(0, 1fr); }
+  .review-field-fullName, .review-field-registeredEmail, .review-field-alternativeEmail { grid-column: auto; }
+  .degree-row, .doi-lookup-row, .publication-preview, .publication-row { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .remove-row-action { min-width: 0; }
   .review-actions { align-items: stretch; flex-direction: column; }
   .confirm-action { margin-inline-start: 0; margin-top: .5rem; }
+}
+@media (min-width: 721px) and (max-width: 1050px) {
+  .review-fields-identity, .review-fields-employment { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 721px) and (max-width: 900px) {
+  .degree-row, .doi-lookup-row, .publication-preview, .publication-row { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .remove-row-action { min-width: 0; }
 }
 @media (max-width: 520px) { .report-header { grid-template-columns: minmax(0, 1fr); } .report-data-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; } }

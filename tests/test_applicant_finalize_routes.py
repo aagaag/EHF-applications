@@ -10,6 +10,7 @@ from app.applicant.documents import DocumentSlotRepository
 from app.applicant.drafts import InMemoryDraftRepository
 from app.applicant.finalize import FinalizationService, FinalizationSessionUnavailable
 from app.applicant.review import ApplicantReviewService
+from app.applicant.publications import PublicationLookupReceipts
 from app.auth.applicant import (
     ApplicantAuthService,
     CapturingVerificationDelivery,
@@ -51,7 +52,13 @@ def _client(finalization_override=None) -> TestClient:
     )
     drafts = InMemoryDraftRepository()
     confirmations = SectionConfirmationService()
-    review = ApplicantReviewService(drafts, confirmations)
+    review = ApplicantReviewService(
+        drafts,
+        confirmations,
+        PublicationLookupReceipts(
+            b"synthetic-publication-receipt-secret-at-least-32-bytes"
+        ),
+    )
     finalization = finalization_override or FinalizationService(
         review, drafts, confirmations, DocumentSlotRepository()
     )

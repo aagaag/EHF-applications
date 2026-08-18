@@ -35,12 +35,14 @@ INSERT @ApprovedProcedures VALUES
     (N'ProvisionApplicantAccessRequest'),
     (N'CreateEntraApplicantSession'), (N'GetApplicantSession'),
     (N'GetApplicantProjection'), (N'GetApplicantSectionDraft'),
+    (N'GetApplicantSectionDraftV17'),
     (N'GetApplicantSectionConfirmation'),
     (N'RegisterApplicantDocumentSubmission'), (N'GetApplicantDocumentDownload'),
     (N'GetApplicantFinalDocuments'), (N'GetApplicantFinalDocumentIssues'),
     (N'ListPendingApplicantDocumentSubmissions'),
     (N'ReviewApplicantDocumentSubmission'), (N'ListPendingApplicantSubmissions'),
-    (N'GetApplicantSubmissionReview'), (N'ApproveApplicantSubmission');
+    (N'GetApplicantSubmissionReview'), (N'ApproveApplicantSubmission'),
+    (N'ReturnApplicantSubmissionForCorrection');
 DECLARE @DeniedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
 INSERT @DeniedProcedures VALUES (N'ReopenApplicantScope');
 DECLARE @ProtectedTables TABLE (TableName sysname NOT NULL PRIMARY KEY);

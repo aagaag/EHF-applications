@@ -56,10 +56,23 @@ def test_final_review_renders_allowlisted_values_statement_and_visible_documents
             page.route("**/api/applicant/review/*", lambda route: route.fulfill(json={"rowVersion": 1, "values": {}, "confirmed": True}))
             page.route("**/api/applicant/review/fields", lambda route: route.fulfill(json={"fields": [
                 {"section": "identity", "code": "fullName", "label": "Full name", "kind": "text"},
+                {"section": "qualifications", "code": "degrees", "label": "Degrees", "kind": "degree_list"},
+                {"section": "publications", "code": "publications", "label": "Publications by DOI", "kind": "publication_list"},
                 {"section": "contribution", "code": "contributionStatement", "label": "Scientific contribution", "kind": "textarea"},
             ]}))
             page.route("**/api/applicant/application", lambda route: route.fulfill(json={
-                "applicant": {"fullName": "Reviewed Applicant", "contributionStatement": "My reviewed contribution."},
+                "applicant": {
+                    "fullName": "Reviewed Applicant",
+                    "degrees": [
+                        {"degreeType": "BSc", "conferralDate": "2014-06-30"},
+                        {"degreeType": "PhD", "conferralDate": "2020-01-15"},
+                    ],
+                    "publications": [
+                        {"doi": "10.1000/one", "confirmed": True},
+                        {"doi": "10.1000/two", "confirmed": True},
+                    ],
+                    "contributionStatement": "My reviewed contribution.",
+                },
                 "sections": {},
                 "documents": [{"slotCode": "CV", "displayName": "curriculum-vitae.pdf"}],
             }))
@@ -70,6 +83,9 @@ def test_final_review_renders_allowlisted_values_statement_and_visible_documents
             page.wait_for_timeout(500)
             assert page.get_by_text("Reviewed Applicant", exact=True).is_visible(), console_messages
             expect(page.get_by_text("My reviewed contribution.", exact=True)).to_be_visible()
+            expect(page.get_by_text("BSc — 2014-06-30; PhD — 2020-01-15", exact=True)).to_be_visible()
+            expect(page.get_by_text("10.1000/one; 10.1000/two", exact=True)).to_be_visible()
+            assert "[object Object]" not in page.locator("main").inner_text()
             expect(page.get_by_text("curriculum-vitae.pdf", exact=True)).to_be_visible()
         finally:
             browser.close()

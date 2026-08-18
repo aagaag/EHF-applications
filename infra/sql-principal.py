@@ -75,6 +75,7 @@ MIGRATIONS = {
     "014_applicant_projection.sql": (14, "applicant_projection"),
     "015_applicant_document_slots.sql": (15, "applicant_document_slots"),
     "016_entra_applicant_workflow.sql": (16, "entra_applicant_workflow"),
+    "017_applicant_form_simplification.sql": (17, "applicant_form_simplification"),
 }
 COMMANDS = (
     "inspect-production",
@@ -115,6 +116,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "014_validate_applicant_projection.sql",
         "015_validate_applicant_document_slots.sql",
         "016_validate_entra_applicant_workflow.sql",
+        "017_validate_applicant_form_simplification.sql",
     }
 )
 

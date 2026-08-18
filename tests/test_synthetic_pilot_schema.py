@@ -11,8 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_sixteen_adds_entra_scoping_and_pending_approval_boundaries() -> None:
     """Break caught: the Entra portal could trust record IDs or auto-approve edits."""
     migrations = discover_migrations(ROOT / "database" / "migrations")
-    assert migrations[-1].path.name == "016_entra_applicant_workflow.sql"
-    source = migrations[-1].path.read_text(encoding="utf-8")
+    source = next(
+        migration for migration in migrations if migration.version == 16
+    ).path.read_text(encoding="utf-8")
 
     for fragment in (
         "CREATE TABLE dbo.ApplicantAccessRequest",

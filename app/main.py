@@ -22,6 +22,7 @@ from app.auth.rate_limit import InMemoryRateLimiter, RateLimitPolicy
 from app.auth.turnstile import TurnstileVerifier
 from app.applicant.projection import ApplicantProjectionService
 from app.applicant.review import ApplicantReviewService
+from app.applicant.publications import CrossrefPublicationLookup, PublicationLookup
 from app.applicant.documents import ApplicantDocumentService
 from app.applicant.finalize import FinalizationService
 from app.applicant.approval import ApplicantApprovalService
@@ -140,8 +141,10 @@ def create_app(
     applicant_auth_service: ApplicantAuthService | None = None,
     applicant_turnstile: TurnstileVerifier | None = None,
     applicant_rate_limiter: InMemoryRateLimiter | None = None,
+    applicant_publication_rate_limiter: InMemoryRateLimiter | None = None,
     applicant_projection_service: ApplicantProjectionService | None = None,
     applicant_review_service: ApplicantReviewService | None = None,
+    applicant_publication_lookup: PublicationLookup | None = None,
     applicant_document_service: ApplicantDocumentService | None = None,
     applicant_finalization_service: FinalizationService | None = None,
     applicant_turnstile_site_key: str | None = None,
@@ -171,6 +174,12 @@ def create_app(
     if resolved_settings.applicant_portal_enabled and applicant_rate_limiter is None:
         applicant_rate_limiter = InMemoryRateLimiter(
             RateLimitPolicy(limit=20, window=timedelta(minutes=10))
+        )
+    if applicant_review_service is not None and applicant_publication_lookup is None:
+        applicant_publication_lookup = CrossrefPublicationLookup()
+    if applicant_review_service is not None and applicant_publication_rate_limiter is None:
+        applicant_publication_rate_limiter = InMemoryRateLimiter(
+            RateLimitPolicy(limit=240, window=timedelta(minutes=10))
         )
     preferences = preference_repository or SqlPreferenceRepository(lambda: connect(resolved_settings))
     metrics = metric_repository or (
@@ -452,6 +461,8 @@ def create_app(
                 application,
                 auth=applicant_auth_service,
                 review=applicant_review_service,
+                publications=applicant_publication_lookup,
+                rate_limiter=applicant_publication_rate_limiter,
             )
         if applicant_document_service is not None:
             register_applicant_document_routes(

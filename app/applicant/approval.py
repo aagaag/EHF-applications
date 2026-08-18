@@ -14,6 +14,17 @@ from app.navigation import INTERNAL_GROUPS
 REVIEWER_GROUPS = frozenset(
     {INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}
 )
+RETURNABLE_SECTIONS = frozenset(
+    {"identity", "employment", "qualifications", "publications", "contribution"}
+)
+
+
+class ApplicantApprovalBlocked(RuntimeError):
+    """A reviewer must return a specific section before approval can continue."""
+
+    def __init__(self, message: str, *, section: str) -> None:
+        super().__init__(message)
+        self.section = section
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +112,31 @@ class ApplicantApprovalService:
         )
         self._reviews[confirmation_id] = approved
         return approved
+
+    def return_for_correction(
+        self,
+        confirmation_id: UUID,
+        *,
+        section: str,
+        reason: str,
+        actor: str,
+        actor_group: str,
+    ) -> ApplicantSubmissionReview:
+        if actor_group != INTERNAL_GROUPS.administrators or not actor.strip():
+            raise PermissionError("Administrator authorization is required.")
+        if section not in RETURNABLE_SECTIONS or not reason.strip():
+            raise ValueError("A valid section and correction reason are required.")
+        review = self._reviews.get(confirmation_id)
+        if review is None or review.status != "PENDING":
+            raise LookupError("The applicant submission is unavailable.")
+        returned = replace(
+            review,
+            status="REJECTED",
+            reviewed_by=actor.strip(),
+            reviewed_at_utc=datetime.now(UTC),
+        )
+        self._reviews[confirmation_id] = returned
+        return returned
 
     def queue_document(self, review: ApplicantDocumentReview) -> ApplicantDocumentReview:
         existing = self._document_reviews.get(review.submission_id)

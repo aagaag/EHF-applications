@@ -4,15 +4,25 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import pytest
+
 from app.applicant.sql_pilot import (
     ApplicantSqlSessionScope,
+    SqlApplicantApprovalService,
     SqlApplicantDocumentRepository,
     SqlApplicantFinalizationService,
+    SqlSectionConfirmationService,
     SqlSyntheticDraftRepository,
     SqlSyntheticProjectionRepository,
 )
+from app.applicant.approval import ApplicantApprovalBlocked
 from app.applicant.confirmations import SectionConfirmation
-from app.applicant.drafts import DraftConflict, DraftLocked, DraftSnapshot
+from app.applicant.drafts import (
+    CorrectionRequired,
+    DraftConflict,
+    DraftLocked,
+    DraftSnapshot,
+)
 from app.applicant.finalize import (
     FinalizationBlocked,
     FinalizationSessionUnavailable,
@@ -132,6 +142,31 @@ def test_draft_save_derives_scope_from_session_not_the_requested_application_id(
     assert saved.application_id == APPLICATION_A
     assert saved.row_version == 7
     assert connection.commits == 1
+
+
+def test_draft_load_exposes_only_the_current_applicants_open_correction_reason() -> None:
+    scope = ApplicantSqlSessionScope()
+    scope.bind(SESSION_HASH)
+    returned_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    connection = Connection(
+        [(
+            str(APPLICATION_A),
+            "employment",
+            '{"postdoctoralEmploymentStatus":null}',
+            (9).to_bytes(8, "big"),
+            "Please answer the clarified employment question.",
+            returned_at,
+        )]
+    )
+    repository = SqlSyntheticDraftRepository(factory(connection), scope)
+
+    snapshot = repository.load(APPLICATION_A, "employment")
+
+    assert snapshot is not None
+    assert snapshot.return_reason == "Please answer the clarified employment question."
+    assert snapshot.returned_at_utc == returned_at
+    assert connection.cursor.calls[0][1] == (SESSION_HASH, "employment")
+    assert "GetApplicantSectionDraftV17" in connection.cursor.calls[0][0]
 
 
 def test_session_scope_is_request_local_and_expires_closed() -> None:
@@ -275,3 +310,56 @@ def test_finalization_sql_races_are_translated_to_stable_workflow_errors() -> No
             assert isinstance(error, expected)
         else:
             raise AssertionError("The finalization SQL error was not translated.")
+
+
+def test_unclassifiable_legacy_employment_answer_is_an_actionable_approval_block() -> None:
+    service = SqlApplicantApprovalService(
+        factory(ErrorConnection("[52646] The approved postdoctoral employment status requires review."))
+    )
+
+    with pytest.raises(ApplicantApprovalBlocked) as blocked:
+        service.approve(
+            UUID("81000000-0000-4000-8000-000000000001"),
+            actor="cloudflare:reviewer",
+            actor_group="EHF-Administrators",
+        )
+
+    assert blocked.value.section == "employment"
+
+
+def test_return_for_correction_sql_races_are_translated_to_route_errors() -> None:
+    for message, expected in [
+        ("[52642] The applicant submission is unavailable.", LookupError),
+        ("[52643] A valid section and correction reason are required.", ValueError),
+    ]:
+        service = SqlApplicantApprovalService(factory(ErrorConnection(message)))
+        with pytest.raises(expected):
+            service.return_for_correction(
+                UUID("81000000-0000-4000-8000-000000000001"),
+                section="employment",
+                reason="Clarify the answer.",
+                actor="cloudflare:reviewer",
+                actor_group="EHF-Administrators",
+            )
+
+
+def test_returned_section_must_be_saved_before_sql_reconfirmation() -> None:
+    scope = ApplicantSqlSessionScope()
+    scope.bind(SESSION_HASH)
+    service = SqlSectionConfirmationService(
+        factory(ErrorConnection("[52143] Save the returned section before confirming it again.")),
+        scope,
+    )
+    snapshot = DraftSnapshot(
+        APPLICATION_A, "employment", {"postdoctoralEmploymentStatus": True}, 9
+    )
+
+    with pytest.raises(CorrectionRequired, match="Save the returned section"):
+        service.confirm(APPLICATION_A, "employment", snapshot)
+
+    unchanged = SqlSectionConfirmationService(
+        factory(ErrorConnection("[52144] Make the requested correction before confirming this section.")),
+        scope,
+    )
+    with pytest.raises(CorrectionRequired):
+        unchanged.confirm(APPLICATION_A, "employment", snapshot)

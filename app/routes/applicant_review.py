@@ -2,16 +2,30 @@
 
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from app.applicant.drafts import DraftConflict, DraftLocked, DraftSnapshot
+from app.applicant.drafts import (
+    CorrectionRequired,
+    DraftConflict,
+    DraftLocked,
+    DraftSnapshot,
+)
 from app.applicant.fields import FieldValidationError
+from app.applicant.publications import (
+    InvalidDoi,
+    PublicationLookup,
+    PublicationLookupUnavailable,
+    PublicationNotFound,
+)
 from app.applicant.review import ApplicantReviewService
 from app.auth.applicant import ApplicantAuthService, ApplicantSessionContext
+from app.auth.rate_limit import InMemoryRateLimiter
 from app.routes.applicant_auth import CSRF_COOKIE, SESSION_COOKIE
 
 
@@ -20,6 +34,8 @@ def register_applicant_review_routes(
     *,
     auth: ApplicantAuthService,
     review: ApplicantReviewService,
+    publications: PublicationLookup | None = None,
+    rate_limiter: InMemoryRateLimiter | None = None,
 ) -> None:
     @application.get("/api/applicant/review/fields")
     def applicant_field_metadata(request: Request) -> JSONResponse:
@@ -79,6 +95,8 @@ def register_applicant_review_routes(
             confirmation = review.confirm(session, section, row_version)
         except FieldValidationError as error:
             return JSONResponse(status_code=422, content={"errors": error.errors})
+        except CorrectionRequired as error:
+            return JSONResponse(status_code=422, content={"message": str(error)})
         except DraftConflict:
             return _conflict(review, session, section)
         return JSONResponse(
@@ -88,6 +106,50 @@ def register_applicant_review_routes(
                 "canonicalSha256": confirmation.canonical_sha256,
             }
         )
+
+    if publications is not None:
+        @application.post("/api/applicant/review/publications/lookup")
+        async def lookup_applicant_publication(request: Request) -> JSONResponse:
+            session = _session(auth, request)
+            if session is None:
+                return _unauthorized()
+            if not _valid_csrf(auth, session, request):
+                return JSONResponse(
+                    status_code=403, content={"message": "The request was rejected."}
+                )
+            if rate_limiter is not None and not rate_limiter.allow(
+                "APPLICANT_DOI", str(session.application_id), datetime.now(UTC)
+            ):
+                return JSONResponse(
+                    status_code=429,
+                    content={"message": "Too many publication lookups. Please wait and try again."},
+                )
+            payload = await _json_object(request)
+            if set(payload) != {"doi"}:
+                return JSONResponse(
+                    status_code=400, content={"message": "The request is invalid."}
+                )
+            try:
+                metadata = await asyncio.to_thread(publications.lookup, payload["doi"])
+            except InvalidDoi:
+                return JSONResponse(
+                    status_code=422, content={"message": "Enter a valid DOI."}
+                )
+            except PublicationNotFound:
+                return JSONResponse(
+                    status_code=404,
+                    content={"message": "No publication was found for this DOI."},
+                )
+            except PublicationLookupUnavailable:
+                return JSONResponse(
+                    status_code=503,
+                    content={"message": "Publication lookup is temporarily unavailable."},
+                )
+            publication = dict(metadata)
+            publication["lookupReceipt"] = review.publication_lookup_receipt(
+                session, publication.get("doi")
+            )
+            return JSONResponse(jsonable_encoder({"publication": publication}))
 
 
 def _session(
@@ -111,11 +173,20 @@ def _snapshot(
     session: ApplicantSessionContext,
     snapshot: DraftSnapshot,
 ) -> dict[str, Any]:
-    return {
+    returned = None
+    if snapshot.return_reason is not None:
+        returned = {
+            "reason": snapshot.return_reason,
+            "returnedAtUtc": snapshot.returned_at_utc,
+        }
+    response = {
         "rowVersion": snapshot.row_version,
         "values": snapshot.values,
         "confirmed": review.is_current(session, snapshot.section, snapshot),
     }
+    if returned is not None:
+        response["returnedForCorrection"] = returned
+    return response
 
 
 def _conflict(

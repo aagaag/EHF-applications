@@ -14,7 +14,12 @@ from uuid import UUID, uuid4
 
 import pyodbc
 
-from app.applicant.drafts import DraftConflict, DraftLocked, DraftSnapshot
+from app.applicant.drafts import (
+    CorrectionRequired,
+    DraftConflict,
+    DraftLocked,
+    DraftSnapshot,
+)
 from app.applicant.access import ApplicantAccessRequest, ApplicantAccessService
 from app.applicant.documents import (
     ApplicantDocumentSlot,
@@ -31,6 +36,7 @@ from app.applicant.finalize import (
     _manifest_hash,
 )
 from app.applicant.approval import (
+    ApplicantApprovalBlocked,
     ApplicantDocumentReview,
     ApplicantSubmissionBundle,
     ApplicantSubmissionReview,
@@ -39,6 +45,7 @@ from app.applicant.approval import (
 from app.applicant.projection import _RawProjection
 from app.applicant.projection import ApplicantProjectionService
 from app.applicant.review import ApplicantReviewService
+from app.applicant.publications import PublicationLookupReceipts
 from app.auth.applicant import (
     ApplicantAuthService,
     ApplicantSessionContext,
@@ -56,6 +63,7 @@ from app.documents.store import (
     StoredObjectRecord,
 )
 from app.documents.validation import ValidatedPdf, validate_pdf
+from app.navigation import INTERNAL_GROUPS
 
 
 ConnectionFactory = Callable[[], AbstractContextManager[Any]]
@@ -76,16 +84,21 @@ def build_entra_applicant_services(settings: Settings) -> EntraApplicantServices
     connections: ConnectionFactory = lambda: connect(settings)
     scope = ApplicantSqlSessionScope()
     auth_repository = SqlEntraApplicantAuthRepository(connections, scope)
+    session_pepper = settings.read_session_pepper().encode("utf-8")
     auth = ApplicantAuthService(
         auth_repository,  # type: ignore[arg-type]
         CapturingVerificationDelivery(),
         otp_pepper=settings.read_otp_pepper().encode("utf-8"),
-        session_pepper=settings.read_session_pepper().encode("utf-8"),
+        session_pepper=session_pepper,
     )
     drafts = SqlSyntheticDraftRepository(connections, scope)
     confirmations = SqlSectionConfirmationService(connections, scope)
     document_repository = SqlApplicantDocumentRepository(connections, scope)
-    review = ApplicantReviewService(drafts, confirmations)  # type: ignore[arg-type]
+    review = ApplicantReviewService(
+        drafts,
+        confirmations,
+        PublicationLookupReceipts(session_pepper),
+    )  # type: ignore[arg-type]
     return EntraApplicantServices(
         auth=auth,
         projection=ApplicantProjectionService(
@@ -297,7 +310,7 @@ class SqlSyntheticDraftRepository:
     def load(self, application_id: UUID, section: str) -> DraftSnapshot | None:
         with self._connections() as connection:
             row = connection.execute(
-                "EXEC dbo.GetApplicantSectionDraft @SessionTokenSha256 = ?, @SectionCode = ?",
+                "EXEC dbo.GetApplicantSectionDraftV17 @SessionTokenSha256 = ?, @SectionCode = ?",
                 self._scope.required(),
                 section,
             ).fetchone()
@@ -360,7 +373,10 @@ class SqlSyntheticDraftRepository:
     ) -> DraftSnapshot | None:
         if row is None:
             return None
-        offset = 1 if len(row) >= 5 else 0
+        try:
+            offset = 0 if UUID(str(row[0])) == application_id else 1
+        except (TypeError, ValueError):
+            return None
         if (
             UUID(str(row[offset])) != application_id
             or str(row[offset + 1]) != section
@@ -378,6 +394,16 @@ class SqlSyntheticDraftRepository:
             section,
             values,
             int.from_bytes(version_bytes, "big", signed=False),
+            (
+                str(row[offset + 4])
+                if len(row) > offset + 4 and row[offset + 4] is not None
+                else None
+            ),
+            (
+                _utc(row[offset + 5])
+                if len(row) > offset + 5 and row[offset + 5] is not None
+                else None
+            ),
         )
 
 
@@ -503,17 +529,30 @@ class SqlSectionConfirmationService:
         if snapshot.application_id != application_id or snapshot.section != section:
             raise ValueError("confirmation scope does not match the draft")
         canonical = _canonical_hash(snapshot.values, snapshot.row_version)
-        with self._connections() as connection:
-            row = connection.execute(
-                "EXEC dbo.ConfirmApplicantSection "
-                "@SessionTokenSha256 = ?, @SectionCode = ?, "
-                "@CanonicalSectionSha256 = ?, @DraftRowVersion = ?",
-                self._scope.required(),
-                section,
-                bytes.fromhex(canonical),
-                snapshot.row_version.to_bytes(8, "big", signed=False),
-            ).fetchone()
-            connection.commit()
+        try:
+            with self._connections() as connection:
+                row = connection.execute(
+                    "EXEC dbo.ConfirmApplicantSection "
+                    "@SessionTokenSha256 = ?, @SectionCode = ?, "
+                    "@CanonicalSectionSha256 = ?, @DraftRowVersion = ?",
+                    self._scope.required(),
+                    section,
+                    bytes.fromhex(canonical),
+                    snapshot.row_version.to_bytes(8, "big", signed=False),
+                ).fetchone()
+                connection.commit()
+        except pyodbc.Error as error:
+            if _sql_error_has(error, "52143"):
+                raise CorrectionRequired(
+                    "Save the returned section before confirming it again."
+                ) from None
+            if _sql_error_has(error, "52144"):
+                raise CorrectionRequired(
+                    "Make the requested correction before confirming this section."
+                ) from None
+            if _sql_error_has(error, "52130"):
+                raise DraftConflict("The applicant draft changed before confirmation.") from None
+            raise
         if row is None or str(row[1]) != section:
             raise RuntimeError("The section confirmation returned no scoped record.")
         return SectionConfirmation(application_id, section, snapshot.row_version, canonical)
@@ -753,16 +792,66 @@ class SqlApplicantApprovalService:
     ) -> ApplicantSubmissionReview:
         if actor_group not in REVIEWER_GROUPS or not actor.strip():
             raise PermissionError("Administrator or trustee authorization is required.")
-        with self._connections() as connection:
-            row = connection.execute(
-                "EXEC dbo.ApproveApplicantSubmission "
-                "@ApplicantFinalConfirmationId = ?, @ReviewedByIdentity = ?, "
-                "@ReviewerGroup = ?",
-                confirmation_id,
-                actor.strip(),
-                actor_group,
-            ).fetchone()
-            connection.commit()
+        try:
+            with self._connections() as connection:
+                row = connection.execute(
+                    "EXEC dbo.ApproveApplicantSubmission "
+                    "@ApplicantFinalConfirmationId = ?, @ReviewedByIdentity = ?, "
+                    "@ReviewerGroup = ?",
+                    confirmation_id,
+                    actor.strip(),
+                    actor_group,
+                ).fetchone()
+                connection.commit()
+        except pyodbc.Error as error:
+            if _sql_error_has(error, "52646"):
+                raise ApplicantApprovalBlocked(
+                    "Return the employment section to the applicant so they can answer "
+                    "the clarified postdoctoral-employment question.",
+                    section="employment",
+                ) from None
+            raise
+        if row is None:
+            raise LookupError("The applicant submission is unavailable.")
+        return ApplicantSubmissionReview(
+            UUID(str(row[0])),
+            UUID(str(row[1])),
+            _utc(row[4]),
+            status=str(row[2]),
+            reviewed_by=str(row[3]),
+            reviewed_at_utc=_utc(row[4]),
+        )
+
+    def return_for_correction(
+        self,
+        confirmation_id: UUID,
+        *,
+        section: str,
+        reason: str,
+        actor: str,
+        actor_group: str,
+    ) -> ApplicantSubmissionReview:
+        if actor_group != INTERNAL_GROUPS.administrators or not actor.strip():
+            raise PermissionError("Administrator authorization is required.")
+        try:
+            with self._connections() as connection:
+                row = connection.execute(
+                    "EXEC dbo.ReturnApplicantSubmissionForCorrection "
+                    "@ApplicantFinalConfirmationId = ?, @SectionCode = ?, "
+                    "@Reason = ?, @ReviewedByIdentity = ?, @ReviewerGroup = ?",
+                    confirmation_id,
+                    section,
+                    reason.strip(),
+                    actor.strip(),
+                    actor_group,
+                ).fetchone()
+                connection.commit()
+        except pyodbc.Error as error:
+            if _sql_error_has(error, "52642"):
+                raise LookupError("The applicant submission is unavailable.") from None
+            if _sql_error_has(error, "52643"):
+                raise ValueError("A valid section and correction reason are required.") from None
+            raise
         if row is None:
             raise LookupError("The applicant submission is unavailable.")
         return ApplicantSubmissionReview(
