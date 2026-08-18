@@ -43,6 +43,7 @@ def test_release_eighteen_validator_checks_authorization_audit_and_exact_record_
         "PASS 018 applicant administrator preview",
     ):
         assert fragment in source
+    assert source.index("@ActorGroup=N'EHF-Trustees'") < source.index("BEGIN TRANSACTION")
 
 
 def test_runtime_permission_validator_approves_only_the_new_preview_procedures() -> None:

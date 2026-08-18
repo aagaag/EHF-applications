@@ -6,6 +6,14 @@ IF OBJECT_ID(N'dbo.ListApplicantPreviews', N'P') IS NULL
 IF OBJECT_ID(N'dbo.GetApplicantPreview', N'P') IS NULL
     THROW 52821, 'GetApplicantPreview is missing.', 1;
 
+BEGIN TRY
+    EXEC dbo.ListApplicantPreviews @ActorGroup=N'EHF-Trustees';
+    THROW 52822, 'Trustee preview listing was not rejected.', 1;
+END TRY
+BEGIN CATCH
+    IF ERROR_NUMBER() <> 52810 THROW;
+END CATCH;
+
 BEGIN TRANSACTION;
 BEGIN TRY
     DECLARE @CallId uniqueidentifier = '18000000-0000-4000-8000-000000000001';
@@ -43,14 +51,6 @@ BEGIN TRY
         (@ApplicationId, 'identity',
          N'{"fullName":"Synthetic Updated Preview","telephone":"+41 00 000 00 00"}',
          N'validator');
-
-    BEGIN TRY
-        EXEC dbo.ListApplicantPreviews @ActorGroup=N'EHF-Trustees';
-        THROW 52822, 'Trustee preview listing was not rejected.', 1;
-    END TRY
-    BEGIN CATCH
-        IF ERROR_NUMBER() <> 52810 THROW;
-    END CATCH;
 
     DECLARE @PreviewList TABLE
     (
