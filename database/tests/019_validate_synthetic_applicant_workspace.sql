@@ -296,7 +296,8 @@ BEGIN
     THROW 53920, 'Synthetic workspace opened in applicant preview.', 1;
 END;
 
-DECLARE @AccessRequestId uniqueidentifier = NEWID();
+DECLARE @AccessRequestId uniqueidentifier = NEWID(),
+        @ProvisioningEntraObjectId uniqueidentifier = NEWID();
 INSERT dbo.ApplicantAccessRequest
     (ApplicantAccessRequestId, RequestedEmail, RequestedDisplayName, RequestStatus,
      ReviewedByIdentity, ReviewerGroup, ReviewedAtUtc)
@@ -308,7 +309,8 @@ EXECUTE AS USER = N'ehf_app';
 BEGIN TRY
     EXEC dbo.ProvisionApplicantAccessRequest
         @ApplicantAccessRequestId=@AccessRequestId, @ApplicationId=@ApplicationId,
-        @EntraObjectId=NEWID(), @ProvisionedByIdentity=N'validator-runtime-admin',
+        @EntraObjectId=@ProvisioningEntraObjectId,
+        @ProvisionedByIdentity=N'validator-runtime-admin',
         @ProvisionerGroup='EHF-Administrators';
 END TRY
 BEGIN CATCH
