@@ -307,6 +307,28 @@ def test_real_login_probe_covers_applicant_tables_and_finalization_executor() ->
     assert "HAS_PERMS_BY_NAME(N'EHFFinalConfirmationProcedureExecutor'" in script
 
 
+def test_sql_login_validator_loop_matches_checked_in_and_allowed_validator_artifacts() -> None:
+    """Break caught: a typo in the isolated SQL validator loop could bypass the SQLCMD allowlist."""
+    script = TEST_SCRIPT.read_text(encoding="utf-8")
+    loop = re.search(r"for validation_file in (?P<files>.+?); do", script)
+    assert loop is not None
+    loop_files = tuple(loop.group("files").split())
+    checked_in_files = tuple(
+        path.name for path in sorted(VALIDATORS.glob("[0-9][0-9][0-9]_validate_*.sql"))
+    )
+
+    spec = importlib.util.spec_from_file_location("sql_principal_artifacts", HELPER)
+    assert spec and spec.loader
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    allowed_validators = {
+        name for name in helper.SQLCMD_ARTIFACTS if "_validate_" in name
+    }
+
+    assert loop_files == checked_in_files
+    assert set(loop_files) == allowed_validators
+
+
 def test_permission_validator_normalizes_catalog_collation_in_both_exact_set_comparisons() -> None:
     """Break caught: either side of the exact-set comparison could fail on SQL Server catalog collation."""
     validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(encoding="utf-8")
