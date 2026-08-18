@@ -69,6 +69,7 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/016_entra_applicant_workflow.sql",
     "database/migrations/017_applicant_form_simplification.sql",
     "database/migrations/018_applicant_admin_preview.sql",
+    "database/migrations/019_synthetic_applicant_workspace.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -87,6 +88,7 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/016_validate_entra_applicant_workflow.sql",
     "database/tests/017_validate_applicant_form_simplification.sql",
     "database/tests/018_validate_applicant_admin_preview.sql",
+    "database/tests/019_validate_synthetic_applicant_workspace.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",

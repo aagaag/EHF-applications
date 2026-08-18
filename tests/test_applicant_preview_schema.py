@@ -13,7 +13,7 @@ PERMISSION_VALIDATOR = ROOT / "database" / "tests" / "005_validate_application_p
 
 def test_release_eighteen_adds_an_admin_only_audited_applicant_preview_boundary() -> None:
     migrations = discover_migrations(ROOT / "database" / "migrations")
-    assert migrations[-1].path.name == MIGRATION.name
+    assert migrations[17].path.name == MIGRATION.name
     source = MIGRATION.read_text(encoding="utf-8")
 
     assert "CREATE PROCEDURE dbo.ListApplicantPreviews" in source

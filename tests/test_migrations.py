@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_admin_preview() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 15
-    assert sorted(connection.records) == list(range(1, 19))
+    assert applied == 16
+    assert sorted(connection.records) == list(range(1, 20))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,16 +290,16 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_eighteen_migrations() -> None:
-    """Break caught: a new database could omit 018 or apply the release out of order."""
+def test_fresh_repository_run_applies_all_nineteen_migrations() -> None:
+    """Break caught: a new database could omit the synthetic-session boundary."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
     connection = FakeConnection()
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 19))
-    assert applied == 18
+    assert [migration.version for migration in migrations] == list(range(1, 20))
+    assert applied == 19
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -419,6 +419,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "016_entra_applicant_workflow.sql",
         "017_applicant_form_simplification.sql",
         "018_applicant_admin_preview.sql",
+        "019_synthetic_applicant_workspace.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -439,6 +440,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "016_validate_entra_applicant_workflow.sql",
         "017_validate_applicant_form_simplification.sql",
         "018_validate_applicant_admin_preview.sql",
+        "019_validate_synthetic_applicant_workspace.sql",
     ]
 
 
@@ -488,6 +490,7 @@ def test_every_table_has_a_primary_key_and_database_generated_utc_timestamp() ->
         "ApplicantPortalBaseline",
         "ApplicantFinalReviewDecision",
         "ApplicantDocumentReviewDecision",
+        "ApplicantSyntheticWorkspace",
     }
     for table_name, block in blocks.items():
         assert re.search(r"\bPRIMARY KEY\b", block, flags=re.IGNORECASE), table_name
@@ -524,6 +527,7 @@ def test_mutable_tables_have_rowversion_and_immutable_tables_reject_update_delet
         "ApplicantAccessRequest",
         "ApplicantEntraIdentity",
         "ApplicantPortalBaseline",
+        "ApplicantSyntheticWorkspace",
     }
     for table_name in mutable_tables:
         assert re.search(r"\bRowVersion\s+rowversion\b", blocks[table_name], re.IGNORECASE)
@@ -681,8 +685,8 @@ def test_user_preference_guard_uses_unspoofable_module_execution_context() -> No
         assert contract_fragment.casefold() in validator.casefold(), contract_fragment
 
 
-def test_database_script_requires_and_applies_015() -> None:
-    """Break caught: the isolated harness could stop before controlled uploads."""
+def test_database_script_requires_and_applies_019() -> None:
+    """Break caught: the isolated harness could skip the synthetic-session boundary."""
     script = DATABASE_SCRIPT.read_text(encoding="utf-8")
 
     assert "004_audit_and_preference_hardening.sql" in script
@@ -715,7 +719,102 @@ def test_database_script_requires_and_applies_015() -> None:
     assert "017_validate_applicant_form_simplification.sql" in script
     assert "018_applicant_admin_preview.sql" in script
     assert "018_validate_applicant_admin_preview.sql" in script
-    assert "Applied 18 migration\\(s\\)\\." in script
+    assert "019_synthetic_applicant_workspace.sql" in script
+    assert "019_validate_synthetic_applicant_workspace.sql" in script
+    assert "Applied 19 migration\\(s\\)\\." in script
+
+
+def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
+    """Break caught: a synthetic administrator session could be accepted as a real applicant session."""
+    migration_path = MIGRATION_DIRECTORY / "019_synthetic_applicant_workspace.sql"
+    validator_path = VALIDATION_DIRECTORY / "019_validate_synthetic_applicant_workspace.sql"
+    migration = migration_path.read_text(encoding="utf-8")
+    validator = validator_path.read_text(encoding="utf-8")
+
+    assert re.search(
+        r"CREATE TABLE dbo\.ApplicantSyntheticWorkspace.*?"
+        r"ApplicationId uniqueidentifier NOT NULL.*?"
+        r"CreatedByIdentity nvarchar\(255\) NOT NULL.*?"
+        r"ClosedAtUtc datetime2\(7\) NULL.*?"
+        r"PRIMARY KEY.*?UNIQUE.*?\(ApplicationId\).*?"
+        r"LEN\(CreatedByIdentity\) > 0",
+        migration,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert re.search(
+        r"ALTER TABLE dbo\.ApplicantSession\s+ADD SyntheticActorIdentity nvarchar\(255\) NULL",
+        migration,
+        flags=re.IGNORECASE,
+    )
+    assert re.search(
+        r"CK_ApplicantSession_AuthenticationSource.*?"
+        r"ApplicantInvitationId IS NOT NULL AND EntraObjectId IS NULL AND SyntheticActorIdentity IS NULL.*?"
+        r"ApplicantInvitationId IS NULL AND EntraObjectId IS NOT NULL AND SyntheticActorIdentity IS NULL.*?"
+        r"ApplicantInvitationId IS NULL AND EntraObjectId IS NULL AND SyntheticActorIdentity IS NOT NULL",
+        migration,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    create_procedure = re.search(
+        r"CREATE PROCEDURE dbo\.CreateSyntheticApplicantWorkspace.*?END;\s*'\);",
+        migration,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert create_procedure is not None
+    assert "@ApplicationId" not in create_procedure.group(0)
+    for fragment in (
+        "@ActorIdentity nvarchar(255)",
+        "@ActorGroup nvarchar(128)",
+        "@SessionTokenSha256 binary(32)",
+        "@CsrfTokenSha256 binary(32)",
+        "@IdleExpiresAtUtc datetime2(7)",
+        "@AbsoluteExpiresAtUtc datetime2(7)",
+        "EHF-Administrators",
+        "NEWID()",
+        "SYNTHETIC_APPLICANT_WORKSPACE_CREATED",
+    ):
+        assert fragment.casefold() in create_procedure.group(0).casefold(), fragment
+    assert re.search(
+        r"ALTER PROCEDURE dbo\.GetApplicantSession.*?"
+        r"SELECT session_row\.ApplicationId, session_row\.CsrfTokenSha256,\s*"
+        r"session_row\.IdleExpiresAtUtc, session_row\.AbsoluteExpiresAtUtc,\s*"
+        r"session_row\.ApplicantInvitationId, session_row\.EntraObjectId.*?"
+        r"NOT EXISTS\s*\(\s*SELECT 1\s*FROM dbo\.ApplicantSyntheticWorkspace",
+        migration,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert re.search(
+        r"CREATE PROCEDURE dbo\.GetApplicantSessionV19.*?"
+        r"session_row\.SyntheticActorIdentity.*?"
+        r"workspace_row\.CreatedByIdentity = session_row\.SyntheticActorIdentity.*?"
+        r"workspace_row\.ClosedAtUtc IS NULL",
+        migration,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    for fragment in (
+        "GRANT EXECUTE ON dbo.CreateSyntheticApplicantWorkspace TO EHFApplicationRuntime",
+        "GRANT EXECUTE ON dbo.GetApplicantSessionV19 TO EHFApplicationRuntime",
+        "DENY SELECT, INSERT, UPDATE, DELETE ON dbo.ApplicantSyntheticWorkspace TO EHFApplicationRuntime",
+        "GetApplicantSessionV19",
+        "legacy",
+        "synthetic",
+        "actor",
+        "EHF-Administrators",
+    ):
+        assert fragment.casefold() in (migration + validator).casefold(), fragment
+    for procedure_name in (
+        "ListApplicantPreviews",
+        "GetApplicantPreview",
+        "GetInternalApplicationMetrics",
+        "ProvisionApplicantAccessRequest",
+        "ApproveApplicantSubmission",
+    ):
+        procedure = re.search(
+            rf"ALTER PROCEDURE dbo\.{procedure_name}.*?END;\s*'\);",
+            migration,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        assert procedure is not None, procedure_name
+        assert "ApplicantSyntheticWorkspace" in procedure.group(0), procedure_name
 
 
 def test_sql_login_harness_executes_validator_artifacts_not_migrations_twice() -> None:
@@ -854,14 +953,14 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_eighteen() -> None:
+def test_database_contract_validator_reports_version_nineteen() -> None:
     """Break caught: post-upgrade validation could still require the old schema tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 18" in validator
-    assert "WHERE MigrationCount = 18 AND CurrentVersion = 18" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 19" in validator
+    assert "WHERE MigrationCount = 19 AND CurrentVersion = 19" in validator
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")
