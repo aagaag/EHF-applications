@@ -95,6 +95,38 @@ def test_entra_sign_in_sets_an_application_session_only_for_ehf_applicants() -> 
         assert client.get("/applicant/sign-in", follow_redirects=False).status_code == 404
 
 
+def test_entra_sign_in_session_cookie_survives_the_external_identity_redirect() -> None:
+    """Break caught: SameSite=Strict could cause an endless sign-in/review redirect loop."""
+    service, _repository = _service()
+    applicant = AuthenticatedIdentity(
+        Identity("cloudflare:subject", "pilot@example.test", "Pilot"),
+        frozenset({INTERNAL_GROUPS.applicants}),
+        entra_object_id=ENTRA_A,
+    )
+    app = create_app(
+        Settings.from_environment({}),
+        readiness_checks=ReadinessChecks(lambda _timeout: None, lambda _timeout: None),
+        identity_resolver=lambda _request: applicant,
+        applicant_auth_service=service,
+    )
+
+    with TestClient(app, base_url="https://localhost") as client:
+        response = client.get("/applicant/sign-in", follow_redirects=False)
+
+    cookies = response.headers.get_list("set-cookie")
+    session_cookie = next(
+        value for value in cookies if "__Host-ehf_applicant_session=" in value
+    )
+    csrf_cookie = next(
+        value for value in cookies if "__Host-ehf_applicant_csrf=" in value
+    )
+    assert all(
+        flag in session_cookie
+        for flag in ("HttpOnly", "Secure", "SameSite=lax", "Path=/")
+    )
+    assert all(flag in csrf_cookie for flag in ("Secure", "SameSite=strict", "Path=/"))
+
+
 @pytest.mark.parametrize(
     ("path", "heading"),
     (

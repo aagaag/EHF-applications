@@ -73,7 +73,7 @@ def register_applicant_entra_routes(
             path="/",
             secure=True,
             httponly=True,
-            samesite="strict",
+            samesite="lax",
         )
         response.set_cookie(
             CSRF_COOKIE,
