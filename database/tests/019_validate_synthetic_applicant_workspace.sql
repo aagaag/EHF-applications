@@ -139,7 +139,8 @@ IF @Denied = 0
 
 DECLARE @InvitationId uniqueidentifier = NEWID(),
         @NormalSessionHash binary(32) = HASHBYTES('SHA2_256', N'019 normal session'),
-        @NormalCsrfHash binary(32) = HASHBYTES('SHA2_256', N'019 normal csrf');
+        @NormalCsrfHash binary(32) = HASHBYTES('SHA2_256', N'019 normal csrf'),
+        @InvitationLastSeen datetime2(7);
 INSERT dbo.ApplicantInvitation
     (ApplicantInvitationId, ApplicationId, InvitationTokenSha256, ExpiresAtUtc,
      CreatedByIdentity)
@@ -152,12 +153,56 @@ INSERT dbo.ApplicantSession
 VALUES
     (@InvitationId, @ApplicationId, NULL, NULL, @NormalSessionHash,
      @NormalCsrfHash, @IdleAt, @AbsoluteAt);
+SELECT @InvitationLastSeen = LastSeenAtUtc
+FROM dbo.ApplicantSession
+WHERE SessionTokenSha256 = @NormalSessionHash;
 DELETE FROM @V19;
 INSERT @V19
 EXEC dbo.GetApplicantSessionV19
     @SessionTokenSha256=@NormalSessionHash, @IdleExpiresAtUtc=@IdleAt;
 IF EXISTS (SELECT 1 FROM @V19)
     THROW 53915, 'A non-synthetic session opened a marked synthetic workspace.', 1;
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM dbo.ApplicantSession
+    WHERE SessionTokenSha256 = @NormalSessionHash
+      AND LastSeenAtUtc = @InvitationLastSeen
+)
+    THROW 53926, 'A marker-backed invitation session updated LastSeenAtUtc.', 1;
+
+DECLARE @EntraObjectId uniqueidentifier = NEWID(),
+        @EntraSessionHash binary(32) = HASHBYTES('SHA2_256', N'019 Entra session'),
+        @EntraCsrfHash binary(32) = HASHBYTES('SHA2_256', N'019 Entra csrf'),
+        @EntraLastSeen datetime2(7);
+INSERT dbo.ApplicantEntraIdentity
+    (ApplicationId, EntraObjectId, ApplicantAccessRequestId, IdentityKind,
+     Enabled, LinkedByIdentity)
+VALUES
+    (@ApplicationId, @EntraObjectId, NULL, 'SYNTHETIC_TEST', 1, N'VALIDATOR');
+INSERT dbo.ApplicantSession
+    (ApplicantInvitationId, ApplicationId, EntraObjectId, SyntheticActorIdentity,
+     SessionTokenSha256, CsrfTokenSha256, IdleExpiresAtUtc, AbsoluteExpiresAtUtc)
+VALUES
+    (NULL, @ApplicationId, @EntraObjectId, NULL, @EntraSessionHash,
+     @EntraCsrfHash, @IdleAt, @AbsoluteAt);
+SELECT @EntraLastSeen = LastSeenAtUtc
+FROM dbo.ApplicantSession
+WHERE SessionTokenSha256 = @EntraSessionHash;
+DELETE FROM @V19;
+INSERT @V19
+EXEC dbo.GetApplicantSessionV19
+    @SessionTokenSha256=@EntraSessionHash, @IdleExpiresAtUtc=@IdleAt;
+IF EXISTS (SELECT 1 FROM @V19)
+    THROW 53927, 'A non-synthetic Entra session opened a marked synthetic workspace.', 1;
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM dbo.ApplicantSession
+    WHERE SessionTokenSha256 = @EntraSessionHash
+      AND LastSeenAtUtc = @EntraLastSeen
+)
+    THROW 53928, 'A marker-backed Entra session updated LastSeenAtUtc.', 1;
 
 DECLARE @RuntimeCreated TABLE (ApplicationId uniqueidentifier NOT NULL),
         @RuntimeApplicationId uniqueidentifier;

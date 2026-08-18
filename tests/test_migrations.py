@@ -824,6 +824,9 @@ def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -
         assert "ApplicantSyntheticWorkspace" in procedure.group(0), procedure_name
     for fragment in (
         "@ActorGroup=NULL",
+        "@InvitationLastSeen",
+        "@EntraLastSeen",
+        "@EntraObjectId",
         "EXECUTE AS USER = N'ehf_app'",
         "GetApplicantPreview",
         "GetInternalApplicationMetrics",
