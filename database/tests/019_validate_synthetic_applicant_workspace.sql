@@ -208,8 +208,8 @@ IF NOT EXISTS
 )
     THROW 53928, 'A marker-backed Entra session updated LastSeenAtUtc.', 1;
 
-DECLARE @RuntimeCreated TABLE (ApplicationId uniqueidentifier NOT NULL),
-        @RuntimeApplicationId uniqueidentifier;
+DECLARE @RuntimeCreated TABLE (ApplicationId uniqueidentifier NOT NULL);
+DECLARE @RuntimeApplicationId uniqueidentifier;
 DECLARE @RuntimeSessionHash binary(32) = HASHBYTES('SHA2_256', N'019 runtime session'),
         @RuntimeCsrfHash binary(32) = HASHBYTES('SHA2_256', N'019 runtime csrf');
 EXECUTE AS USER = N'ehf_app';

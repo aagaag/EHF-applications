@@ -363,6 +363,21 @@ def test_sql_validators_bind_hashes_before_passing_stored_procedure_parameters()
     assert offenders == []
 
 
+def test_sql_validators_do_not_mix_table_and_scalar_declarations() -> None:
+    """Break caught: SQL Server rejects a table variable and scalar in one DECLARE list."""
+    mixed_table_scalar_declaration = re.compile(
+        r"\bDECLARE\s+@\w+\s+TABLE\s*\([^;]*?\)\s*,\s*@\w+",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    offenders = [
+        path.name
+        for path in sorted(VALIDATION_DIRECTORY.glob("[0-9][0-9][0-9]_validate_*.sql"))
+        if mixed_table_scalar_declaration.search(path.read_text(encoding="utf-8"))
+    ]
+
+    assert offenders == []
+
+
 def test_connection_string_uses_only_ehf_names_and_task_2_secret_reader() -> None:
     """Break caught: EHF could inherit the Finances 2 database identity or credential path."""
     module = importlib.import_module("app.db")
