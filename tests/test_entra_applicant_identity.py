@@ -78,7 +78,7 @@ def test_entra_sign_in_sets_an_application_session_only_for_ehf_applicants() -> 
     assert response.status_code == 303
     assert response.headers["location"] == "/applicant/review"
     assert session.status_code == 200
-    assert session.json() == {"authenticated": True}
+    assert session.json() == {"authenticated": True, "syntheticAdmin": False}
 
     unrelated = AuthenticatedIdentity(
         Identity("cloudflare:other", "other@example.test", "Other"),

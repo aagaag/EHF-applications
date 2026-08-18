@@ -4,6 +4,7 @@
   let controlSequence = 0;
   const nextControlId = (prefix) => `${prefix}-${++controlSequence}`;
   const sections = [...document.querySelectorAll("[data-review-section]")];
+  const syntheticBanner = document.querySelector("[data-synthetic-banner]");
   const csrf = () => {
     try { return document.cookie.split("; ").find((item) => item.startsWith("__Host-ehf_applicant_csrf="))?.split("=")[1] || ""; }
     catch (_error) { return ""; }
@@ -26,6 +27,14 @@
       ? "The requested correction has been saved and confirmed."
       : "Save and confirm this section again.";
     notice.textContent = `Returned for correction: ${returned.reason} ${instruction}`;
+  };
+  const loadSessionKind = async () => {
+    try {
+      const response = await fetch("/api/applicant/session", { credentials: "same-origin" });
+      if (!response.ok) return;
+      const session = await response.json();
+      if (session.syntheticAdmin && syntheticBanner) syntheticBanner.hidden = false;
+    } catch (_error) { /* The protected data requests retain the authoritative error state. */ }
   };
   const notifyChanged = (node) => node.dispatchEvent(new Event("input", { bubbles: true }));
   const syncProgress = () => {
@@ -468,5 +477,6 @@
   contribution?.addEventListener("input", updateCounter);
   updateCounter();
   showSection("identity");
+  loadSessionKind();
   loadInitialData();
 })();

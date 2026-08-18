@@ -4,6 +4,9 @@
   const submit = document.querySelector("[data-final-submit]");
   const status = document.querySelector("[data-final-status]");
   const application = document.querySelector("[data-final-application]");
+  const syntheticBanner = document.querySelector("[data-synthetic-banner]");
+  const submissionHelp = document.querySelector("[data-final-submission-help]");
+  let syntheticAdmin = false;
   const csrf = () => document.cookie.split("; ").find((item) => item.startsWith("__Host-ehf_applicant_csrf="))?.split("=")[1] || "";
 
   const label = (value) => value
@@ -30,11 +33,13 @@
     if (!summary || !items || !submit) return;
     items.replaceChildren();
     if (ready) {
-      summary.textContent = "Your application is complete and ready to submit.";
+      summary.textContent = syntheticAdmin
+        ? "This synthetic application is complete for interface testing. Final submission is disabled."
+        : "Your application is complete and ready to submit.";
       const item = document.createElement("li");
       item.textContent = "All required sections and documents are complete.";
       items.append(item);
-      submit.disabled = false;
+      submit.disabled = syntheticAdmin;
       return;
     }
     summary.textContent = "Complete the following items before submission:";
@@ -105,6 +110,15 @@
 
   const load = async () => {
     try {
+      try {
+        const sessionResponse = await fetch("/api/applicant/session", { credentials: "same-origin" });
+        syntheticAdmin = sessionResponse.ok && Boolean((await sessionResponse.json()).syntheticAdmin);
+      } catch (_error) { syntheticAdmin = false; }
+      if (syntheticAdmin) {
+        if (syntheticBanner) syntheticBanner.hidden = false;
+        if (submissionHelp) submissionHelp.textContent = "Final submission is unavailable in a synthetic test workspace.";
+        if (status) status.textContent = "Synthetic test workspace: final submission is disabled.";
+      }
       const [response] = await Promise.all([
         fetch("/api/applicant/finalization", { credentials: "same-origin" }),
         loadApplication(),
@@ -119,6 +133,7 @@
   };
 
   submit?.addEventListener("click", async () => {
+    if (syntheticAdmin) return;
     submit.disabled = true;
     if (status) status.textContent = "Submitting…";
     try {

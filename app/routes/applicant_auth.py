@@ -134,9 +134,18 @@ def register_applicant_auth_routes(
     @application.get("/api/applicant/session")
     def applicant_session(request: Request) -> JSONResponse:
         session_token = request.cookies.get(SESSION_COOKIE, "")
-        if auth.authenticate(session_token) is None:
-            return JSONResponse(status_code=401, content={"authenticated": False})
-        return JSONResponse({"authenticated": True})
+        session = auth.authenticate(session_token)
+        if session is None:
+            return JSONResponse(
+                status_code=401,
+                content={"authenticated": False, "syntheticAdmin": False},
+            )
+        return JSONResponse(
+            {
+                "authenticated": True,
+                "syntheticAdmin": session.synthetic_actor_identity is not None,
+            }
+        )
 
 
 async def _json_object(request: Request) -> dict[str, Any]:

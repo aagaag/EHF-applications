@@ -27,6 +27,7 @@ from app.applicant.documents import ApplicantDocumentService
 from app.applicant.finalize import FinalizationService
 from app.applicant.approval import ApplicantApprovalService
 from app.applicant.access import ApplicantAccessService
+from app.applicant.synthetic import SyntheticApplicantWorkspaceService
 from app.applicant.sql_pilot import build_entra_applicant_services
 from app.db import connect
 from app.errors import (
@@ -63,6 +64,7 @@ from app.routes.applicant_documents import register_applicant_document_routes
 from app.routes.applicant_finalize import register_applicant_finalize_routes
 from app.routes.applicant_entra import register_applicant_entra_routes
 from app.routes.internal_approval import register_internal_approval_routes
+from app.routes.internal_synthetic import register_internal_synthetic_routes
 from app.routes.applicant_access import register_applicant_access_routes
 from app.http import SecurityMiddleware
 
@@ -150,6 +152,7 @@ def create_app(
     applicant_turnstile_site_key: str | None = None,
     applicant_approval_service: ApplicantApprovalService | None = None,
     applicant_access_service: ApplicantAccessService | None = None,
+    synthetic_applicant_service: SyntheticApplicantWorkspaceService | None = None,
 ) -> FastAPI:
     """Create the HTTP service without starting application workflows."""
     resolved_settings = settings or Settings.from_environment()
@@ -167,6 +170,7 @@ def create_app(
         applicant_finalization_service = pilot.finalization  # type: ignore[assignment]
         applicant_approval_service = pilot.approval  # type: ignore[assignment]
         applicant_access_service = pilot.access
+        synthetic_applicant_service = pilot.synthetic
     if resolved_settings.applicant_portal_enabled and applicant_turnstile is None:
         applicant_turnstile = TurnstileVerifier(
             resolved_settings.read_turnstile_secret(), resolved_settings.allowed_host
@@ -199,17 +203,13 @@ def create_app(
     application.add_exception_handler(RequestValidationError, validation_exception_handler)
     application.add_exception_handler(Exception, unhandled_exception_handler)
 
-    if resolved_settings.applicant_portal_enabled and applicant_auth_service is not None:
+    if applicant_auth_service is not None and (
+        resolved_settings.applicant_portal_enabled
+        or synthetic_applicant_service is not None
+    ):
         @application.middleware("http")
         async def enforce_live_applicant_identity(request: Request, call_next: Callable) -> Response:
             if request.url.path.startswith("/api/applicant/"):
-                principal = resolve_identity(request)
-                if (
-                    principal is None
-                    or INTERNAL_GROUPS.applicants not in principal.groups
-                    or principal.entra_object_id is None
-                ):
-                    return Response(status_code=404)
                 session = applicant_auth_service.authenticate(
                     request.cookies.get(SESSION_COOKIE, "")
                 )
@@ -218,7 +218,25 @@ def create_app(
                         status_code=401,
                         content={"message": "Authentication required."},
                     )
-                if session.entra_object_id != principal.entra_object_id:
+                principal = resolve_identity(request)
+                if session.synthetic_actor_identity is not None:
+                    if (
+                        principal is None
+                        or INTERNAL_GROUPS.administrators not in principal.groups
+                        or principal.identity.key != session.synthetic_actor_identity
+                    ):
+                        return Response(status_code=404)
+                    if request.url.path.startswith("/api/applicant/documents") or (
+                        request.url.path == "/api/applicant/finalization"
+                        and request.method.upper() != "GET"
+                    ):
+                        return Response(status_code=404)
+                elif (
+                    principal is None
+                    or INTERNAL_GROUPS.applicants not in principal.groups
+                    or principal.entra_object_id is None
+                    or session.entra_object_id != principal.entra_object_id
+                ):
                     return Response(status_code=404)
             return await call_next(request)
 
@@ -230,6 +248,13 @@ def create_app(
         if principal is None:
             raise HTTPException(status_code=404)
         return principal
+
+    if synthetic_applicant_service is not None:
+        register_internal_synthetic_routes(
+            application,
+            authenticated=authenticated,
+            synthetic=synthetic_applicant_service,
+        )
 
     if (
         applicant_access_service is not None

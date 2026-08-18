@@ -79,6 +79,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .shell-card strong { font-size: 1.05rem; }
 .shell-card span { color: var(--muted); line-height: 1.4; overflow-wrap: anywhere; }
 .shell-card em { color: var(--accent); font-style: normal; font-weight: 800; }
+.synthetic-workspace-grid { margin-bottom: 1rem; }
+.synthetic-create-card { width: 100%; cursor: pointer; font: inherit; text-align: left; }
+.synthetic-create-card:focus-visible { border-color: var(--focus); }
 .application-empty, .report-empty { margin-top: 1rem; border: 1px dashed var(--line); border-radius: 1rem; padding: 1.2rem; background: var(--surface); color: var(--muted); }
 .report-grid { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
 .report-card { min-width: 0; border: 1px solid var(--line); border-radius: 1rem; padding: 1rem; background: var(--surface); box-shadow: var(--shadow); }
@@ -148,6 +151,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 
 .applicant-auth-main, .applicant-review-main { width: 94%; margin-inline: 3%; }
+.synthetic-session-banner { width: 100%; min-width: 0; margin: 0 0 1rem; border: 3px solid currentColor; border-radius: .75rem; padding: .75rem 1rem; background: var(--warning); color: #fff; font-weight: 900; line-height: 1.35; overflow-wrap: anywhere; }
 .applicant-auth-card, .application-progress, .review-section { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); padding: clamp(1rem, 2vw, 1.5rem); box-shadow: var(--shadow); }
 .applicant-auth-card form, .review-form { display: grid; gap: 1rem; }
 .applicant-auth-card input, .review-field input, .review-field select, .review-field textarea { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--line); border-radius: .55rem; background: var(--surface); color: var(--text); padding: .7rem; font: inherit; }

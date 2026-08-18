@@ -1,5 +1,6 @@
 (() => {
   const container = document.querySelector("[data-document-slots]");
+  const syntheticBanner = document.querySelector("[data-synthetic-banner]");
   const csrf = () => document.cookie.split("; ").find((item) => item.startsWith("__Host-ehf_applicant_csrf="))?.split("=")[1] || "";
 
   const renderSlot = (slot) => {
@@ -49,6 +50,20 @@
   const load = async () => {
     if (!container) return;
     try {
+      let syntheticAdmin = false;
+      try {
+        const sessionResponse = await fetch("/api/applicant/session", { credentials: "same-origin" });
+        syntheticAdmin = sessionResponse.ok && Boolean((await sessionResponse.json()).syntheticAdmin);
+      } catch (_error) { /* The document request below remains authoritative. */ }
+      if (syntheticAdmin) {
+        if (syntheticBanner) syntheticBanner.hidden = false;
+        document.querySelectorAll("[data-document-operations]").forEach((section) => { section.hidden = true; });
+        container.replaceChildren(Object.assign(document.createElement("p"), {
+          role: "status",
+          textContent: "Documents are unavailable in a synthetic test workspace.",
+        }));
+        return;
+      }
       const response = await fetch("/api/applicant/documents", { credentials: "same-origin" });
       if (!response.ok) throw new Error();
       const body = await response.json();

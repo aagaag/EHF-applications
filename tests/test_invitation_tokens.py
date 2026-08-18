@@ -167,7 +167,7 @@ def test_http_entry_replaces_bearer_url_and_sets_hardened_session_cookies() -> N
         assert all(flag in csrf_cookie for flag in ("Secure", "SameSite=strict", "Path=/"))
         authenticated = client.get("/api/applicant/session")
         assert authenticated.status_code == 200
-        assert authenticated.json() == {"authenticated": True}
+        assert authenticated.json() == {"authenticated": True, "syntheticAdmin": False}
         assert authenticated.headers["cache-control"] == "private, no-store"
 
 

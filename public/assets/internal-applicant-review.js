@@ -2,6 +2,7 @@
   const accessQueue = document.querySelector("[data-access-queue]");
   const previewSection = document.querySelector("#viewpoints");
   const previewList = document.querySelector("[data-preview-list]");
+  const syntheticWorkspace = document.querySelector("[data-synthetic-workspace]");
   const changeQueue = document.querySelector("[data-change-queue]");
   const documentQueue = document.querySelector("[data-document-queue]");
   const detail = document.querySelector("[data-change-detail]");
@@ -33,6 +34,7 @@
     if (!response.ok) throw new Error("preview list unavailable");
     const items = (await response.json()).applications || [];
     previewSection.hidden = false;
+    if (syntheticWorkspace) syntheticWorkspace.hidden = false;
     document.querySelectorAll("[data-preview-nav]").forEach((link) => { link.hidden = false; });
     if (!items.length) { empty(previewList, "No existing portal applications are available."); return; }
     previewList.replaceChildren(...items.map((item) => {

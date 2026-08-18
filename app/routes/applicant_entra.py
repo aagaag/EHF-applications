@@ -43,11 +43,18 @@ def register_applicant_entra_routes(
             if live_entra_applicant:
                 return RedirectResponse("/applicant/sign-in", status_code=303)
             return Response(status_code=404)
-        if session.entra_object_id is not None and (
-            not live_entra_applicant
-            or session.entra_object_id != principal.entra_object_id
-        ):
-            return Response(status_code=404)
+        if session.synthetic_actor_identity is not None:
+            if (
+                principal is None
+                or INTERNAL_GROUPS.administrators not in principal.groups
+                or principal.identity.key != session.synthetic_actor_identity
+            ):
+                return Response(status_code=404)
+        elif session.entra_object_id is not None and (
+                not live_entra_applicant
+                or session.entra_object_id != principal.entra_object_id
+            ):
+                return Response(status_code=404)
         return HTMLResponse(page_html)
 
     @application.get("/applicant/sign-in")
@@ -103,5 +110,13 @@ def register_applicant_entra_routes(
         def applicant_entra_session(request: Request) -> JSONResponse:
             session = auth.authenticate(request.cookies.get(SESSION_COOKIE, ""))
             if session is None:
-                return JSONResponse(status_code=401, content={"authenticated": False})
-            return JSONResponse({"authenticated": True})
+                return JSONResponse(
+                    status_code=401,
+                    content={"authenticated": False, "syntheticAdmin": False},
+                )
+            return JSONResponse(
+                {
+                    "authenticated": True,
+                    "syntheticAdmin": session.synthetic_actor_identity is not None,
+                }
+            )

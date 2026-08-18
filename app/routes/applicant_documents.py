@@ -32,6 +32,8 @@ def register_applicant_document_routes(
         session = _session(auth, request)
         if session is None:
             return _unauthorized()
+        if session.synthetic_actor_identity is not None:
+            return _unavailable()
         slots = []
         for slot in documents.slots(session):
             if slot.active_version_id is not None:
@@ -66,6 +68,8 @@ def register_applicant_document_routes(
         session = _session(auth, request)
         if session is None:
             return _unauthorized()
+        if session.synthetic_actor_identity is not None:
+            return _unavailable()
         if not _valid_csrf(auth, session, request):
             return JSONResponse(status_code=403, content={"message": "The request was rejected."})
         payload = await file.read(MAX_UPLOAD_READ_BYTES)
@@ -106,6 +110,8 @@ def register_applicant_document_routes(
         session = _session(auth, request)
         if session is None:
             return _unauthorized()
+        if session.synthetic_actor_identity is not None:
+            return _unavailable()
         payload = documents.download(session, slot_id)
         if payload is None:
             return JSONResponse(
@@ -137,3 +143,7 @@ def _valid_csrf(
 
 def _unauthorized() -> JSONResponse:
     return JSONResponse(status_code=401, content={"message": "Authentication required."})
+
+
+def _unavailable() -> JSONResponse:
+    return JSONResponse(status_code=404, content={"message": "The document is unavailable."})

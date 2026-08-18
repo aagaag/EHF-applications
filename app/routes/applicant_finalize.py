@@ -33,6 +33,11 @@ def register_applicant_finalize_routes(
         session = _session(auth, request)
         if session is None:
             return _unauthorized()
+        if session.synthetic_actor_identity is not None:
+            return JSONResponse(
+                status_code=404,
+                content={"message": "The application submission is unavailable."},
+            )
         if not _valid_csrf(auth, session, request):
             return JSONResponse(
                 status_code=403, content={"message": "The request was rejected."}
