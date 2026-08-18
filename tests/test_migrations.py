@@ -968,10 +968,25 @@ def test_synthetic_validator_isolates_each_expected_denial_transaction() -> None
         if fixture_name is not None:
             assert fixture_name in phase.group(1)
 
-    for unexpected_success_error in (53910, 53914, 53917, 53920, 53921, 53922, 53924, 53925):
+    for unexpected_success_error in (53910, 53914):
         assert re.search(
             rf"IF @\w+Denied = 0\s*BEGIN\s*"
-            rf"IF XACT_STATE\(\) <> 0 ROLLBACK TRANSACTION;\s*(?:REVERT;\s*)?"
+            rf"IF XACT_STATE\(\) <> 0 ROLLBACK TRANSACTION;\s*"
+            rf"THROW {unexpected_success_error},",
+            validator,
+            flags=re.DOTALL,
+        ), unexpected_success_error
+    for denied_variable, unexpected_success_error in (
+        ("RuntimeDirect", 53917),
+        ("Preview", 53920),
+        ("Provision", 53921),
+        ("Submission", 53922),
+        ("Review", 53924),
+        ("Approval", 53925),
+    ):
+        assert re.search(
+            rf"IF @{denied_variable}Denied = 0\s*BEGIN\s*"
+            rf"IF XACT_STATE\(\) <> 0 ROLLBACK TRANSACTION;\s*REVERT;\s*"
             rf"THROW {unexpected_success_error},",
             validator,
             flags=re.DOTALL,
