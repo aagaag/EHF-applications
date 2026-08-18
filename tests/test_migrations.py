@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_admin_preview() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 16
-    assert sorted(connection.records) == list(range(1, 20))
+    assert applied == 17
+    assert sorted(connection.records) == list(range(1, 21))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,7 +290,7 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_nineteen_migrations() -> None:
+def test_fresh_repository_run_applies_all_twenty_migrations() -> None:
     """Break caught: a new database could omit the synthetic-session boundary."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -298,13 +298,53 @@ def test_fresh_repository_run_applies_all_nineteen_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 20))
-    assert applied == 19
+    assert [migration.version for migration in migrations] == list(range(1, 21))
+    assert applied == 20
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
     }
     assert connection.commit_count == 1
+
+
+def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_boundary() -> None:
+    """Break caught: a later metrics filter could remove the authoritative academic-age derivation."""
+    migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
+
+    assert [migration.path.name for migration in migrations[-2:]] == [
+        "019_synthetic_applicant_workspace.sql",
+        "020_synthetic_metrics_academic_age.sql",
+    ]
+    migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
+        encoding="utf-8"
+    )
+    validator = (
+        VALIDATION_DIRECTORY / "020_validate_synthetic_metrics_academic_age.sql"
+    ).read_text(encoding="utf-8")
+
+    for fragment in (
+        "ALTER PROCEDURE dbo.GetInternalApplicationMetrics",
+        "OPENJSON(qualification_section.SnapshotJson, ''$.degrees'')",
+        "academic_degree.PhdConferralDate",
+        "ApplicationDeadlineUtc",
+        "$.phdDate",
+        "MD_PHD",
+        "ApplicantSyntheticWorkspace",
+    ):
+        assert fragment in migration
+    assert re.search(
+        r"WHERE call_row\.CallCode = N''EHF-2026''\s+AND NOT EXISTS\s*"
+        r"\(\s*SELECT 1 FROM dbo\.ApplicantSyntheticWorkspace",
+        migration,
+        flags=re.IGNORECASE,
+    )
+    for fragment in (
+        "PhdConferralDate",
+        "$.degrees",
+        "$.phdDate",
+        "ApplicantSyntheticWorkspace",
+    ):
+        assert fragment in validator
 
 
 def test_connection_string_uses_only_ehf_names_and_task_2_secret_reader() -> None:
@@ -420,6 +460,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "017_applicant_form_simplification.sql",
         "018_applicant_admin_preview.sql",
         "019_synthetic_applicant_workspace.sql",
+        "020_synthetic_metrics_academic_age.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -441,6 +482,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "017_validate_applicant_form_simplification.sql",
         "018_validate_applicant_admin_preview.sql",
         "019_validate_synthetic_applicant_workspace.sql",
+        "020_validate_synthetic_metrics_academic_age.sql",
     ]
 
 
@@ -721,7 +763,9 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "018_validate_applicant_admin_preview.sql" in script
     assert "019_synthetic_applicant_workspace.sql" in script
     assert "019_validate_synthetic_applicant_workspace.sql" in script
-    assert "Applied 19 migration\\(s\\)\\." in script
+    assert "020_synthetic_metrics_academic_age.sql" in script
+    assert "020_validate_synthetic_metrics_academic_age.sql" in script
+    assert "Applied 20 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -987,14 +1031,14 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_nineteen() -> None:
+def test_database_contract_validator_reports_version_twenty() -> None:
     """Break caught: post-upgrade validation could still require the old schema tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 19" in validator
-    assert "WHERE MigrationCount = 19 AND CurrentVersion = 19" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 20" in validator
+    assert "WHERE MigrationCount = 20 AND CurrentVersion = 20" in validator
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")
