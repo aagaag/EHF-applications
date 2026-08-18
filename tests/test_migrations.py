@@ -919,6 +919,70 @@ def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -
         assert fragment.casefold() in validator.casefold(), fragment
 
 
+def test_synthetic_validator_isolates_each_expected_denial_transaction() -> None:
+    """Break caught: an expected XACT_ABORT failure could doom the shared synthetic fixture transaction."""
+    validator = (
+        VALIDATION_DIRECTORY / "019_validate_synthetic_applicant_workspace.sql"
+    ).read_text(encoding="utf-8")
+
+    assert re.search(
+        r"53911, 'A closed synthetic workspace retained a session\.', 1;\s*"
+        r"ROLLBACK TRANSACTION;\s*-- Expected denial phases\.",
+        validator,
+    )
+    catches = re.findall(
+        r"BEGIN CATCH\s*(.*?)\s*END CATCH;", validator, flags=re.DOTALL
+    )
+    for error_number in (52900, 52910, 52911, 52912, 52913, 52914, 229):
+        matching_catches = [
+            catch for catch in catches if f"<> {error_number}" in catch
+        ]
+        assert matching_catches, error_number
+        for catch in matching_catches:
+            assert "IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;" in catch
+
+    for error_number in (52910, 52911, 52912, 52913, 52914, 229):
+        for catch in (catch for catch in catches if f"<> {error_number}" in catch):
+            assert catch.index("REVERT;") < catch.index("IF XACT_STATE() <> 0")
+
+    denial_section = validator.split("-- Expected denial phases.", 1)[1]
+    for phase_name, fixture_name in (
+        ("Nonmember creation", None),
+        ("Null-group creation", None),
+        ("Runtime direct-DML", None),
+        ("Preview", None),
+        ("Provision", "ApplicantAccessRequest"),
+        ("Final submission", None),
+        ("Submission review", "ApplicantFinalConfirmation"),
+        ("Approval", "ApplicantFinalConfirmation"),
+    ):
+        phase = re.search(
+            rf"-- {phase_name} denial phase\.(.*?)(?=-- .*? denial phase\.|\Z)",
+            denial_section,
+            flags=re.DOTALL,
+        )
+        assert phase is not None, phase_name
+        assert "BEGIN TRANSACTION;" in phase.group(1)
+        if phase_name in {"Preview", "Provision", "Final submission", "Submission review", "Approval"}:
+            assert "EXEC dbo.CreateSyntheticApplicantWorkspace" in phase.group(1)
+        if fixture_name is not None:
+            assert fixture_name in phase.group(1)
+
+    for unexpected_success_error in (53910, 53914, 53917, 53920, 53921, 53922, 53924, 53925):
+        assert re.search(
+            rf"IF @\w+Denied = 0\s*BEGIN\s*(?:REVERT;\s*)?"
+            rf"IF XACT_STATE\(\) <> 0 ROLLBACK TRANSACTION;\s*"
+            rf"THROW {unexpected_success_error},",
+            validator,
+            flags=re.DOTALL,
+        ), unexpected_success_error
+    assert re.search(
+        r"IF XACT_STATE\(\) <> 0 ROLLBACK TRANSACTION;\s*"
+        r"PRINT 'PASS 019 synthetic applicant workspace';\s*$",
+        validator,
+    )
+
+
 def test_sql_login_harness_denies_runtime_direct_synthetic_workspace_dml() -> None:
     """Break caught: the isolated runtime probe could omit the new synthetic marker table."""
     script = (ROOT / "infra" / "test-sql-login.sh").read_text(encoding="utf-8")
