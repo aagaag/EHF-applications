@@ -943,7 +943,7 @@ def test_synthetic_validator_isolates_each_expected_denial_transaction() -> None
 
     for error_number in (52910, 52911, 52912, 52913, 52914, 229):
         for catch in (catch for catch in catches if f"<> {error_number}" in catch):
-            assert catch.index("REVERT;") < catch.index("IF XACT_STATE() <> 0")
+            assert catch.index("IF XACT_STATE() <> 0") < catch.index("REVERT;")
 
     denial_section = validator.split("-- Expected denial phases.", 1)[1]
     for phase_name, fixture_name in (
@@ -970,8 +970,8 @@ def test_synthetic_validator_isolates_each_expected_denial_transaction() -> None
 
     for unexpected_success_error in (53910, 53914, 53917, 53920, 53921, 53922, 53924, 53925):
         assert re.search(
-            rf"IF @\w+Denied = 0\s*BEGIN\s*(?:REVERT;\s*)?"
-            rf"IF XACT_STATE\(\) <> 0 ROLLBACK TRANSACTION;\s*"
+            rf"IF @\w+Denied = 0\s*BEGIN\s*"
+            rf"IF XACT_STATE\(\) <> 0 ROLLBACK TRANSACTION;\s*(?:REVERT;\s*)?"
             rf"THROW {unexpected_success_error},",
             validator,
             flags=re.DOTALL,
@@ -981,6 +981,24 @@ def test_synthetic_validator_isolates_each_expected_denial_transaction() -> None
         r"PRINT 'PASS 019 synthetic applicant workspace';\s*$",
         validator,
     )
+
+
+def test_synthetic_validator_catches_roll_back_before_revert() -> None:
+    """Break caught: REVERT can fail after an XACT_ABORT-denied runtime call dooms its transaction."""
+    validator = (
+        VALIDATION_DIRECTORY / "019_validate_synthetic_applicant_workspace.sql"
+    ).read_text(encoding="utf-8")
+    catches = re.findall(
+        r"BEGIN CATCH\s*(.*?)\s*END CATCH;", validator, flags=re.DOTALL
+    )
+    catches_with_revert = [catch for catch in catches if "REVERT;" in catch]
+
+    assert catches_with_revert
+    for catch in catches_with_revert:
+        assert re.search(
+            r"IF XACT_STATE\(\) <> 0 ROLLBACK TRANSACTION;\s*REVERT;",
+            catch,
+        )
 
 
 def test_sql_login_harness_denies_runtime_direct_synthetic_workspace_dml() -> None:

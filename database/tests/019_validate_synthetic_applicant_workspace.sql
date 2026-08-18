@@ -322,15 +322,15 @@ BEGIN TRY
 END TRY
 BEGIN CATCH
     DECLARE @RuntimeDirectError int = ERROR_NUMBER();
-    REVERT;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    REVERT;
     IF @RuntimeDirectError <> 229 THROW;
     SET @RuntimeDirectDenied = 1;
 END CATCH;
 IF @RuntimeDirectDenied = 0
 BEGIN
-    REVERT;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    REVERT;
     THROW 53917, 'Runtime directly read the synthetic workspace marker.', 1;
 END;
 
@@ -360,15 +360,15 @@ BEGIN TRY
 END TRY
 BEGIN CATCH
     DECLARE @PreviewError int = ERROR_NUMBER();
-    REVERT;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    REVERT;
     IF @PreviewError <> 52910 THROW;
     SET @PreviewDenied = 1;
 END CATCH;
 IF @PreviewDenied = 0
 BEGIN
-    REVERT;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    REVERT;
     THROW 53920, 'Synthetic workspace opened in applicant preview.', 1;
 END;
 
@@ -408,15 +408,15 @@ BEGIN TRY
 END TRY
 BEGIN CATCH
     DECLARE @ProvisionError int = ERROR_NUMBER();
-    REVERT;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    REVERT;
     IF @ProvisionError <> 52911 THROW;
     SET @ProvisionDenied = 1;
 END CATCH;
 IF @ProvisionDenied = 0
 BEGIN
-    REVERT;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    REVERT;
     THROW 53921, 'Synthetic workspace received an Entra applicant identity.', 1;
 END;
 
@@ -449,15 +449,15 @@ BEGIN TRY
 END TRY
 BEGIN CATCH
     DECLARE @SubmissionError int = ERROR_NUMBER();
-    REVERT;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    REVERT;
     IF @SubmissionError <> 52913 THROW;
     SET @SubmissionDenied = 1;
 END CATCH;
 IF @SubmissionDenied = 0
 BEGIN
-    REVERT;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    REVERT;
     THROW 53922, 'Synthetic workspace submitted a final confirmation.', 1;
 END;
 
@@ -495,15 +495,15 @@ BEGIN TRY
 END TRY
 BEGIN CATCH
     DECLARE @ReviewError int = ERROR_NUMBER();
-    REVERT;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    REVERT;
     IF @ReviewError <> 52914 THROW;
     SET @ReviewDenied = 1;
 END CATCH;
 IF @ReviewDenied = 0
 BEGIN
-    REVERT;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    REVERT;
     THROW 53924, 'Synthetic workspace opened in submission review.', 1;
 END;
 
@@ -542,15 +542,15 @@ BEGIN TRY
 END TRY
 BEGIN CATCH
     DECLARE @ApprovalError int = ERROR_NUMBER();
-    REVERT;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    REVERT;
     IF @ApprovalError <> 52912 THROW;
     SET @ApprovalDenied = 1;
 END CATCH;
 IF @ApprovalDenied = 0
 BEGIN
-    REVERT;
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    REVERT;
     THROW 53925, 'Synthetic workspace entered approval.', 1;
 END;
 
