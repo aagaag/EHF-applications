@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -92,6 +93,61 @@ def test_entra_sign_in_sets_an_application_session_only_for_ehf_applicants() -> 
     )
     with TestClient(denied, base_url="https://localhost") as client:
         assert client.get("/applicant/sign-in", follow_redirects=False).status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("path", "heading"),
+    (
+        ("/applicant/review", "Review your application"),
+        ("/applicant/documents", "Your application documents"),
+        ("/applicant/final-review", "Final review and submission"),
+    ),
+)
+def test_signed_in_entra_applicant_can_open_canonical_workspace_pages(
+    path: str, heading: str
+) -> None:
+    """Break caught: extensionless workspace links could fall through to the JSON 404."""
+    service, _repository = _service()
+    applicant = AuthenticatedIdentity(
+        Identity("cloudflare:subject", "pilot@example.test", "Pilot"),
+        frozenset({INTERNAL_GROUPS.applicants}),
+        entra_object_id=ENTRA_A,
+    )
+    app = create_app(
+        Settings.from_environment({}),
+        readiness_checks=ReadinessChecks(lambda _timeout: None, lambda _timeout: None),
+        identity_resolver=lambda _request: applicant,
+        applicant_auth_service=service,
+    )
+
+    with TestClient(app, base_url="https://localhost") as client:
+        assert client.get("/applicant/sign-in", follow_redirects=False).status_code == 303
+        response = client.get(path, follow_redirects=False)
+
+    assert response.status_code == 200
+    assert heading in response.text
+
+
+def test_canonical_workspace_page_bootstraps_a_missing_application_session() -> None:
+    """Break caught: a valid Entra applicant opening a direct page link could see a JSON 404."""
+    service, _repository = _service()
+    applicant = AuthenticatedIdentity(
+        Identity("cloudflare:subject", "pilot@example.test", "Pilot"),
+        frozenset({INTERNAL_GROUPS.applicants}),
+        entra_object_id=ENTRA_A,
+    )
+    app = create_app(
+        Settings.from_environment({}),
+        readiness_checks=ReadinessChecks(lambda _timeout: None, lambda _timeout: None),
+        identity_resolver=lambda _request: applicant,
+        applicant_auth_service=service,
+    )
+
+    with TestClient(app, base_url="https://localhost") as client:
+        response = client.get("/applicant/review", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/applicant/sign-in"
 
 
 def test_cloudflare_resolver_preserves_verified_entra_object_id_for_mapping(monkeypatch) -> None:  # type: ignore[no-untyped-def]

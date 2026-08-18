@@ -416,6 +416,9 @@ def create_app(
             include_session_probe=not (
                 legacy_invitation_routes_enabled and applicant_dependencies_ready
             ),
+            review_page=public_root / "applicant" / "review.html",
+            documents_page=public_root / "applicant" / "documents.html",
+            final_review_page=public_root / "applicant" / "final-review.html",
         )
     applicant_routes_enabled = (
         resolved_settings.environment != "production"
