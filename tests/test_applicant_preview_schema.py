@@ -8,6 +8,7 @@ from app.migrations import discover_migrations
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "database" / "migrations" / "018_applicant_admin_preview.sql"
 VALIDATOR = ROOT / "database" / "tests" / "018_validate_applicant_admin_preview.sql"
+PERMISSION_VALIDATOR = ROOT / "database" / "tests" / "005_validate_application_permissions.sql"
 
 
 def test_release_eighteen_adds_an_admin_only_audited_applicant_preview_boundary() -> None:
@@ -42,3 +43,10 @@ def test_release_eighteen_validator_checks_authorization_audit_and_exact_record_
         "PASS 018 applicant administrator preview",
     ):
         assert fragment in source
+
+
+def test_runtime_permission_validator_approves_only_the_new_preview_procedures() -> None:
+    source = PERMISSION_VALIDATOR.read_text(encoding="utf-8")
+
+    assert "(N'ListApplicantPreviews')" in source
+    assert "(N'GetApplicantPreview')" in source
