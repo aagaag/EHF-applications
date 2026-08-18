@@ -4,11 +4,16 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 import hashlib
 import hmac
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
 
-from app.applicant.sql_pilot import ApplicantSqlSessionScope, SqlEntraApplicantAuthRepository
+from app.applicant.sql_pilot import (
+    ApplicantSqlSessionScope,
+    SqlEntraApplicantAuthRepository,
+    build_entra_applicant_services,
+)
 from app.applicant.synthetic import SyntheticApplicantWorkspaceService
 from app.auth.applicant import (
     ApplicantAuthService,
@@ -56,6 +61,27 @@ class Connection:
 
     def commit(self) -> None:
         self.commits += 1
+
+
+class FactoryConnection(Connection):
+    def __init__(self) -> None:
+        super().__init__([])
+
+    def fetchone(self) -> object | None:
+        statement, arguments = self.calls[-1]
+        if "CreateSyntheticApplicantWorkspace" in statement:
+            return (APPLICATION,)
+        if "GetApplicantSessionV19" in statement:
+            return (
+                APPLICATION,
+                bytes(reversed(range(32))),
+                NOW + timedelta(minutes=30),
+                NOW + timedelta(hours=24),
+                None,
+                None,
+                "cloudflare:administrator",
+            )
+        raise AssertionError(f"Unexpected SQL statement: {statement}")
 
 
 def _connections(connection: Connection):
@@ -106,6 +132,69 @@ def test_sql_creation_uses_server_derived_tokens_and_only_the_returned_applicati
     ).digest()
     assert session.application_id == APPLICATION
     assert connection.commits == 1
+
+
+def test_production_factory_exposes_a_ready_synthetic_service_with_the_sql_session_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Break caught: routes could receive no usable synthetic service from production startup."""
+    connection = FactoryConnection()
+    settings = SimpleNamespace(
+        read_session_pepper=lambda: PEPPER.decode("ascii"),
+        read_otp_pepper=lambda: "synthetic-workspace-otp-pepper-at-least-32-bytes",
+        document_root=str(tmp_path / "objects"),
+        document_encryption_keyring_path=str(tmp_path / "keyring"),
+    )
+    monkeypatch.setattr(
+        "app.applicant.sql_pilot.connect", lambda _settings: _connections(connection)()
+    )
+    monkeypatch.setattr("app.applicant.sql_pilot.load_keyring", lambda _path: object())
+
+    services = build_entra_applicant_services(settings)
+    created = services.synthetic.create("cloudflare:administrator", INTERNAL_GROUPS.administrators)
+    context = services.auth.authenticate(created.session_token, NOW)
+
+    assert context is not None
+    assert context.synthetic_actor_identity == "cloudflare:administrator"
+    create_call = next(call for call in connection.calls if "CreateSyntheticApplicantWorkspace" in call[0])
+    lookup_call = next(call for call in connection.calls if "GetApplicantSessionV19" in call[0])
+    assert lookup_call[1][0] == create_call[1][2]
+
+
+@pytest.mark.parametrize(
+    ("invitation_id", "entra_object_id"),
+    (
+        (UUID("b2000000-0000-4000-8000-000000000002"), None),
+        (None, UUID("b3000000-0000-4000-8000-000000000002")),
+    ),
+)
+def test_v19_lookup_preserves_legacy_invitation_and_entra_sources(
+    invitation_id: UUID | None, entra_object_id: UUID | None
+) -> None:
+    """Break caught: version-19 lookup could discard legacy applicant session sources."""
+    connection = Connection(
+        [
+            (
+                APPLICATION,
+                bytes(reversed(range(32))),
+                NOW + timedelta(minutes=30),
+                NOW + timedelta(hours=24),
+                invitation_id,
+                entra_object_id,
+                None,
+            )
+        ]
+    )
+    repository = SqlEntraApplicantAuthRepository(
+        _connections(connection), ApplicantSqlSessionScope(), PEPPER
+    )
+
+    session = repository.session(bytes(range(32)), NOW)
+
+    assert session is not None
+    assert session.invitation_id == invitation_id
+    assert session.entra_object_id == entra_object_id
+    assert session.synthetic_actor_identity is None
 
 
 @pytest.mark.parametrize(

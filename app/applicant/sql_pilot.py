@@ -48,6 +48,7 @@ from app.applicant.projection import _RawProjection
 from app.applicant.projection import ApplicantProjectionService
 from app.applicant.review import ApplicantReviewService
 from app.applicant.publications import PublicationLookupReceipts
+from app.applicant.synthetic import SyntheticApplicantWorkspaceService
 from app.auth.applicant import (
     ApplicantAuthService,
     ApplicantSessionContext,
@@ -77,6 +78,7 @@ ConnectionFactory = Callable[[], AbstractContextManager[Any]]
 @dataclass(frozen=True, slots=True)
 class EntraApplicantServices:
     auth: ApplicantAuthService
+    synthetic: SyntheticApplicantWorkspaceService
     projection: ApplicantProjectionService
     review: ApplicantReviewService
     documents: "SqlApplicantDocumentService"
@@ -106,6 +108,7 @@ def build_entra_applicant_services(settings: Settings) -> EntraApplicantServices
     )  # type: ignore[arg-type]
     return EntraApplicantServices(
         auth=auth,
+        synthetic=SyntheticApplicantWorkspaceService(auth_repository),
         projection=ApplicantProjectionService(
             SqlSyntheticProjectionRepository(connections, scope)  # type: ignore[arg-type]
         ),
