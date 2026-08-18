@@ -748,6 +748,12 @@ def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -
         flags=re.IGNORECASE,
     )
     assert re.search(
+        r"EXEC\(N'\s*ALTER TABLE dbo\.ApplicantSession\s+"
+        r"ADD CONSTRAINT CK_ApplicantSession_AuthenticationSource CHECK",
+        migration,
+        flags=re.IGNORECASE,
+    ), "The replacement session constraint must compile after SyntheticActorIdentity exists."
+    assert re.search(
         r"CK_ApplicantSession_AuthenticationSource.*?"
         r"ApplicantInvitationId IS NOT NULL AND EntraObjectId IS NULL AND SyntheticActorIdentity IS NULL.*?"
         r"ApplicantInvitationId IS NULL AND EntraObjectId IS NOT NULL AND SyntheticActorIdentity IS NULL.*?"

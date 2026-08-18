@@ -23,11 +23,13 @@ DROP CONSTRAINT CK_ApplicantSession_AuthenticationSource;
 ALTER TABLE dbo.ApplicantSession
 ADD SyntheticActorIdentity nvarchar(255) NULL;
 
+EXEC(N'
 ALTER TABLE dbo.ApplicantSession
 ADD CONSTRAINT CK_ApplicantSession_AuthenticationSource CHECK
     ((ApplicantInvitationId IS NOT NULL AND EntraObjectId IS NULL AND SyntheticActorIdentity IS NULL)
      OR (ApplicantInvitationId IS NULL AND EntraObjectId IS NOT NULL AND SyntheticActorIdentity IS NULL)
      OR (ApplicantInvitationId IS NULL AND EntraObjectId IS NULL AND SyntheticActorIdentity IS NOT NULL));
+');
 
 EXEC(N'
 CREATE PROCEDURE dbo.CreateSyntheticApplicantWorkspace
