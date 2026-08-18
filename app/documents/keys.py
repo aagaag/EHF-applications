@@ -6,6 +6,7 @@ import base64
 import binascii
 import json
 import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -33,13 +34,18 @@ class Keyring:
             raise KeyringError("A required document encryption key is unavailable.") from error
 
 
+def _is_safe_posix_credential_mode(mode: int) -> bool:
+    """Accept private files and systemd's root-group-readable credential mount."""
+    return stat.S_IMODE(mode) in {0o400, 0o440, 0o600, 0o640}
+
+
 def load_keyring(credential_path: Path) -> Keyring:
     """Read a versioned keyring from a systemd credential file, never the environment."""
     try:
         metadata = credential_path.stat()
         if not credential_path.is_file():
             raise KeyringError("The document encryption credential is unavailable.")
-        if os.name != "nt" and metadata.st_mode & 0o077:
+        if os.name != "nt" and not _is_safe_posix_credential_mode(metadata.st_mode):
             raise KeyringError("The document encryption credential permissions are unsafe.")
         value = json.loads(credential_path.read_text(encoding="utf-8"))
         active_version = value["active_key_version"]
