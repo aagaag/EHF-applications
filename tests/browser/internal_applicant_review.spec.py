@@ -31,6 +31,21 @@ def test_internal_approval_renders_degree_and_publication_lists_readably() -> No
                 "**/api/internal/applicant-document-submissions",
                 lambda route: route.fulfill(json={"submissions": []}),
             )
+            page.route(
+                "**/api/internal/applicant-previews",
+                lambda route: route.fulfill(
+                    json={
+                        "applications": [
+                            {
+                                "applicationId": "a7000000-0000-4000-8000-000000000001",
+                                "applicantName": "Synthetic Preview Applicant",
+                                "applicationStatus": "IMPORTED",
+                                "href": "/internal/applicant-previews/a7000000-0000-4000-8000-000000000001",
+                            }
+                        ]
+                    }
+                ),
+            )
 
             page.route(
                 "**/api/internal/applicant-submissions/confirmation-1",
@@ -75,6 +90,12 @@ def test_internal_approval_renders_degree_and_publication_lists_readably() -> No
             page.set_content(html, wait_until="domcontentloaded")
             page.add_script_tag(
                 path=str(ROOT / "public" / "assets" / "internal-applicant-review.js")
+            )
+
+            preview = page.get_by_role("link", name="Synthetic Preview Applicant")
+            expect(preview).to_be_visible()
+            assert preview.get_attribute("href") == (
+                "/internal/applicant-previews/a7000000-0000-4000-8000-000000000001"
             )
 
             page.get_by_role("button", name="Inspect changes").click()

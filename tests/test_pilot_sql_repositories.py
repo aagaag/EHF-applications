@@ -65,6 +65,40 @@ class Connection:
         self.commits += 1
 
 
+class MultiResultCursor:
+    def __init__(self, result_sets: list[list[tuple[object, ...]]]) -> None:
+        self.result_sets = result_sets
+        self.index = 0
+        self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+    def execute(self, sql: str, *parameters: object):
+        self.calls.append((sql, parameters))
+        return self
+
+    def fetchone(self):
+        rows = self.result_sets[self.index]
+        return rows[0] if rows else None
+
+    def fetchall(self):
+        return list(self.result_sets[self.index])
+
+    def nextset(self):
+        self.index += 1
+        return self.index < len(self.result_sets)
+
+
+class MultiResultConnection:
+    def __init__(self, result_sets: list[list[tuple[object, ...]]]) -> None:
+        self.cursor = MultiResultCursor(result_sets)
+        self.commits = 0
+
+    def execute(self, sql: str, *parameters: object):
+        return self.cursor.execute(sql, *parameters)
+
+    def commit(self) -> None:
+        self.commits += 1
+
+
 class ErrorConnection(Connection):
     def __init__(self, message: str) -> None:
         super().__init__([])
@@ -325,6 +359,77 @@ def test_unclassifiable_legacy_employment_answer_is_an_actionable_approval_block
         )
 
     assert blocked.value.section == "employment"
+
+
+def test_administrator_preview_repository_lists_and_loads_saved_applicant_form() -> None:
+    summary_connection = Connection(
+        [(str(APPLICATION_A), "Synthetic Applicant", "IMPORTED")]
+    )
+    service = SqlApplicantApprovalService(factory(summary_connection))
+
+    summaries = service.previews("EHF-Administrators")
+
+    assert summaries[0].application_id == APPLICATION_A
+    assert summaries[0].applicant_name == "Synthetic Applicant"
+    assert summary_connection.cursor.calls[0][1] == ("EHF-Administrators",)
+    assert "ListApplicantPreviews" in summary_connection.cursor.calls[0][0]
+
+    detail_connection = MultiResultConnection(
+        [
+            [
+                (
+                    str(APPLICATION_A),
+                    "Synthetic Applicant",
+                    "IMPORTED",
+                    '{"applicant":{"fullName":"Synthetic Applicant"}}',
+                )
+            ],
+            [("identity", '{"telephone":"+41 71 111 11 11"}')],
+        ]
+    )
+    detail_service = SqlApplicantApprovalService(factory(detail_connection))
+
+    preview = detail_service.preview(
+        APPLICATION_A,
+        actor="cloudflare:administrator",
+        actor_group="EHF-Administrators",
+    )
+
+    assert preview.baseline["applicant"]["fullName"] == "Synthetic Applicant"
+    assert preview.drafts["identity"]["telephone"] == "+41 71 111 11 11"
+    assert detail_connection.cursor.calls[0][1] == (
+        APPLICATION_A,
+        "cloudflare:administrator",
+        "EHF-Administrators",
+    )
+    assert "GetApplicantPreview" in detail_connection.cursor.calls[0][0]
+    assert detail_connection.commits == 1
+
+
+def test_applicant_preview_repository_is_administrator_only() -> None:
+    service = SqlApplicantApprovalService(factory(Connection([])))
+
+    with pytest.raises(PermissionError):
+        service.previews("EHF-Trustees")
+    with pytest.raises(PermissionError):
+        service.preview(
+            APPLICATION_A,
+            actor="cloudflare:trustee",
+            actor_group="EHF-Trustees",
+        )
+
+
+def test_unknown_sql_applicant_preview_is_translated_to_a_neutral_lookup_error() -> None:
+    service = SqlApplicantApprovalService(
+        factory(ErrorConnection("[52811] The applicant preview is unavailable."))
+    )
+
+    with pytest.raises(LookupError):
+        service.preview(
+            APPLICATION_A,
+            actor="cloudflare:administrator",
+            actor_group="EHF-Administrators",
+        )
 
 
 def test_return_for_correction_sql_races_are_translated_to_route_errors() -> None:

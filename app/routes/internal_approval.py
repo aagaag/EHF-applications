@@ -7,7 +7,7 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.applicant.approval import (
     ApplicantApprovalBlocked,
@@ -15,8 +15,10 @@ from app.applicant.approval import (
     REVIEWER_GROUPS,
 )
 from app.applicant.fields import upgrade_legacy_applicant, upgrade_legacy_section
+from app.applicant.admin_preview import render_applicant_preview
 from app.identity import AuthenticatedIdentity
 from app.http import is_same_origin_write
+from app.navigation import INTERNAL_GROUPS
 
 
 def register_internal_approval_routes(
@@ -25,6 +27,38 @@ def register_internal_approval_routes(
     authenticated: Callable[[Request], AuthenticatedIdentity],
     approval: ApplicantApprovalService,
 ) -> None:
+    @application.get("/api/internal/applicant-previews")
+    def applicant_previews(request: Request) -> JSONResponse:
+        principal = authenticated(request)
+        group = _administrator_group(principal)
+        return JSONResponse(jsonable_encoder({
+            "applications": [
+                {
+                    "applicationId": item.application_id,
+                    "applicantName": item.applicant_name,
+                    "applicationStatus": item.application_status,
+                    "href": f"/internal/applicant-previews/{item.application_id}",
+                }
+                for item in approval.previews(group)
+            ]
+        }))
+
+    @application.get("/internal/applicant-previews/{application_id}")
+    def applicant_preview(application_id: str, request: Request) -> HTMLResponse:
+        principal = authenticated(request)
+        group = _administrator_group(principal)
+        try:
+            preview_id = UUID(application_id)
+        except ValueError:
+            raise HTTPException(status_code=404) from None
+        try:
+            bundle = approval.preview(
+                preview_id, actor=principal.identity.key, actor_group=group
+            )
+        except LookupError:
+            raise HTTPException(status_code=404) from None
+        return HTMLResponse(render_applicant_preview(bundle))
+
     @application.get("/api/internal/applicant-submissions")
     def pending_applicant_submissions(request: Request) -> JSONResponse:
         principal = authenticated(request)
@@ -237,4 +271,10 @@ def _reviewer_group(principal: AuthenticatedIdentity) -> str:
         return "EHF-Administrators"
     if principal.groups & {"EHF-Trustees"}:
         return "EHF-Trustees"
+    raise HTTPException(status_code=404)
+
+
+def _administrator_group(principal: AuthenticatedIdentity) -> str:
+    if INTERNAL_GROUPS.administrators in principal.groups:
+        return INTERNAL_GROUPS.administrators
     raise HTTPException(status_code=404)

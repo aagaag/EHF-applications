@@ -1,5 +1,7 @@
 (() => {
   const accessQueue = document.querySelector("[data-access-queue]");
+  const previewSection = document.querySelector("#viewpoints");
+  const previewList = document.querySelector("[data-preview-list]");
   const changeQueue = document.querySelector("[data-change-queue]");
   const documentQueue = document.querySelector("[data-document-queue]");
   const detail = document.querySelector("[data-change-detail]");
@@ -25,6 +27,24 @@
     const controls = document.createElement("div"); controls.className = "review-actions"; actions.forEach((action) => controls.append(action)); article.append(controls); return article;
   };
   const empty = (target, message) => { target.replaceChildren(Object.assign(document.createElement("p"), { textContent: message })); };
+  const loadPreviews = async () => {
+    const response = await fetch("/api/internal/applicant-previews", { credentials: "same-origin" });
+    if (response.status === 404) return;
+    if (!response.ok) throw new Error("preview list unavailable");
+    const items = (await response.json()).applications || [];
+    previewSection.hidden = false;
+    document.querySelectorAll("[data-preview-nav]").forEach((link) => { link.hidden = false; });
+    if (!items.length) { empty(previewList, "No existing portal applications are available."); return; }
+    previewList.replaceChildren(...items.map((item) => {
+      const link = document.createElement("a");
+      link.className = "shell-card";
+      link.href = item.href;
+      const name = document.createElement("strong"); name.textContent = item.applicantName;
+      const state = document.createElement("span"); state.textContent = `Application status: ${item.applicationStatus}`;
+      link.append(name, state);
+      return link;
+    }));
+  };
   const load = async () => {
     const [access, changes, documents] = await Promise.all([
       fetch("/api/internal/applicant-access-requests", { credentials: "same-origin" }),
@@ -87,4 +107,5 @@
     finally { control.disabled = false; }
   });
   load().catch(() => show("The review queues could not be loaded."));
+  loadPreviews().catch(() => show("The applicant viewpoint list could not be loaded."));
 })();

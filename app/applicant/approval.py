@@ -60,6 +60,22 @@ class ApplicantSubmissionBundle:
     drafts: dict[str, dict[str, Any]]
 
 
+@dataclass(frozen=True, slots=True)
+class ApplicantPreviewSummary:
+    application_id: UUID
+    applicant_name: str
+    application_status: str
+
+
+@dataclass(frozen=True, slots=True)
+class ApplicantPreviewBundle:
+    application_id: UUID
+    applicant_name: str
+    application_status: str
+    baseline: dict[str, Any]
+    drafts: dict[str, dict[str, Any]]
+
+
 class ApplicantApprovalService:
     """In-memory implementation used by domain and HTTP tests."""
 
@@ -93,6 +109,18 @@ class ApplicantApprovalService:
         return ApplicantSubmissionBundle(
             confirmation_id, review.application_id, {}, {}, {}
         )
+
+    def previews(self, actor_group: str) -> tuple[ApplicantPreviewSummary, ...]:
+        if actor_group != INTERNAL_GROUPS.administrators:
+            raise PermissionError("Administrator authorization is required.")
+        return ()
+
+    def preview(
+        self, application_id: UUID, *, actor: str, actor_group: str
+    ) -> ApplicantPreviewBundle:
+        if actor_group != INTERNAL_GROUPS.administrators or not actor.strip():
+            raise PermissionError("Administrator authorization is required.")
+        raise LookupError("The applicant preview is unavailable.")
 
     def approve(
         self, confirmation_id: UUID, *, actor: str, actor_group: str

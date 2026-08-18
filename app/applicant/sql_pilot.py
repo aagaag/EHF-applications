@@ -38,6 +38,8 @@ from app.applicant.finalize import (
 from app.applicant.approval import (
     ApplicantApprovalBlocked,
     ApplicantDocumentReview,
+    ApplicantPreviewBundle,
+    ApplicantPreviewSummary,
     ApplicantSubmissionBundle,
     ApplicantSubmissionReview,
     REVIEWER_GROUPS,
@@ -763,6 +765,59 @@ class SqlApplicantApprovalService:
         return tuple(
             ApplicantSubmissionReview(UUID(str(row[0])), UUID(str(row[1])), _utc(row[2]))
             for row in rows
+        )
+
+    def previews(self, actor_group: str) -> tuple[ApplicantPreviewSummary, ...]:
+        if actor_group != INTERNAL_GROUPS.administrators:
+            raise PermissionError("Administrator authorization is required.")
+        with self._connections() as connection:
+            rows = connection.execute(
+                "EXEC dbo.ListApplicantPreviews @ActorGroup = ?", actor_group
+            ).fetchall()
+        return tuple(
+            ApplicantPreviewSummary(UUID(str(row[0])), str(row[1]), str(row[2]))
+            for row in rows
+        )
+
+    def preview(
+        self, application_id: UUID, *, actor: str, actor_group: str
+    ) -> ApplicantPreviewBundle:
+        if actor_group != INTERNAL_GROUPS.administrators or not actor.strip():
+            raise PermissionError("Administrator authorization is required.")
+        try:
+            with self._connections() as connection:
+                cursor = connection.execute(
+                    "EXEC dbo.GetApplicantPreview "
+                    "@ApplicationId = ?, @ActorIdentity = ?, @ActorGroup = ?",
+                    application_id,
+                    actor.strip(),
+                    actor_group,
+                )
+                header = cursor.fetchone()
+                if header is None:
+                    raise LookupError("The applicant preview is unavailable.")
+                cursor.nextset()
+                rows = cursor.fetchall()
+                connection.commit()
+        except pyodbc.Error as error:
+            if _sql_error_has(error, "52811"):
+                raise LookupError("The applicant preview is unavailable.") from None
+            raise
+        try:
+            baseline = json.loads(str(header[3]))
+            drafts = {str(row[0]): json.loads(str(row[1])) for row in rows}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raise RuntimeError("The applicant preview bundle is invalid.") from None
+        if not isinstance(baseline, dict) or not all(
+            isinstance(values, dict) for values in drafts.values()
+        ):
+            raise RuntimeError("The applicant preview bundle is invalid.")
+        return ApplicantPreviewBundle(
+            UUID(str(header[0])),
+            str(header[1]),
+            str(header[2]),
+            baseline,
+            drafts,
         )
 
     def detail(self, confirmation_id: UUID) -> ApplicantSubmissionBundle:

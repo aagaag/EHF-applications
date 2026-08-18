@@ -12,7 +12,7 @@ VALIDATOR = ROOT / "database" / "tests" / "017_validate_applicant_form_simplific
 
 def test_release_seventeen_migrates_repeatable_degrees_and_simplified_projection() -> None:
     migrations = discover_migrations(ROOT / "database" / "migrations")
-    assert migrations[-1].path.name == MIGRATION.name
+    assert MIGRATION.name in {migration.path.name for migration in migrations}
     source = MIGRATION.read_text(encoding="utf-8")
 
     for fragment in (
