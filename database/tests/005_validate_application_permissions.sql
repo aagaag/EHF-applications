@@ -29,7 +29,18 @@ INSERT @ApprovedProcedures VALUES
     (N'GetInternalApplicationMetrics'), (N'RecordReportExportAudit'),
     (N'SaveApplicantSectionDraft'), (N'ConfirmApplicantSection'),
     (N'SubmitApplicantFinalConfirmation'), (N'GetApplicantFacingApplication'),
-    (N'ValidateApplicantUploadSlot'), (N'GetApplicantDocumentSlots');
+    (N'ValidateApplicantUploadSlot'), (N'GetApplicantDocumentSlots'),
+    (N'GetApplicationForEntraApplicant'), (N'RequestApplicantAccess'),
+    (N'ListPendingApplicantAccessRequests'), (N'ReviewApplicantAccessRequest'),
+    (N'ProvisionApplicantAccessRequest'),
+    (N'CreateEntraApplicantSession'), (N'GetApplicantSession'),
+    (N'GetApplicantProjection'), (N'GetApplicantSectionDraft'),
+    (N'GetApplicantSectionConfirmation'),
+    (N'RegisterApplicantDocumentSubmission'), (N'GetApplicantDocumentDownload'),
+    (N'GetApplicantFinalDocuments'), (N'GetApplicantFinalDocumentIssues'),
+    (N'ListPendingApplicantDocumentSubmissions'),
+    (N'ReviewApplicantDocumentSubmission'), (N'ListPendingApplicantSubmissions'),
+    (N'GetApplicantSubmissionReview'), (N'ApproveApplicantSubmission');
 DECLARE @DeniedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
 INSERT @DeniedProcedures VALUES (N'ReopenApplicantScope');
 DECLARE @ProtectedTables TABLE (TableName sysname NOT NULL PRIMARY KEY);
@@ -46,7 +57,9 @@ INSERT @ProtectedTables VALUES
     (N'ApplicantRateLimitBucket'), (N'ApplicantSectionDraft'),
     (N'ApplicantFieldCorrection'), (N'ApplicantSectionConfirmation'),
     (N'ApplicantFinalConfirmation'), (N'ApplicantReopenScope'),
-    (N'ApplicantDocumentSubmission');
+    (N'ApplicantDocumentSubmission'), (N'ApplicantAccessRequest'),
+    (N'ApplicantEntraIdentity'), (N'ApplicantPortalBaseline'),
+    (N'ApplicantFinalReviewDecision'), (N'ApplicantDocumentReviewDecision');
 DECLARE @RequiredDmlDenies TABLE (TableName sysname NOT NULL, PermissionName sysname NOT NULL, PRIMARY KEY (TableName, PermissionName));
 INSERT @RequiredDmlDenies
 SELECT TableName, PermissionName

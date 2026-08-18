@@ -52,6 +52,12 @@ def allowed_hosts(settings: Any) -> frozenset[str]:
     return frozenset({settings.allowed_host, "127.0.0.1", "::1"})
 
 
+def is_same_origin_write(request: Any) -> bool:
+    """Require browser state-changing requests to originate at the exact EHF origin."""
+    expected = f"{request.url.scheme}://{request.url.netloc}".casefold()
+    return request.headers.get("origin", "").strip().casefold() == expected
+
+
 class SecurityMiddleware:
     """Validate host and streaming body size before a handler can consume content."""
 

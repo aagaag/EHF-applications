@@ -33,6 +33,10 @@ class FinalizationBlocked(RuntimeError):
         self.unresolved = unresolved
 
 
+class FinalizationSessionUnavailable(RuntimeError):
+    """The database rejected a final write because its applicant session disappeared."""
+
+
 @dataclass(frozen=True, slots=True)
 class FinalConfirmation:
     confirmation_id: UUID

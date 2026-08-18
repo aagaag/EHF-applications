@@ -47,6 +47,7 @@ EXPECTED_RUNTIME_REQUIREMENTS = [
 
 EXPECTED_DEV_REQUIREMENTS = [
     "pytest==9.1.1",
+    "httpx2==2.10.0",
     "playwright==1.62.0",
     "axe-playwright-python==0.1.8",
 ]

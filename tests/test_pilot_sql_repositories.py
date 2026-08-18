@@ -1,0 +1,277 @@
+from __future__ import annotations
+
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
+from uuid import UUID
+
+from app.applicant.sql_pilot import (
+    ApplicantSqlSessionScope,
+    SqlApplicantDocumentRepository,
+    SqlApplicantFinalizationService,
+    SqlSyntheticDraftRepository,
+    SqlSyntheticProjectionRepository,
+)
+from app.applicant.confirmations import SectionConfirmation
+from app.applicant.drafts import DraftConflict, DraftLocked, DraftSnapshot
+from app.applicant.finalize import (
+    FinalizationBlocked,
+    FinalizationSessionUnavailable,
+    REQUIRED_SECTIONS,
+)
+import pyodbc
+
+
+APPLICATION_A = UUID("91000000-0000-4000-8000-000000000001")
+APPLICATION_B = UUID("91000000-0000-4000-8000-000000000002")
+SESSION_HASH = b"s" * 32
+
+
+class Cursor:
+    def __init__(self, rows: list[tuple[object, ...]]) -> None:
+        self.rows = rows
+        self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+    def execute(self, sql: str, *parameters: object):
+        self.calls.append((sql, parameters))
+        return self
+
+    def fetchone(self):
+        return self.rows.pop(0) if self.rows else None
+
+    def fetchall(self):
+        rows, self.rows = self.rows, []
+        return rows
+
+
+class Connection:
+    def __init__(self, rows: list[tuple[object, ...]]) -> None:
+        self.cursor = Cursor(rows)
+        self.commits = 0
+
+    def execute(self, sql: str, *parameters: object):
+        return self.cursor.execute(sql, *parameters)
+
+    def commit(self) -> None:
+        self.commits += 1
+
+
+class ErrorConnection(Connection):
+    def __init__(self, message: str) -> None:
+        super().__init__([])
+        self.message = message
+
+    def execute(self, sql: str, *parameters: object):
+        raise pyodbc.Error(self.message)
+
+
+def factory(connection: Connection):
+    @contextmanager
+    def connect():
+        yield connection
+
+    return connect
+
+
+def test_projection_uses_the_authenticated_session_and_rejects_a_mismatched_row() -> None:
+    """Break caught: a caller-supplied application ID could select another applicant record."""
+    scope = ApplicantSqlSessionScope()
+    scope.bind(SESSION_HASH)
+    connection = Connection(
+        [
+            (
+                str(APPLICATION_A),
+                '{"applicant":{"fullName":"Synthetic A"},"sections":{},"documents":[]}',
+            ),
+            (
+                str(APPLICATION_A),
+                '{"applicant":{"fullName":"Synthetic A"},"sections":{},"documents":[]}',
+            ),
+        ]
+    )
+    repository = SqlSyntheticProjectionRepository(factory(connection), scope)
+
+    own = repository.load(APPLICATION_A)
+    other = repository.load(APPLICATION_B)
+
+    assert own is not None
+    assert own.applicant["fullName"] == "Synthetic A"
+    assert other is None
+    assert all(parameters == (SESSION_HASH,) for _sql, parameters in connection.cursor.calls)
+    assert all(str(APPLICATION_A) not in sql for sql, _parameters in connection.cursor.calls)
+    assert all(str(APPLICATION_B) not in sql for sql, _parameters in connection.cursor.calls)
+
+
+def test_draft_save_derives_scope_from_session_not_the_requested_application_id() -> None:
+    """Break caught: draft writes could trust a browser-selected application identifier."""
+    scope = ApplicantSqlSessionScope()
+    scope.bind(SESSION_HASH)
+    row_version = (7).to_bytes(8, "big")
+    connection = Connection(
+        [(
+            "93000000-0000-4000-8000-000000000001",
+            str(APPLICATION_A),
+            "identity",
+            '{"fullName":"Changed"}',
+            row_version,
+        )]
+    )
+    repository = SqlSyntheticDraftRepository(factory(connection), scope)
+
+    saved = repository.save(
+        APPLICATION_A,
+        "identity",
+        {"fullName": "Changed"},
+        None,
+        "APPLICANT",
+    )
+
+    sql, parameters = connection.cursor.calls[0]
+    assert "SaveApplicantSectionDraft" in sql
+    assert parameters[0] == SESSION_HASH
+    assert APPLICATION_A not in parameters
+    assert saved.application_id == APPLICATION_A
+    assert saved.row_version == 7
+    assert connection.commits == 1
+
+
+def test_session_scope_is_request_local_and_expires_closed() -> None:
+    """Break caught: one applicant session could leak into another request or worker task."""
+    scope = ApplicantSqlSessionScope()
+    assert scope.current() is None
+    scope.bind(SESSION_HASH)
+    assert scope.current() == SESSION_HASH
+    scope.clear()
+    assert scope.current() is None
+
+
+def test_document_slot_lookup_is_session_scoped_and_excludes_other_records() -> None:
+    """Break caught: a supplied slot or application ID could cross the Entra session boundary."""
+    scope = ApplicantSqlSessionScope()
+    scope.bind(SESSION_HASH)
+    slot_id = UUID("92000000-0000-4000-8000-000000000001")
+    connection = Connection(
+        [
+            (
+                str(slot_id),
+                "CV",
+                "Curriculum vitae",
+                True,
+                "MISSING",
+                (4).to_bytes(8, "big"),
+                None,
+                None,
+                "CV",
+            )
+        ]
+    )
+    repository = SqlApplicantDocumentRepository(factory(connection), scope)
+
+    slots = repository.applicant_slots(
+        type("Session", (), {"application_id": APPLICATION_A})()
+    )
+
+    assert len(slots) == 1
+    assert slots[0].application_id == APPLICATION_A
+    assert slots[0].slot_id == slot_id
+    sql, parameters = connection.cursor.calls[0]
+    assert "GetApplicantDocumentSlots" in sql
+    assert parameters == (SESSION_HASH,)
+    assert APPLICATION_A not in parameters
+
+
+def test_draft_sql_conflict_and_lock_are_translated_to_workflow_exceptions() -> None:
+    scope = ApplicantSqlSessionScope()
+    scope.bind(SESSION_HASH)
+    for message, expected in [
+        ("[52026] The applicant draft changed before save.", DraftConflict),
+        ("[52025] The applicant draft is locked.", DraftLocked),
+    ]:
+        repository = SqlSyntheticDraftRepository(factory(ErrorConnection(message)), scope)
+        try:
+            repository.save(APPLICATION_A, "identity", {"fullName": "A"}, 1, "APPLICANT")
+        except Exception as error:
+            assert isinstance(error, expected)
+        else:
+            raise AssertionError("The SQL workflow exception was not translated.")
+
+
+def test_finalization_preview_includes_sql_document_completion_issues() -> None:
+    snapshots = {
+        section: DraftSnapshot(APPLICATION_A, section, {"ok": True}, index + 1)
+        for index, section in enumerate(REQUIRED_SECTIONS)
+    }
+
+    class Drafts:
+        def load(self, application_id, section):
+            assert application_id == APPLICATION_A
+            return snapshots[section]
+
+    class Confirmations:
+        def current(self, application_id, section):
+            snapshot = snapshots[section]
+            return SectionConfirmation(application_id, section, snapshot.row_version, "a" * 64)
+
+        def is_current(self, application_id, section, snapshot):
+            return True
+
+    class Documents:
+        def completion_issues(self):
+            return ("document:CV",)
+
+        def final_documents(self):
+            return ()
+
+    scope = ApplicantSqlSessionScope()
+    service = SqlApplicantFinalizationService(
+        factory(Connection([])), scope, Drafts(), Confirmations(), Documents()
+    )
+    session = type("Session", (), {"application_id": APPLICATION_A})()
+
+    preview = service.preview(session)
+
+    assert preview["ready"] is False
+    assert preview["unresolved"] == ("document:CV",)
+
+
+def test_finalization_sql_races_are_translated_to_stable_workflow_errors() -> None:
+    snapshots = {
+        section: DraftSnapshot(APPLICATION_A, section, {"ok": True}, index + 1)
+        for index, section in enumerate(REQUIRED_SECTIONS)
+    }
+
+    class Drafts:
+        def load(self, _application_id, section):
+            return snapshots[section]
+
+    class Confirmations:
+        def current(self, _application_id, section):
+            snapshot = snapshots[section]
+            return SectionConfirmation(APPLICATION_A, section, snapshot.row_version, "a" * 64)
+
+        def is_current(self, _application_id, _section, _snapshot):
+            return True
+
+    class Documents:
+        def completion_issues(self):
+            return ()
+
+        def final_documents(self):
+            return ()
+
+    session = type("Session", (), {"application_id": APPLICATION_A})()
+    for message, expected in [
+        ("[52133] The applicant session is unavailable.", FinalizationSessionUnavailable),
+        ("[52135] Every applicant section must be represented once.", FinalizationBlocked),
+        ("[52136] An applicant section is missing or stale.", FinalizationBlocked),
+    ]:
+        scope = ApplicantSqlSessionScope()
+        scope.bind(SESSION_HASH)
+        service = SqlApplicantFinalizationService(
+            factory(ErrorConnection(message)), scope, Drafts(), Confirmations(), Documents()
+        )
+        try:
+            service.submit(session)
+        except Exception as error:
+            assert isinstance(error, expected)
+        else:
+            raise AssertionError("The finalization SQL error was not translated.")

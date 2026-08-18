@@ -66,6 +66,7 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/013_applicant_confirmations.sql",
     "database/migrations/014_applicant_projection.sql",
     "database/migrations/015_applicant_document_slots.sql",
+    "database/migrations/016_entra_applicant_workflow.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -81,6 +82,7 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/013_validate_applicant_confirmations.sql",
     "database/tests/014_validate_applicant_projection.sql",
     "database/tests/015_validate_applicant_document_slots.sql",
+    "database/tests/016_validate_entra_applicant_workflow.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",

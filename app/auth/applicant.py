@@ -104,6 +104,8 @@ class StoredSession:
     idle_expires_at: datetime
     absolute_expires_at: datetime
     revoked_at: datetime | None = None
+    invitation_id: UUID | None = None
+    entra_object_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +123,7 @@ class ApplicantSessionContext:
     csrf_hash: bytes
     idle_expires_at: datetime
     absolute_expires_at: datetime
+    entra_object_id: UUID | None = None
 
 
 class InMemoryApplicantAuthRepository:
@@ -132,6 +135,22 @@ class InMemoryApplicantAuthRepository:
         self._contexts: dict[bytes, PreAuthRecord] = {}
         self._challenges: dict[bytes, ChallengeRecord] = {}
         self._sessions: dict[bytes, StoredSession] = {}
+        self._entra_applications: dict[UUID, UUID] = {}
+        self._application_identities: dict[UUID, UUID] = {}
+
+    def link_entra_identity(self, entra_object_id: UUID, application_id: UUID) -> None:
+        existing_application = self._entra_applications.get(entra_object_id)
+        existing_identity = self._application_identities.get(application_id)
+        if existing_application not in {None, application_id} or existing_identity not in {
+            None,
+            entra_object_id,
+        }:
+            raise ValueError("an Entra identity and application must map one-to-one")
+        self._entra_applications[entra_object_id] = application_id
+        self._application_identities[application_id] = entra_object_id
+
+    def application_for_entra(self, entra_object_id: UUID) -> UUID | None:
+        return self._entra_applications.get(entra_object_id)
 
     def add_invitation(
         self,
@@ -285,14 +304,44 @@ class ApplicantAuthService:
             return None
         challenge.consumed_at = timestamp
         context.consumed_at = timestamp
+        return self._create_session(invitation, timestamp)
+
+    def establish_entra(
+        self, entra_object_id: UUID, now: datetime | None = None
+    ) -> NewApplicantSession | None:
+        timestamp = _aware_utc(now)
+        lookup = getattr(self._repository, "application_for_entra", None)
+        application_id = lookup(entra_object_id) if lookup is not None else None
+        if application_id is None:
+            return None
+        return self._create_session_for(
+            application_id, timestamp, entra_object_id=entra_object_id
+        )
+
+    def _create_session(
+        self, invitation: InvitationRecord, timestamp: datetime
+    ) -> NewApplicantSession:
+        return self._create_session_for(
+            invitation.application_id, timestamp, invitation.invitation_id
+        )
+
+    def _create_session_for(
+        self,
+        application_id: UUID,
+        timestamp: datetime,
+        invitation_id: UUID | None = None,
+        entra_object_id: UUID | None = None,
+    ) -> NewApplicantSession:
         raw_session = new_opaque_token()
         raw_csrf = new_opaque_token()
         stored = StoredSession(
-            invitation.application_id,
+            application_id,
             _keyed_hash(raw_session, self._session_pepper),
             _keyed_hash(raw_csrf, self._session_pepper),
             timestamp + SESSION_IDLE_LIFETIME,
             timestamp + SESSION_ABSOLUTE_LIFETIME,
+            invitation_id=invitation_id,
+            entra_object_id=entra_object_id,
         )
         self._repository.put_session(stored)
         return NewApplicantSession(
@@ -323,6 +372,7 @@ class ApplicantAuthService:
             stored.csrf_hash,
             stored.idle_expires_at,
             stored.absolute_expires_at,
+            stored.entra_object_id,
         )
 
     def valid_csrf(self, context: ApplicantSessionContext, csrf_token: str) -> bool:

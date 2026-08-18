@@ -65,10 +65,13 @@ class Settings:
     administrator_group_id: str | None
     trustee_group_id: str | None
     selection_committee_group_id: str | None
+    applicant_group_id: str | None
     document_root: str | None
     quarantine_root: str | None
     invitations_enabled: bool
     production_mail_enabled: bool
+    applicant_portal_enabled: bool
+    turnstile_site_key: str | None
     approved_mail_sender: str | None
     mail_transport: str | None
     internal_mail_delivery_test_receipt: str | None
@@ -115,6 +118,9 @@ class Settings:
         production_mail_enabled = _boolean(
             values.get("EHF_PRODUCTION_MAIL_ENABLED"), "production mail enabled"
         )
+        applicant_portal_enabled = _boolean(
+            values.get("EHF_APPLICANT_PORTAL_ENABLED"), "applicant portal enabled"
+        )
         approved_mail_sender = _approved_sender(
             _optional_value(values, "EHF_APPROVED_MAIL_SENDER")
         )
@@ -130,6 +136,16 @@ class Settings:
             raise ConfigurationError(
                 "production mail requires an approved sender, explicit mail transport, "
                 "and internal delivery-test receipt"
+            )
+        applicant_group_id = _optional_value(values, "EHF_APPLICANT_GROUP_ID")
+        turnstile_site_key = _optional_value(values, "EHF_TURNSTILE_SITE_KEY")
+        if environment == "production" and applicant_portal_enabled and not applicant_group_id:
+            raise ConfigurationError(
+                "the applicant portal requires the EHF applicant group ID"
+            )
+        if environment == "production" and applicant_portal_enabled and not turnstile_site_key:
+            raise ConfigurationError(
+                "the applicant portal requires the Turnstile site key"
             )
 
         return cls(
@@ -149,10 +165,13 @@ class Settings:
             selection_committee_group_id=_optional_value(
                 values, "EHF_SELECTION_COMMITTEE_GROUP_ID"
             ),
+            applicant_group_id=applicant_group_id,
             document_root=document_root,
             quarantine_root=quarantine_root,
             invitations_enabled=invitations_enabled,
             production_mail_enabled=production_mail_enabled,
+            applicant_portal_enabled=applicant_portal_enabled,
+            turnstile_site_key=turnstile_site_key,
             approved_mail_sender=approved_mail_sender,
             mail_transport=mail_transport,
             internal_mail_delivery_test_receipt=internal_mail_delivery_test_receipt,
@@ -182,6 +201,8 @@ class Settings:
             "allowed_host": self.allowed_host,
             "invitations_enabled": self.invitations_enabled,
             "production_mail_enabled": self.production_mail_enabled,
+            "applicant_portal_enabled": self.applicant_portal_enabled,
+            "turnstile_site_key_configured": bool(self.turnstile_site_key),
             "cloudflare_access_configured": bool(
                 self.cloudflare_access_issuer and self.cloudflare_access_audience
             ),

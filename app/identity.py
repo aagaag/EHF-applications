@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import logging
 from typing import Any
+from uuid import UUID
 
 import httpx
 import jwt
@@ -24,6 +25,7 @@ class AuthenticatedIdentity:
 
     identity: Identity
     groups: frozenset[str] = frozenset()
+    entra_object_id: UUID | None = None
 
 
 IdentityResolver = Callable[[Request], AuthenticatedIdentity | None]
@@ -41,17 +43,20 @@ class CloudflareAccessIdentityResolver:
         self,
         *,
         issuer: str,
-        audience: str,
+        audience: str | tuple[str, ...],
         administrator_group_id: str,
         trustee_group_id: str,
+        applicant_group_id: str | None = None,
         timeout_seconds: float = 4.0,
     ) -> None:
         self._issuer = issuer.rstrip("/")
-        self._audience = audience
+        self._audience = list(audience) if isinstance(audience, tuple) else audience
         self._group_map = {
             administrator_group_id.casefold(): "EHF-Administrators",
             trustee_group_id.casefold(): "EHF-Trustees",
         }
+        if applicant_group_id:
+            self._group_map[applicant_group_id.casefold()] = "EHF-Applicants"
         self._timeout = timeout_seconds
         self._keys = jwt.PyJWKClient(f"{self._issuer}/cdn-cgi/access/certs", cache_keys=True)
 
@@ -110,9 +115,14 @@ class CloudflareAccessIdentityResolver:
             if not groups:
                 return self._deny("authorized-group-missing")
             display_name = str(idp.get("name") or identity_payload.get("name") or email).strip()
+            custom_claims = claims.get("custom")
+            entra_object_id = _uuid_or_none(
+                custom_claims.get("oid") if isinstance(custom_claims, dict) else None
+            )
             return AuthenticatedIdentity(
                 identity=Identity(f"cloudflare:{subject}", email, display_name),
                 groups=groups,
+                entra_object_id=entra_object_id,
             )
         except (KeyError, TypeError, ValueError):
             return self._deny("invalid-resolved-identity")
@@ -139,3 +149,10 @@ def _group_ids(value: Any) -> frozenset[str]:
         for item in value
         if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"].strip()
     )
+
+
+def _uuid_or_none(value: Any) -> UUID | None:
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return None

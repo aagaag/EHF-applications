@@ -28,6 +28,12 @@ contents in this repository, in a command line, or in a deployment log.
    EHF_PRODUCTION_MAIL_ENABLED=false
    ```
 
+   The Entra applicant portal uses the exact internal and applicant Access
+   audience tags as a comma-separated `EHF_CLOUDFLARE_ACCESS_AUDIENCE` value.
+   Enabling `EHF_APPLICANT_PORTAL_ENABLED=true` also requires the canonical
+   `EHF_APPLICANT_GROUP_ID` and the non-secret `EHF_TURNSTILE_SITE_KEY` whose
+   widget permits `ehf.isab.science`.
+
 3. Place these root-owned `0640` files in `/etc/ehf`, group `ehf`:
 
    - `document-keyring`
@@ -79,7 +85,7 @@ The path variable contains a path, not a password. Do not echo it or replace it
 with a credential value. The script builds `git archive` bytes for the exact
 commit, stages only fixed `/tmp/ehf-<pid>` paths, then creates only the exact
 `EHFApplications` database when it is absent. The release helper applies its
-checksum-bound migrations and the fifteen fixed validators before isolated SQL
+checksum-bound migrations and the sixteen fixed validators before isolated SQL
 principal verification and application-login setup. It refuses other database
 names and unexpected migration state. Only after all installer and repository
 tests pass does it change `/opt/ehf/current`, then it checks loopback readiness.

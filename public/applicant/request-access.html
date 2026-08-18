@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>EHF Fellowships — request applicant access</title>
+    <link rel="stylesheet" href="../assets/site.css">
+  </head>
+  <body data-shell>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <aside class="app-nav" id="application-navigation" aria-label="Application navigation" data-open="false">
+      <div class="app-nav-top">
+        <span class="app-nav-home"><img src="../assets/isab-logo.svg" alt="ISAB"><span class="app-nav-title">EHF Fellowships</span></span>
+        <span class="app-nav-domain">ehf.isab.science</span>
+        <span class="app-nav-purpose">Request a secure applicant identity before starting an application.</span>
+      </div>
+      <nav class="app-nav-list app-nav-lower" aria-label="Help navigation"><a class="app-nav-link" href="#help">Help</a></nav>
+    </aside>
+    <main class="site-main applicant-auth-main" id="main-content" tabindex="-1">
+      <header class="site-hero"><h1>Request applicant access</h1><p>The Foundation reviews each request before creating an Entra identity and granting access to an application record.</p></header>
+      <section class="applicant-auth-card" aria-labelledby="request-heading">
+        <div class="section-heading"><h2 id="request-heading">Your details</h2><p>Use an email address that you control. It will become the sign-in address for your own application only.</p></div>
+        <form data-access-request-form>
+          <label for="access-display-name">Full name</label>
+          <input id="access-display-name" name="displayName" autocomplete="name" maxlength="300" required>
+          <label for="access-email">Email address</label>
+          <input id="access-email" name="email" type="email" autocomplete="email" maxlength="320" required>
+          <div class="cf-turnstile" data-turnstile-widget data-sitekey="__EHF_TURNSTILE_SITE_KEY__" data-action="applicant-access-request" data-callback="ehfAccessTurnstileVerified" data-expired-callback="ehfAccessTurnstileExpired" data-error-callback="ehfAccessTurnstileError"></div>
+          <button type="submit" class="primary-action" disabled>Submit request</button>
+        </form>
+        <p class="form-status" role="status" aria-live="polite" data-access-status></p>
+      </section>
+      <section id="help" class="section-heading"><h2>Help</h2><p>After approval, the Foundation will send instructions for activating your Entra identity and opening your application.</p></section>
+    </main>
+    <script src="../assets/applicant-access.js"></script>
+  </body>
+</html>

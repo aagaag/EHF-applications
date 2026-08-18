@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>EHF Fellowships — applicant review</title><link rel="stylesheet" href="/assets/site.css"></head>
+  <body data-shell>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <button class="app-nav-toggle" type="button" aria-controls="application-navigation" aria-expanded="false" aria-label="Open application navigation"><span aria-hidden="true">☰</span> Menu</button><div class="app-nav-backdrop" hidden></div>
+    <aside class="app-nav" id="application-navigation" aria-label="Application navigation" data-open="false" inert>
+      <div class="app-nav-top"><a class="app-nav-home" href="/internal/"><img src="/assets/isab-logo.svg" alt="ISAB"><span class="app-nav-title">EHF Fellowships</span></a><span class="app-nav-domain">ehf.isab.science</span><span class="app-nav-purpose">Review applicant access and proposed record changes.</span></div>
+      <div class="app-nav-scroll"><nav class="app-nav-list" aria-label="Primary navigation"><a class="app-nav-link" href="/internal/">Overview</a><a class="app-nav-link" href="#access">Access requests</a><a class="app-nav-link" href="#changes">Record changes</a><a class="app-nav-link" href="#documents">Documents</a></nav></div>
+      <nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation"><a class="app-nav-link" href="#help">Help</a><div class="app-nav-authorizations"><strong>Authorizations:</strong><span class="app-nav-authorization-pills"><span class="app-nav-authorization-pill group-pill-1">EHF-Administrators</span><span class="app-nav-authorization-pill group-pill-2">EHF-Trustees</span></span></div></nav>
+    </aside>
+    <main class="site-main" id="main-content" tabindex="-1">
+      <header class="site-hero"><h1>Applicant review</h1><p>Nothing submitted by an applicant becomes approved until an administrator or trustee records a decision.</p></header>
+      <section id="access"><div class="section-heading"><h2>Entra access requests</h2><p>Approve only after confirming the applicant and email address. After the Entra guest has been created and added to EHF-Applicants, bind its object ID to exactly one application here.</p></div><div class="shell-grid" data-access-queue><p role="status">Loading access requests…</p></div></section>
+      <section id="changes"><div class="section-heading"><h2>Application changes</h2><p>Open a submission to compare the original portal record with every proposed section, then approve the complete change set.</p></div><div class="shell-grid" data-change-queue><p role="status">Loading application changes…</p></div><div data-change-detail></div></section>
+      <section id="documents"><div class="section-heading"><h2>Uploaded documents</h2><p>Accept a clean applicant PDF to make it the active version, or reject it with a reason and reopen the slot.</p></div><div class="shell-grid" data-document-queue><p role="status">Loading document submissions…</p></div></section>
+      <section id="help" class="section-heading"><h2>Help</h2><p>Use stable submission identifiers for audit. Do not approve an identity or record if its ownership or contents are uncertain.</p></section>
+      <p class="form-status" role="status" aria-live="polite" data-review-status></p>
+    </main>
+    <script src="/assets/theme.js"></script><script src="/assets/shell.js"></script><script src="/assets/internal-applicant-review.js"></script>
+  </body>
+</html>

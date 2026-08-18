@@ -6,7 +6,11 @@ from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from app.applicant.finalize import FinalizationBlocked, FinalizationService
+from app.applicant.finalize import (
+    FinalizationBlocked,
+    FinalizationService,
+    FinalizationSessionUnavailable,
+)
 from app.auth.applicant import ApplicantAuthService, ApplicantSessionContext
 from app.routes.applicant_auth import CSRF_COOKIE, SESSION_COOKIE
 
@@ -35,6 +39,8 @@ def register_applicant_finalize_routes(
             )
         try:
             confirmation = finalization.submit(session)
+        except FinalizationSessionUnavailable:
+            return _unauthorized()
         except FinalizationBlocked as error:
             return JSONResponse(
                 status_code=422,

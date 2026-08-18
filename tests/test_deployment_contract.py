@@ -72,6 +72,13 @@ def test_nginx_only_serves_the_exact_ehf_host_and_loopback_upstream() -> None:
     assert "0.0.0.0:8086" not in source
 
 
+def test_nginx_allows_the_same_bounded_pdf_upload_size_as_the_application() -> None:
+    """Break caught: Nginx could reject valid applicant PDFs before application validation."""
+    source = NGINX.read_text(encoding="utf-8")
+
+    assert "client_max_body_size 27m;" in source
+
+
 def test_sql_dml_denial_probe_uses_columns_declared_by_current_import_migrations() -> None:
     """Break caught: the isolated permission probe could stop at a nonexistent migration column."""
     source = SQL_LOGIN_TEST.read_text(encoding="utf-8")

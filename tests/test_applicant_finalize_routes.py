@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.applicant.confirmations import SectionConfirmationService
 from app.applicant.documents import DocumentSlotRepository
 from app.applicant.drafts import InMemoryDraftRepository
-from app.applicant.finalize import FinalizationService
+from app.applicant.finalize import FinalizationService, FinalizationSessionUnavailable
 from app.applicant.review import ApplicantReviewService
 from app.auth.applicant import (
     ApplicantAuthService,
@@ -23,7 +23,7 @@ from app.config import Settings
 from app.main import ReadinessChecks, create_app
 
 
-def _client() -> TestClient:
+def _client(finalization_override=None) -> TestClient:
     application_id = UUID("75000000-0000-4000-8000-000000000001")
     repository = InMemoryApplicantAuthRepository()
     auth = ApplicantAuthService(
@@ -52,7 +52,7 @@ def _client() -> TestClient:
     drafts = InMemoryDraftRepository()
     confirmations = SectionConfirmationService()
     review = ApplicantReviewService(drafts, confirmations)
-    finalization = FinalizationService(
+    finalization = finalization_override or FinalizationService(
         review, drafts, confirmations, DocumentSlotRepository()
     )
     app = create_app(
@@ -93,3 +93,24 @@ def test_finalization_preview_is_scoped_and_submission_requires_csrf() -> None:
         assert "section:contribution" in blocked.json()["unresolved"]
     finally:
         client.close()
+
+
+def test_lost_sql_session_returns_401_instead_of_500() -> None:
+    class LostSessionFinalization:
+        def preview(self, _session):
+            return {"manifest": {}, "unresolved": (), "ready": True}
+
+        def submit(self, _session):
+            raise FinalizationSessionUnavailable("session unavailable")
+
+    client = _client(LostSessionFinalization())
+    try:
+        csrf = client.cookies.get("__Host-ehf_applicant_csrf")
+        response = client.post(
+            "/api/applicant/finalization", headers={"x-csrf-token": csrf}
+        )
+    finally:
+        client.close()
+
+    assert response.status_code == 401
+    assert response.json()["message"] == "Authentication required."

@@ -34,7 +34,23 @@ def test_development_defaults_keep_external_effects_disabled() -> None:
     assert settings.allowed_host == "localhost"
     assert settings.invitations_enabled is False
     assert settings.production_mail_enabled is False
+    assert settings.applicant_portal_enabled is False
 
+
+def test_entra_applicant_portal_is_an_independent_non_mail_production_gate() -> None:
+    """Break caught: a test pilot could silently enable real invitations or mail."""
+    settings = Settings.from_environment(
+        production_environment()
+        | {
+            "EHF_APPLICANT_PORTAL_ENABLED": "true",
+            "EHF_APPLICANT_GROUP_ID": "applicant-group-id",
+            "EHF_TURNSTILE_SITE_KEY": "0x4AAAAAAA-production-site-key",
+        }
+    )
+
+    assert settings.applicant_portal_enabled is True
+    assert settings.invitations_enabled is False
+    assert settings.production_mail_enabled is False
 
 @pytest.mark.parametrize(
     ("variable", "expected_name"),
@@ -235,6 +251,8 @@ def test_diagnostics_are_a_redacted_allowlist() -> None:
         "allowed_host": "ehf.isab.science",
         "invitations_enabled": False,
         "production_mail_enabled": False,
+        "applicant_portal_enabled": False,
+        "turnstile_site_key_configured": False,
         "cloudflare_access_configured": True,
         "internal_groups_configured": True,
         "document_storage_configured": True,
@@ -330,3 +348,18 @@ def test_production_mail_gate_accepts_typed_microsoft_graph_configuration() -> N
     assert settings.approved_mail_sender == "ehf-notifications@isab.science"
     assert settings.mail_transport == "microsoft-graph"
     assert settings.internal_mail_delivery_test_receipt == "2f24c2d4-2be9-4eb3-937d-43f5f4b0af33"
+
+
+def test_production_applicant_portal_requires_a_turnstile_site_key() -> None:
+    environment = production_environment() | {
+        "EHF_APPLICANT_PORTAL_ENABLED": "true",
+        "EHF_APPLICANT_GROUP_ID": "55caf353-80bb-4805-81f0-e31b6fc84b23",
+    }
+
+    with pytest.raises(ConfigurationError, match="Turnstile site key"):
+        Settings.from_environment(environment)
+
+    settings = Settings.from_environment(
+        environment | {"EHF_TURNSTILE_SITE_KEY": "0x4AAAAAAA-production-site-key"}
+    )
+    assert settings.turnstile_site_key == "0x4AAAAAAA-production-site-key"

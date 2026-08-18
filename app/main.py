@@ -7,7 +7,7 @@ import math
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -18,12 +18,15 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import Settings
 from app.auth.applicant import ApplicantAuthService
-from app.auth.rate_limit import InMemoryRateLimiter
+from app.auth.rate_limit import InMemoryRateLimiter, RateLimitPolicy
 from app.auth.turnstile import TurnstileVerifier
 from app.applicant.projection import ApplicantProjectionService
 from app.applicant.review import ApplicantReviewService
 from app.applicant.documents import ApplicantDocumentService
 from app.applicant.finalize import FinalizationService
+from app.applicant.approval import ApplicantApprovalService
+from app.applicant.access import ApplicantAccessService
+from app.applicant.sql_pilot import build_entra_applicant_services
 from app.db import connect
 from app.errors import (
     http_exception_handler,
@@ -57,6 +60,9 @@ from app.routes.applicant_data import register_applicant_data_routes
 from app.routes.applicant_review import register_applicant_review_routes
 from app.routes.applicant_documents import register_applicant_document_routes
 from app.routes.applicant_finalize import register_applicant_finalize_routes
+from app.routes.applicant_entra import register_applicant_entra_routes
+from app.routes.internal_approval import register_internal_approval_routes
+from app.routes.applicant_access import register_applicant_access_routes
 from app.http import SecurityMiddleware
 
 
@@ -139,6 +145,8 @@ def create_app(
     applicant_document_service: ApplicantDocumentService | None = None,
     applicant_finalization_service: FinalizationService | None = None,
     applicant_turnstile_site_key: str | None = None,
+    applicant_approval_service: ApplicantApprovalService | None = None,
+    applicant_access_service: ApplicantAccessService | None = None,
 ) -> FastAPI:
     """Create the HTTP service without starting application workflows."""
     resolved_settings = settings or Settings.from_environment()
@@ -147,6 +155,23 @@ def create_app(
         storage_probe=lambda timeout: _probe_storage(resolved_settings, timeout),
     )
     resolve_identity = identity_resolver or _production_identity_resolver(resolved_settings)
+    if resolved_settings.applicant_portal_enabled and applicant_auth_service is None:
+        pilot = build_entra_applicant_services(resolved_settings)
+        applicant_auth_service = pilot.auth
+        applicant_projection_service = pilot.projection
+        applicant_review_service = pilot.review
+        applicant_document_service = pilot.documents  # type: ignore[assignment]
+        applicant_finalization_service = pilot.finalization  # type: ignore[assignment]
+        applicant_approval_service = pilot.approval  # type: ignore[assignment]
+        applicant_access_service = pilot.access
+    if resolved_settings.applicant_portal_enabled and applicant_turnstile is None:
+        applicant_turnstile = TurnstileVerifier(
+            resolved_settings.read_turnstile_secret(), resolved_settings.allowed_host
+        )
+    if resolved_settings.applicant_portal_enabled and applicant_rate_limiter is None:
+        applicant_rate_limiter = InMemoryRateLimiter(
+            RateLimitPolicy(limit=20, window=timedelta(minutes=10))
+        )
     preferences = preference_repository or SqlPreferenceRepository(lambda: connect(resolved_settings))
     metrics = metric_repository or (
         SqlMetricRepository(lambda: connect(resolved_settings))
@@ -165,6 +190,29 @@ def create_app(
     application.add_exception_handler(RequestValidationError, validation_exception_handler)
     application.add_exception_handler(Exception, unhandled_exception_handler)
 
+    if resolved_settings.applicant_portal_enabled and applicant_auth_service is not None:
+        @application.middleware("http")
+        async def enforce_live_applicant_identity(request: Request, call_next: Callable) -> Response:
+            if request.url.path.startswith("/api/applicant/"):
+                principal = resolve_identity(request)
+                if (
+                    principal is None
+                    or INTERNAL_GROUPS.applicants not in principal.groups
+                    or principal.entra_object_id is None
+                ):
+                    return Response(status_code=404)
+                session = applicant_auth_service.authenticate(
+                    request.cookies.get(SESSION_COOKIE, "")
+                )
+                if session is None:
+                    return JSONResponse(
+                        status_code=401,
+                        content={"message": "Authentication required."},
+                    )
+                if session.entra_object_id != principal.entra_object_id:
+                    return Response(status_code=404)
+            return await call_next(request)
+
     public_root = Path(__file__).resolve().parents[1] / "public"
     application.mount("/assets", StaticFiles(directory=public_root / "assets"), name="assets")
 
@@ -173,6 +221,32 @@ def create_app(
         if principal is None:
             raise HTTPException(status_code=404)
         return principal
+
+    if (
+        applicant_access_service is not None
+        and applicant_turnstile is not None
+        and applicant_rate_limiter is not None
+    ):
+        register_applicant_access_routes(
+            application,
+            access=applicant_access_service,
+            turnstile=applicant_turnstile,
+            rate_limiter=applicant_rate_limiter,
+            authenticated=authenticated,
+            page=public_root / "applicant" / "request-access.html",
+            turnstile_site_key=(
+                applicant_turnstile_site_key
+                or resolved_settings.turnstile_site_key
+                or ""
+            ),
+        )
+
+    if applicant_approval_service is not None:
+        register_internal_approval_routes(
+            application,
+            authenticated=authenticated,
+            approval=applicant_approval_service,
+        )
 
     @application.get("/", response_class=RedirectResponse)
     def home(request: Request) -> RedirectResponse:
@@ -192,6 +266,15 @@ def create_app(
             else INTERNAL_GROUPS.trustees
         )
         return HTMLResponse(render_internal_preview(principal, records=metrics.load(role)))
+
+    @application.get("/internal/applicant-review", response_class=HTMLResponse)
+    def internal_applicant_review(request: Request) -> HTMLResponse:
+        principal = authenticated(request)
+        if not principal.groups & {INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}:
+            raise HTTPException(status_code=404)
+        return HTMLResponse(
+            (public_root / "internal" / "applicant-review.html").read_text(encoding="utf-8")
+        )
 
     @application.get("/internal/reports/metrics.xlsx")
     def metrics_workbook(request: Request) -> Response:
@@ -321,13 +404,27 @@ def create_app(
         and applicant_turnstile is not None
         and applicant_rate_limiter is not None
     )
-    applicant_routes_enabled = (
+    legacy_invitation_routes_enabled = (
         resolved_settings.environment != "production"
         or resolved_settings.invitations_enabled
     )
+    if applicant_auth_service is not None:
+        register_applicant_entra_routes(
+            application,
+            auth=applicant_auth_service,
+            resolve_identity=resolve_identity,
+            include_session_probe=not (
+                legacy_invitation_routes_enabled and applicant_dependencies_ready
+            ),
+        )
+    applicant_routes_enabled = (
+        resolved_settings.environment != "production"
+        or resolved_settings.invitations_enabled
+        or resolved_settings.applicant_portal_enabled
+    )
     if resolved_settings.invitations_enabled and not applicant_dependencies_ready:
         raise RuntimeError("Applicant invitations are enabled without the required portal services.")
-    if applicant_routes_enabled and applicant_dependencies_ready:
+    if legacy_invitation_routes_enabled and applicant_dependencies_ready:
         register_applicant_auth_routes(
             application,
             auth=applicant_auth_service,
@@ -336,9 +433,11 @@ def create_app(
             verify_page=public_root / "applicant" / "verify.html",
             turnstile_site_key=(
                 applicant_turnstile_site_key
-                or os.environ.get("EHF_TURNSTILE_SITE_KEY", "").strip()
+                or resolved_settings.turnstile_site_key
+                or ""
             ),
         )
+    if applicant_routes_enabled and applicant_auth_service is not None:
         if applicant_projection_service is not None:
             register_applicant_data_routes(
                 application,
@@ -400,9 +499,14 @@ def _production_identity_resolver(settings: Settings) -> IdentityResolver:
         return deny_identity
     return CloudflareAccessIdentityResolver(
         issuer=str(settings.cloudflare_access_issuer),
-        audience=str(settings.cloudflare_access_audience),
+        audience=tuple(
+            item.strip()
+            for item in str(settings.cloudflare_access_audience).split(",")
+            if item.strip()
+        ),
         administrator_group_id=str(settings.administrator_group_id),
         trustee_group_id=str(settings.trustee_group_id),
+        applicant_group_id=settings.applicant_group_id,
     )
 
 

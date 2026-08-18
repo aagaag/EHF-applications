@@ -243,7 +243,7 @@ def test_published_003_migration_and_current_validator_are_byte_stable() -> None
     assert hashlib.sha256(validator_payload).digest() == CURRENT_003_VALIDATOR_SHA256
 
 
-def test_original_003_prefix_upgrades_through_report_export_audit() -> None:
+def test_original_003_prefix_upgrades_through_entra_applicant_workflow() -> None:
     """Break caught: an original-003 database could skip the current security release."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_report_export_audit() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 12
-    assert sorted(connection.records) == list(range(1, 16))
+    assert applied == 13
+    assert sorted(connection.records) == list(range(1, 17))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,16 +290,16 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_fifteen_migrations() -> None:
-    """Break caught: a new database could omit 015 or apply the release out of order."""
+def test_fresh_repository_run_applies_all_sixteen_migrations() -> None:
+    """Break caught: a new database could omit 016 or apply the release out of order."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
     connection = FakeConnection()
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 16))
-    assert applied == 15
+    assert [migration.version for migration in migrations] == list(range(1, 17))
+    assert applied == 16
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -416,6 +416,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "013_applicant_confirmations.sql",
         "014_applicant_projection.sql",
         "015_applicant_document_slots.sql",
+        "016_entra_applicant_workflow.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -433,6 +434,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "013_validate_applicant_confirmations.sql",
         "014_validate_applicant_projection.sql",
         "015_validate_applicant_document_slots.sql",
+        "016_validate_entra_applicant_workflow.sql",
     ]
 
 
@@ -477,11 +479,16 @@ def test_every_table_has_a_primary_key_and_database_generated_utc_timestamp() ->
         "ApplicantFinalConfirmation",
         "ApplicantReopenScope",
         "ApplicantDocumentSubmission",
+        "ApplicantAccessRequest",
+        "ApplicantEntraIdentity",
+        "ApplicantPortalBaseline",
+        "ApplicantFinalReviewDecision",
+        "ApplicantDocumentReviewDecision",
     }
     for table_name, block in blocks.items():
         assert re.search(r"\bPRIMARY KEY\b", block, flags=re.IGNORECASE), table_name
         assert re.search(
-            r"\b(?:Applied|Created|Recorded|Occurred|Started|Observed|Decided)AtUtc\s+datetime2\(7\)",
+            r"\b(?:Applied|Created|Recorded|Occurred|Started|Observed|Decided|Requested|Linked)AtUtc\s+datetime2\(7\)",
             block,
             flags=re.IGNORECASE,
         ), table_name
@@ -510,6 +517,9 @@ def test_mutable_tables_have_rowversion_and_immutable_tables_reject_update_delet
         "ApplicantSectionDraft",
         "ApplicantReopenScope",
         "ApplicantDocumentSubmission",
+        "ApplicantAccessRequest",
+        "ApplicantEntraIdentity",
+        "ApplicantPortalBaseline",
     }
     for table_name in mutable_tables:
         assert re.search(r"\bRowVersion\s+rowversion\b", blocks[table_name], re.IGNORECASE)
@@ -531,6 +541,8 @@ def test_mutable_tables_have_rowversion_and_immutable_tables_reject_update_delet
         "ApplicantFieldCorrection",
         "ApplicantSectionConfirmation",
         "ApplicantFinalConfirmation",
+        "ApplicantFinalReviewDecision",
+        "ApplicantDocumentReviewDecision",
     }:
         assert re.search(
             rf"CREATE TRIGGER .*?\s+ON\s+dbo\.{table_name}.*?"
@@ -693,7 +705,9 @@ def test_database_script_requires_and_applies_015() -> None:
     assert "014_validate_applicant_projection.sql" in script
     assert "015_applicant_document_slots.sql" in script
     assert "015_validate_applicant_document_slots.sql" in script
-    assert "Applied 15 migration\\(s\\)\\." in script
+    assert "016_entra_applicant_workflow.sql" in script
+    assert "016_validate_entra_applicant_workflow.sql" in script
+    assert "Applied 16 migration\\(s\\)\\." in script
 
 
 def test_sql_login_harness_executes_validator_artifacts_not_migrations_twice() -> None:
@@ -832,14 +846,14 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_fifteen() -> None:
-    """Break caught: post-upgrade validation could still require the old 014 tip."""
+def test_database_contract_validator_reports_version_sixteen() -> None:
+    """Break caught: post-upgrade validation could still require the old 015 tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 15" in validator
-    assert "WHERE MigrationCount = 15 AND CurrentVersion = 15" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 16" in validator
+    assert "WHERE MigrationCount = 16 AND CurrentVersion = 16" in validator
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")

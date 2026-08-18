@@ -88,6 +88,7 @@ def test_release_bundle_requires_the_scoped_sql_bootstrap_and_every_migration_ar
         "013_applicant_confirmations.sql",
         "014_applicant_projection.sql",
         "015_applicant_document_slots.sql",
+        "016_entra_applicant_workflow.sql",
     ):
         assert f"database/migrations/{name}" in installer.REQUIRED_RELEASE_FILES
         assert f"database/tests/{name.replace('_', '_validate_', 1)}" in installer.REQUIRED_RELEASE_FILES

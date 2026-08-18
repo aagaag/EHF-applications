@@ -13,6 +13,7 @@ from dataclasses import dataclass
 class InternalGroups:
     administrators: str = "EHF-Administrators"
     trustees: str = "EHF-Trustees"
+    applicants: str = "EHF-Applicants"
 
 
 INTERNAL_GROUPS = InternalGroups()
@@ -40,6 +41,13 @@ _INTERNAL_INVENTORY = (
         "Reports",
         "#reports",
         "View aggregate citation reports without changing records.",
+        frozenset({INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}),
+    ),
+    NavigationEntry(
+        "applicant-review",
+        "Applicant review",
+        "/internal/applicant-review",
+        "Review Entra access requests, applicant changes, and uploaded documents.",
         frozenset({INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}),
     ),
     NavigationEntry(
