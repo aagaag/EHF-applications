@@ -18,14 +18,15 @@ from app.routes.applicant_auth import CSRF_COOKIE, SESSION_COOKIE
 def register_internal_synthetic_routes(
     application: FastAPI,
     *,
-    authenticated: Callable[[Request], AuthenticatedIdentity],
+    resolve_identity: Callable[[Request], AuthenticatedIdentity | None],
     synthetic: SyntheticApplicantWorkspaceService,
 ) -> None:
     @application.post("/api/internal/synthetic-applicants")
     async def create_synthetic_applicant(request: Request) -> Response:
-        principal = authenticated(request)
+        principal = resolve_identity(request)
         if (
-            INTERNAL_GROUPS.administrators not in principal.groups
+            principal is None
+            or INTERNAL_GROUPS.administrators not in principal.groups
             or not is_same_origin_write(request)
             or await request.body()
         ):

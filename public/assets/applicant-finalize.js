@@ -7,6 +7,11 @@
   const syntheticBanner = document.querySelector("[data-synthetic-banner]");
   const submissionHelp = document.querySelector("[data-final-submission-help]");
   let syntheticAdmin = false;
+  const markSessionUnverified = () => {
+    if (!syntheticBanner) return;
+    syntheticBanner.textContent = "Session type could not be verified — protected controls remain unavailable.";
+    syntheticBanner.hidden = false;
+  };
   const csrf = () => document.cookie.split("; ").find((item) => item.startsWith("__Host-ehf_applicant_csrf="))?.split("=")[1] || "";
 
   const label = (value) => value
@@ -110,12 +115,21 @@
 
   const load = async () => {
     try {
-      try {
-        const sessionResponse = await fetch("/api/applicant/session", { credentials: "same-origin" });
-        syntheticAdmin = sessionResponse.ok && Boolean((await sessionResponse.json()).syntheticAdmin);
-      } catch (_error) { syntheticAdmin = false; }
+      const sessionResponse = await fetch("/api/applicant/session", { credentials: "same-origin" });
+      if (!sessionResponse.ok) throw new Error("session unavailable");
+      const session = await sessionResponse.json();
+      if (session.authenticated !== true || typeof session.syntheticAdmin !== "boolean") {
+        markSessionUnverified();
+        if (summary) summary.textContent = "Final controls are unavailable because the session could not be verified.";
+        if (application) application.textContent = "Your reviewed application could not be loaded until the session is verified.";
+        if (submit) submit.disabled = true;
+        return;
+      }
+      syntheticAdmin = session.syntheticAdmin;
       if (syntheticAdmin) {
-        if (syntheticBanner) syntheticBanner.hidden = false;
+        if (syntheticBanner) {
+          syntheticBanner.hidden = false;
+        }
         if (submissionHelp) submissionHelp.textContent = "Final submission is unavailable in a synthetic test workspace.";
         if (status) status.textContent = "Synthetic test workspace: final submission is disabled.";
       }
@@ -127,8 +141,10 @@
       render(await response.json());
     } catch (error) {
       console.error("Applicant final review load failed", error);
-      if (summary) summary.textContent = "Your completion status could not be loaded. Please try again.";
-      if (application) application.textContent = "Your reviewed application could not be loaded. Please try again.";
+      markSessionUnverified();
+      if (summary) summary.textContent = "Final controls are unavailable because the session could not be verified.";
+      if (application) application.textContent = "Your reviewed application could not be loaded until the session is verified.";
+      if (submit) submit.disabled = true;
     }
   };
 

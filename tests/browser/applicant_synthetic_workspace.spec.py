@@ -8,6 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC = ROOT / "public"
 BANNER = "Synthetic test — administrator session"
+UNVERIFIED_BANNER = "Session type could not be verified — protected controls remain unavailable."
 
 
 def _content(path: str) -> str:
@@ -182,5 +183,115 @@ def test_synthetic_banner_persists_in_four_skins_without_horizontal_overflow(
                         "button", name="Submit completed application"
                     ).is_disabled()
                 page.close()
+        finally:
+            browser.close()
+
+
+def test_document_controls_fail_closed_when_the_session_probe_fails() -> None:
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page()
+            page.set_default_timeout(5000)
+            _prepare_origin(page)
+            document_requests: list[str] = []
+            page.route(
+                "**/api/applicant/session",
+                lambda route: route.fulfill(status=503, json={}),
+            )
+
+            def documents(route) -> None:  # type: ignore[no-untyped-def]
+                document_requests.append(route.request.url)
+                route.fulfill(json={"slots": []})
+
+            page.route("**/api/applicant/documents", documents)
+            page.set_content(_content("applicant/documents.html"))
+            page.add_script_tag(
+                path=str(PUBLIC / "assets" / "applicant-documents.js")
+            )
+
+            page.get_by_text(
+                "Document controls are unavailable because the session could not be verified.",
+                exact=True,
+            ).wait_for(state="visible")
+            assert page.locator("[data-document-operations]").is_hidden()
+            assert document_requests == []
+            assert page.get_by_text(UNVERIFIED_BANNER, exact=True).is_visible()
+        finally:
+            browser.close()
+
+
+def test_final_submission_fails_closed_until_probe_explicitly_returns_real_session() -> None:
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page()
+            page.set_default_timeout(5000)
+            _prepare_origin(page)
+            finalization_requests: list[str] = []
+            page.route(
+                "**/api/applicant/session",
+                lambda route: route.fulfill(
+                    json={"authenticated": True}
+                ),
+            )
+
+            def finalization(route) -> None:  # type: ignore[no-untyped-def]
+                finalization_requests.append(route.request.url)
+                route.fulfill(json={"ready": True, "unresolved": [], "manifest": {}})
+
+            page.route("**/api/applicant/finalization", finalization)
+            page.set_content(_content("applicant/final-review.html"))
+            page.add_script_tag(
+                path=str(PUBLIC / "assets" / "applicant-finalize.js")
+            )
+
+            page.get_by_text(
+                "Final controls are unavailable because the session could not be verified.",
+                exact=True,
+            ).wait_for(state="visible")
+            assert page.get_by_role(
+                "button", name="Submit completed application"
+            ).is_disabled()
+            assert finalization_requests == []
+            assert page.get_by_text(UNVERIFIED_BANNER, exact=True).is_visible()
+        finally:
+            browser.close()
+
+
+def test_review_banner_does_not_falsely_present_real_mode_when_probe_fails() -> None:
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page()
+            page.set_default_timeout(5000)
+            _prepare_origin(page)
+            page.route("https://ehf.example/**", _fulfill_applicant)
+            page.route(
+                "**/api/applicant/session",
+                lambda route: route.fulfill(status=503, json={}),
+            )
+            page.set_content(_content("applicant/review.html"))
+            page.add_script_tag(path=str(PUBLIC / "assets" / "applicant-review.js"))
+
+            page.get_by_text(UNVERIFIED_BANNER, exact=True).wait_for(state="visible")
         finally:
             browser.close()

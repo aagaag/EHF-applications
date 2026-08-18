@@ -231,13 +231,38 @@ def create_app(
                         and request.method.upper() != "GET"
                     ):
                         return Response(status_code=404)
-                elif (
-                    principal is None
-                    or INTERNAL_GROUPS.applicants not in principal.groups
-                    or principal.entra_object_id is None
-                    or session.entra_object_id != principal.entra_object_id
-                ):
-                    return Response(status_code=404)
+                elif session.entra_object_id is not None:
+                    if (
+                        principal is None
+                        or INTERNAL_GROUPS.applicants not in principal.groups
+                        or principal.entra_object_id is None
+                        or session.entra_object_id != principal.entra_object_id
+                    ):
+                        return Response(status_code=404)
+                else:
+                    # Invitation sessions have no live Entra principal. Their opaque
+                    # session and CSRF bindings remain the authorization source.
+                    pass
+            elif request.url.path == "/applicant" or request.url.path.startswith(
+                "/applicant/"
+            ):
+                session_token = request.cookies.get(SESSION_COOKIE, "")
+                session = (
+                    applicant_auth_service.authenticate(session_token)
+                    if session_token
+                    else None
+                )
+                if session is not None and session.synthetic_actor_identity is not None:
+                    principal = resolve_identity(request)
+                    if (
+                        principal is None
+                        or INTERNAL_GROUPS.administrators not in principal.groups
+                        or principal.identity.key != session.synthetic_actor_identity
+                    ):
+                        return Response(status_code=404)
+                    canonical = _synthetic_applicant_page_alias(request.url.path)
+                    if canonical is not None and request.method.upper() in {"GET", "HEAD"}:
+                        return RedirectResponse(canonical, status_code=303)
             return await call_next(request)
 
     public_root = Path(__file__).resolve().parents[1] / "public"
@@ -252,7 +277,7 @@ def create_app(
     if synthetic_applicant_service is not None:
         register_internal_synthetic_routes(
             application,
-            authenticated=authenticated,
+            resolve_identity=resolve_identity,
             synthetic=synthetic_applicant_service,
         )
 
@@ -506,6 +531,20 @@ def create_app(
     )
 
     return application
+
+
+def _synthetic_applicant_page_alias(path: str) -> str | None:
+    return {
+        "/applicant": "/applicant/review",
+        "/applicant/": "/applicant/review",
+        "/applicant/index.html": "/applicant/review",
+        "/applicant/review.html": "/applicant/review",
+        "/applicant/review/": "/applicant/review",
+        "/applicant/documents.html": "/applicant/documents",
+        "/applicant/documents/": "/applicant/documents",
+        "/applicant/final-review.html": "/applicant/final-review",
+        "/applicant/final-review/": "/applicant/final-review",
+    }.get(path)
 
 
 def _preference_response(preference: AppearancePreference) -> dict[str, str | bool]:

@@ -5,6 +5,11 @@
   const nextControlId = (prefix) => `${prefix}-${++controlSequence}`;
   const sections = [...document.querySelectorAll("[data-review-section]")];
   const syntheticBanner = document.querySelector("[data-synthetic-banner]");
+  const markSessionUnverified = () => {
+    if (!syntheticBanner) return;
+    syntheticBanner.textContent = "Session type could not be verified — protected controls remain unavailable.";
+    syntheticBanner.hidden = false;
+  };
   const csrf = () => {
     try { return document.cookie.split("; ").find((item) => item.startsWith("__Host-ehf_applicant_csrf="))?.split("=")[1] || ""; }
     catch (_error) { return ""; }
@@ -31,10 +36,16 @@
   const loadSessionKind = async () => {
     try {
       const response = await fetch("/api/applicant/session", { credentials: "same-origin" });
-      if (!response.ok) return;
+      if (!response.ok) { markSessionUnverified(); return; }
       const session = await response.json();
-      if (session.syntheticAdmin && syntheticBanner) syntheticBanner.hidden = false;
-    } catch (_error) { /* The protected data requests retain the authoritative error state. */ }
+      if (session.authenticated !== true || typeof session.syntheticAdmin !== "boolean") {
+        markSessionUnverified();
+        return;
+      }
+      if (session.syntheticAdmin && syntheticBanner) {
+        syntheticBanner.hidden = false;
+      }
+    } catch (_error) { markSessionUnverified(); }
   };
   const notifyChanged = (node) => node.dispatchEvent(new Event("input", { bubbles: true }));
   const syncProgress = () => {

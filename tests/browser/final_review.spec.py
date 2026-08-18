@@ -22,6 +22,12 @@ def test_final_review_page_lists_completeness_and_has_one_consequential_submit_a
             pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
         try:
             page = browser.new_page(viewport={"width": 390, "height": 844})
+            page.route(
+                "**/api/applicant/session",
+                lambda route: route.fulfill(
+                    json={"authenticated": True, "syntheticAdmin": False}
+                ),
+            )
             page.set_content(html, wait_until="domcontentloaded")
             page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
             page.add_script_tag(path=str(ROOT / "public" / "assets" / "applicant-finalize.js"))
@@ -53,6 +59,12 @@ def test_final_review_renders_allowlisted_values_statement_and_visible_documents
             page = browser.new_page()
             console_messages: list[str] = []
             page.on("console", lambda message: console_messages.append(message.text))
+            page.route(
+                "**/api/applicant/session",
+                lambda route: route.fulfill(
+                    json={"authenticated": True, "syntheticAdmin": False}
+                ),
+            )
             page.route("**/api/applicant/review/*", lambda route: route.fulfill(json={"rowVersion": 1, "values": {}, "confirmed": True}))
             page.route("**/api/applicant/review/fields", lambda route: route.fulfill(json={"fields": [
                 {"section": "identity", "code": "fullName", "label": "Full name", "kind": "text"},
