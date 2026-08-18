@@ -258,6 +258,34 @@ def test_permission_validator_includes_the_complete_applicant_runtime_surface() 
     assert "N'EXECUTE', N'DENY'" in validator
 
 
+def test_permission_validator_recognizes_exact_synthetic_runtime_boundary() -> None:
+    """Break caught: release 019 grants or denies could fail the exact runtime permission validator."""
+    migration = (MIGRATIONS / "019_synthetic_applicant_workspace.sql").read_text(
+        encoding="utf-8"
+    )
+    validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(
+        encoding="utf-8"
+    )
+
+    release_grants = set(
+        re.findall(
+            r"GRANT EXECUTE ON dbo\.(\w+) TO EHFApplicationRuntime;", migration
+        )
+    )
+    assert release_grants == {
+        "CreateSyntheticApplicantWorkspace",
+        "GetApplicantSessionV19",
+    }
+    approved_block = validator.split("DECLARE @ApprovedProcedures", 1)[1].split(
+        "DECLARE @DeniedProcedures", 1
+    )[0]
+    assert release_grants <= set(re.findall(r"\(N'([^']+)'\)", approved_block))
+    protected_tables = validator.split("DECLARE @ProtectedTables", 1)[1].split(
+        "DECLARE @RequiredDmlDenies", 1
+    )[0]
+    assert "(N'ApplicantSyntheticWorkspace')" in protected_tables
+
+
 def test_real_login_probe_covers_applicant_tables_and_finalization_executor() -> None:
     """Break caught: catalog validation could pass while the real SQL login retained applicant access."""
     script = (ROOT / "infra" / "test-sql-login.sh").read_text(encoding="utf-8")
