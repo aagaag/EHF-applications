@@ -107,12 +107,14 @@ IF NOT EXISTS
     WHERE ApplicationId=@ApplicationId AND SyntheticActorIdentity=N'validator-admin-a')
     THROW 53909, 'Version-19 session did not return its exact synthetic actor.', 1;
 
-DECLARE @Denied bit = 0;
+DECLARE @Denied bit = 0,
+        @NonmemberSessionHash binary(32) = HASHBYTES('SHA2_256', N'019 nonmember session'),
+        @NonmemberCsrfHash binary(32) = HASHBYTES('SHA2_256', N'019 nonmember csrf');
 BEGIN TRY
     EXEC dbo.CreateSyntheticApplicantWorkspace
         @ActorIdentity=N'validator-nonmember', @ActorGroup=N'EHF-Trustees',
-        @SessionTokenSha256=HASHBYTES('SHA2_256', N'019 nonmember session'),
-        @CsrfTokenSha256=HASHBYTES('SHA2_256', N'019 nonmember csrf'),
+        @SessionTokenSha256=@NonmemberSessionHash,
+        @CsrfTokenSha256=@NonmemberCsrfHash,
         @IdleExpiresAtUtc=@IdleAt, @AbsoluteExpiresAtUtc=@AbsoluteAt;
 END TRY
 BEGIN CATCH
@@ -123,11 +125,13 @@ IF @Denied = 0
     THROW 53910, 'A non-administrator created a synthetic workspace.', 1;
 
 SET @Denied = 0;
+DECLARE @NullGroupSessionHash binary(32) = HASHBYTES('SHA2_256', N'019 null group session'),
+        @NullGroupCsrfHash binary(32) = HASHBYTES('SHA2_256', N'019 null group csrf');
 BEGIN TRY
     EXEC dbo.CreateSyntheticApplicantWorkspace
         @ActorIdentity=N'validator-null-group', @ActorGroup=NULL,
-        @SessionTokenSha256=HASHBYTES('SHA2_256', N'019 null group session'),
-        @CsrfTokenSha256=HASHBYTES('SHA2_256', N'019 null group csrf'),
+        @SessionTokenSha256=@NullGroupSessionHash,
+        @CsrfTokenSha256=@NullGroupCsrfHash,
         @IdleExpiresAtUtc=@IdleAt, @AbsoluteExpiresAtUtc=@AbsoluteAt;
 END TRY
 BEGIN CATCH
@@ -206,12 +210,14 @@ IF NOT EXISTS
 
 DECLARE @RuntimeCreated TABLE (ApplicationId uniqueidentifier NOT NULL),
         @RuntimeApplicationId uniqueidentifier;
+DECLARE @RuntimeSessionHash binary(32) = HASHBYTES('SHA2_256', N'019 runtime session'),
+        @RuntimeCsrfHash binary(32) = HASHBYTES('SHA2_256', N'019 runtime csrf');
 EXECUTE AS USER = N'ehf_app';
 INSERT @RuntimeCreated
 EXEC dbo.CreateSyntheticApplicantWorkspace
     @ActorIdentity=N'validator-runtime-admin', @ActorGroup=N'EHF-Administrators',
-    @SessionTokenSha256=HASHBYTES('SHA2_256', N'019 runtime session'),
-    @CsrfTokenSha256=HASHBYTES('SHA2_256', N'019 runtime csrf'),
+    @SessionTokenSha256=@RuntimeSessionHash,
+    @CsrfTokenSha256=@RuntimeCsrfHash,
     @IdleExpiresAtUtc=@IdleAt, @AbsoluteExpiresAtUtc=@AbsoluteAt;
 REVERT;
 SELECT @RuntimeApplicationId = ApplicationId FROM @RuntimeCreated;

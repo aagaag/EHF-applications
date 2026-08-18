@@ -347,6 +347,22 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
         assert fragment in validator
 
 
+def test_sql_validators_bind_hashes_before_passing_stored_procedure_parameters() -> None:
+    """Break caught: SQL Server rejects HASHBYTES expressions in EXEC parameter bindings."""
+    direct_hash_argument = re.compile(
+        r"\bEXEC(?:UTE)?\s+(?:[A-Za-z_]\w*\.)?[A-Za-z_]\w*\s+"
+        r"[^;]*?@\w+\s*=\s*HASHBYTES\s*\(",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    offenders = [
+        path.name
+        for path in sorted(VALIDATION_DIRECTORY.glob("[0-9][0-9][0-9]_validate_*.sql"))
+        if direct_hash_argument.search(path.read_text(encoding="utf-8"))
+    ]
+
+    assert offenders == []
+
+
 def test_connection_string_uses_only_ehf_names_and_task_2_secret_reader() -> None:
     """Break caught: EHF could inherit the Finances 2 database identity or credential path."""
     module = importlib.import_module("app.db")
