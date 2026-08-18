@@ -143,7 +143,7 @@ INSERT @DmlTargets VALUES
  (N'ApplicantRateLimitBucket',N'ScopeType'),(N'ApplicantSectionDraft',N'SectionCode'),
  (N'ApplicantFieldCorrection',N'FieldCode'),(N'ApplicantSectionConfirmation',N'SectionCode'),
  (N'ApplicantFinalConfirmation',N'ApplicationId'),(N'ApplicantReopenScope',N'ScopeType'),
- (N'ApplicantDocumentSubmission',N'SubmissionStatus');
+ (N'ApplicantDocumentSubmission',N'SubmissionStatus'),(N'ApplicantSyntheticWorkspace',N'ApplicationId');
 DECLARE @TableName sysname,@ColumnName sysname,@Sql nvarchar(max),@Denied bit;
 DECLARE dml_cursor CURSOR LOCAL FAST_FORWARD FOR SELECT TableName,ColumnName FROM @DmlTargets;
 OPEN dml_cursor; FETCH NEXT FROM dml_cursor INTO @TableName,@ColumnName;

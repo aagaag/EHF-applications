@@ -736,11 +736,12 @@ def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -
         r"ApplicationId uniqueidentifier NOT NULL.*?"
         r"CreatedByIdentity nvarchar\(255\) NOT NULL.*?"
         r"ClosedAtUtc datetime2\(7\) NULL.*?"
-        r"PRIMARY KEY.*?UNIQUE.*?\(ApplicationId\).*?"
+        r"PRIMARY KEY.*?"
         r"LEN\(CreatedByIdentity\) > 0",
         migration,
         flags=re.IGNORECASE | re.DOTALL,
     )
+    assert "UQ_ApplicantSyntheticWorkspace_Application" not in migration
     assert re.search(
         r"ALTER TABLE dbo\.ApplicantSession\s+ADD SyntheticActorIdentity nvarchar\(255\) NULL",
         migration,
@@ -761,6 +762,8 @@ def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -
     )
     assert create_procedure is not None
     assert "@ApplicationId" not in create_procedure.group(0)
+    assert "@ActorGroup IS NULL" in create_procedure.group(0)
+    assert "NULLIF(LTRIM(RTRIM(@ActorIdentity))" in create_procedure.group(0)
     for fragment in (
         "@ActorIdentity nvarchar(255)",
         "@ActorGroup nvarchar(128)",
@@ -782,14 +785,15 @@ def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -
         migration,
         flags=re.IGNORECASE | re.DOTALL,
     )
-    assert re.search(
-        r"CREATE PROCEDURE dbo\.GetApplicantSessionV19.*?"
-        r"session_row\.SyntheticActorIdentity.*?"
-        r"workspace_row\.CreatedByIdentity = session_row\.SyntheticActorIdentity.*?"
-        r"workspace_row\.ClosedAtUtc IS NULL",
+    v19_procedure = re.search(
+        r"CREATE PROCEDURE dbo\.GetApplicantSessionV19.*?END;\s*'\);",
         migration,
         flags=re.IGNORECASE | re.DOTALL,
     )
+    assert v19_procedure is not None
+    assert "workspace_row.CreatedByIdentity = session_row.SyntheticActorIdentity" in v19_procedure.group(0)
+    assert "workspace_row.ClosedAtUtc IS NULL" in v19_procedure.group(0)
+    assert v19_procedure.group(0).count("ApplicantSyntheticWorkspace") >= 4
     for fragment in (
         "GRANT EXECUTE ON dbo.CreateSyntheticApplicantWorkspace TO EHFApplicationRuntime",
         "GRANT EXECUTE ON dbo.GetApplicantSessionV19 TO EHFApplicationRuntime",
@@ -807,6 +811,9 @@ def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -
         "GetInternalApplicationMetrics",
         "ProvisionApplicantAccessRequest",
         "ApproveApplicantSubmission",
+        "SubmitApplicantFinalConfirmation",
+        "ListPendingApplicantSubmissions",
+        "GetApplicantSubmissionReview",
     ):
         procedure = re.search(
             rf"ALTER PROCEDURE dbo\.{procedure_name}.*?END;\s*'\);",
@@ -815,6 +822,24 @@ def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -
         )
         assert procedure is not None, procedure_name
         assert "ApplicantSyntheticWorkspace" in procedure.group(0), procedure_name
+    for fragment in (
+        "@ActorGroup=NULL",
+        "EXECUTE AS USER = N'ehf_app'",
+        "GetApplicantPreview",
+        "GetInternalApplicationMetrics",
+        "ProvisionApplicantAccessRequest",
+        "SubmitApplicantFinalConfirmation",
+        "ListPendingApplicantSubmissions",
+        "ApproveApplicantSubmission",
+    ):
+        assert fragment.casefold() in validator.casefold(), fragment
+
+
+def test_sql_login_harness_denies_runtime_direct_synthetic_workspace_dml() -> None:
+    """Break caught: the isolated runtime probe could omit the new synthetic marker table."""
+    script = (ROOT / "infra" / "test-sql-login.sh").read_text(encoding="utf-8")
+
+    assert "(N'ApplicantSyntheticWorkspace',N'ApplicationId')" in script
 
 
 def test_sql_login_harness_executes_validator_artifacts_not_migrations_twice() -> None:

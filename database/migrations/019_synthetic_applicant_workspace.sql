@@ -12,7 +12,6 @@ CREATE TABLE dbo.ApplicantSyntheticWorkspace
     CONSTRAINT PK_ApplicantSyntheticWorkspace PRIMARY KEY (ApplicationId),
     CONSTRAINT FK_ApplicantSyntheticWorkspace_Application FOREIGN KEY (ApplicationId)
         REFERENCES dbo.Application (ApplicationId),
-    CONSTRAINT UQ_ApplicantSyntheticWorkspace_Application UNIQUE (ApplicationId),
     CONSTRAINT CK_ApplicantSyntheticWorkspace_Actor CHECK (LEN(CreatedByIdentity) > 0),
     CONSTRAINT CK_ApplicantSyntheticWorkspace_Closure CHECK
         (ClosedAtUtc IS NULL OR ClosedAtUtc >= CreatedAtUtc)
@@ -43,7 +42,8 @@ BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
     SET @ActorIdentity = LTRIM(RTRIM(@ActorIdentity));
-    IF @ActorGroup <> N''EHF-Administrators'' OR LEN(@ActorIdentity) = 0
+    IF @ActorGroup IS NULL OR @ActorGroup <> N''EHF-Administrators''
+       OR NULLIF(LTRIM(RTRIM(@ActorIdentity)), N'''') IS NULL
         THROW 52900, ''Administrator authorization is required.'', 1;
     IF @IdleExpiresAtUtc <= SYSUTCDATETIME()
        OR @AbsoluteExpiresAtUtc < @IdleExpiresAtUtc
@@ -176,6 +176,9 @@ BEGIN
       AND session_row.IdleExpiresAtUtc > SYSUTCDATETIME()
       AND session_row.AbsoluteExpiresAtUtc > SYSUTCDATETIME()
       AND ((session_row.SyntheticActorIdentity IS NULL
+            AND NOT EXISTS
+                (SELECT 1 FROM dbo.ApplicantSyntheticWorkspace AS workspace_row
+                 WHERE workspace_row.ApplicationId = session_row.ApplicationId)
             AND (session_row.EntraObjectId IS NULL OR EXISTS
                 (SELECT 1 FROM dbo.ApplicantEntraIdentity AS identity_row
                  WHERE identity_row.EntraObjectId = session_row.EntraObjectId
@@ -197,6 +200,9 @@ BEGIN
       AND session_row.IdleExpiresAtUtc > SYSUTCDATETIME()
       AND session_row.AbsoluteExpiresAtUtc > SYSUTCDATETIME()
       AND ((session_row.SyntheticActorIdentity IS NULL
+            AND NOT EXISTS
+                (SELECT 1 FROM dbo.ApplicantSyntheticWorkspace AS workspace_row
+                 WHERE workspace_row.ApplicationId = session_row.ApplicationId)
             AND (session_row.EntraObjectId IS NULL OR EXISTS
                 (SELECT 1 FROM dbo.ApplicantEntraIdentity AS identity_row
                  WHERE identity_row.EntraObjectId = session_row.EntraObjectId
@@ -328,6 +334,12 @@ BEGIN
     IF @ProvisionerGroup NOT IN (''EHF-Administrators'', ''EHF-Trustees'')
        OR NULLIF(LTRIM(RTRIM(@ProvisionedByIdentity)), N'''') IS NULL
         THROW 52614, ''Administrator or trustee authorization is required.'', 1;
+    IF EXISTS
+    (
+        SELECT 1 FROM dbo.ApplicantSyntheticWorkspace AS workspace_row
+        WHERE workspace_row.ApplicationId = @ApplicationId
+    )
+        THROW 52911, ''Synthetic workspaces cannot receive applicant identities.'', 1;
     BEGIN TRANSACTION;
     BEGIN TRY
         IF NOT EXISTS
@@ -392,6 +404,16 @@ BEGIN
     IF @ReviewerGroup NOT IN (''EHF-Administrators'', ''EHF-Trustees'')
        OR NULLIF(LTRIM(RTRIM(@ReviewedByIdentity)), N'''') IS NULL
         THROW 52641, ''Administrator or trustee authorization is required.'', 1;
+    IF EXISTS
+    (
+        SELECT 1
+        FROM dbo.ApplicantFinalConfirmation AS confirmation_row
+        JOIN dbo.ApplicantSyntheticWorkspace AS workspace_row
+          ON workspace_row.ApplicationId = confirmation_row.ApplicationId
+        WHERE confirmation_row.ApplicantFinalConfirmationId = @ApplicantFinalConfirmationId
+          AND confirmation_row.SupersededAtUtc IS NULL
+    )
+        THROW 52912, ''Synthetic workspaces cannot enter approval.'', 1;
     BEGIN TRANSACTION;
     BEGIN TRY
         DECLARE @ApplicationId uniqueidentifier;
@@ -517,6 +539,181 @@ BEGIN
           WHERE workspace_row.ApplicationId = application_row.ApplicationId
       )
     ORDER BY applicant.LegalFamilyName, applicant.LegalGivenNames;
+END;
+');
+
+EXEC(N'
+ALTER PROCEDURE dbo.SubmitApplicantFinalConfirmation
+    @SessionTokenSha256 binary(32),
+    @ManifestJson nvarchar(max),
+    @ManifestSha256 binary(32)
+WITH EXECUTE AS ''EHFFinalConfirmationProcedureExecutor''
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    IF ISJSON(@ManifestJson) <> 1
+        THROW 52131, ''The confirmation manifest is invalid.'', 1;
+    IF HASHBYTES(''SHA2_256'', CONVERT(varbinary(max), @ManifestJson)) <> @ManifestSha256
+        THROW 52132, ''The confirmation manifest hash is invalid.'', 1;
+    IF EXISTS
+    (
+        SELECT 1
+        FROM dbo.ApplicantSession AS session_row
+        JOIN dbo.ApplicantSyntheticWorkspace AS workspace_row
+          ON workspace_row.ApplicationId = session_row.ApplicationId
+        WHERE session_row.SessionTokenSha256 = @SessionTokenSha256
+          AND session_row.RevokedAtUtc IS NULL
+          AND session_row.IdleExpiresAtUtc > SYSUTCDATETIME()
+          AND session_row.AbsoluteExpiresAtUtc > SYSUTCDATETIME()
+    )
+        THROW 52913, ''Synthetic workspaces cannot submit final confirmation.'', 1;
+    BEGIN TRANSACTION;
+    BEGIN TRY
+        DECLARE @ApplicationId uniqueidentifier, @ConfirmationId uniqueidentifier;
+        SELECT @ApplicationId = session_row.ApplicationId
+        FROM dbo.ApplicantSession AS session_row WITH (UPDLOCK, HOLDLOCK)
+        WHERE session_row.SessionTokenSha256 = @SessionTokenSha256
+          AND session_row.RevokedAtUtc IS NULL
+          AND session_row.IdleExpiresAtUtc > SYSUTCDATETIME()
+          AND session_row.AbsoluteExpiresAtUtc > SYSUTCDATETIME();
+        IF @ApplicationId IS NULL
+            THROW 52133, ''The applicant session is unavailable.'', 1;
+        IF EXISTS
+        (
+            SELECT 1 FROM dbo.ApplicantSyntheticWorkspace AS workspace_row
+            WHERE workspace_row.ApplicationId = @ApplicationId
+        )
+            THROW 52913, ''Synthetic workspaces cannot submit final confirmation.'', 1;
+        SELECT @ConfirmationId = ApplicantFinalConfirmationId
+        FROM dbo.ApplicantFinalConfirmation
+        WHERE ApplicationId = @ApplicationId
+          AND ManifestSha256 = @ManifestSha256
+          AND SupersededAtUtc IS NULL;
+        IF @ConfirmationId IS NULL
+        BEGIN
+            IF EXISTS
+            (
+                SELECT 1 FROM dbo.ApplicantFinalConfirmation
+                WHERE ApplicationId = @ApplicationId AND SupersededAtUtc IS NULL
+            )
+                THROW 52134, ''The application already has a different active confirmation.'', 1;
+            IF (SELECT COUNT_BIG(*) FROM OPENJSON(@ManifestJson, ''$.sections'')) <> 5
+                THROW 52135, ''Every applicant section must be represented once.'', 1;
+            IF EXISTS
+            (
+                SELECT required_section.SectionCode
+                FROM (VALUES (''identity''), (''employment''), (''qualifications''),
+                             (''publications''), (''contribution''))
+                     AS required_section(SectionCode)
+                WHERE NOT EXISTS
+                (
+                    SELECT 1
+                    FROM OPENJSON(@ManifestJson, ''$.sections'')
+                    WITH
+                    (
+                        SectionCode varchar(80) ''$.section'',
+                        DraftVersion bigint ''$.rowVersion'',
+                        CanonicalSha256 varchar(64) ''$.canonicalSha256''
+                    ) AS manifest_section
+                    JOIN dbo.ApplicantSectionDraft AS draft_row
+                      ON draft_row.ApplicationId = @ApplicationId
+                     AND draft_row.SectionCode = manifest_section.SectionCode
+                     AND CONVERT(bigint, draft_row.RowVersion) = manifest_section.DraftVersion
+                    JOIN dbo.ApplicantSectionConfirmation AS confirmation_row
+                      ON confirmation_row.ApplicationId = draft_row.ApplicationId
+                     AND confirmation_row.SectionCode = draft_row.SectionCode
+                     AND confirmation_row.DraftRowVersion = draft_row.RowVersion
+                     AND confirmation_row.CanonicalSectionSha256 =
+                         CONVERT(binary(32), manifest_section.CanonicalSha256, 2)
+                    WHERE manifest_section.SectionCode = required_section.SectionCode
+                )
+            )
+                THROW 52136, ''An applicant section is missing or stale.'', 1;
+            EXEC dbo.ValidateApplicantFinalDocuments
+                @ApplicationId = @ApplicationId, @ManifestJson = @ManifestJson;
+            SET @ConfirmationId = NEWID();
+            INSERT dbo.ApplicantFinalConfirmation
+                (ApplicantFinalConfirmationId, ApplicationId, ManifestJson,
+                 ManifestSha256, ConfirmedByIdentity)
+            VALUES
+                (@ConfirmationId, @ApplicationId, @ManifestJson,
+                 @ManifestSha256, N''APPLICANT'');
+            UPDATE dbo.Application
+            SET ApplicationStatus = ''IN_REVIEW'', ConfirmedAtUtc = NULL,
+                UpdatedAtUtc = SYSUTCDATETIME()
+            WHERE ApplicationId = @ApplicationId;
+            INSERT dbo.AuditEvent
+                (ApplicationId, EventType, ActorIdentity, EntityType, EntityId, PayloadJson)
+            VALUES
+                (@ApplicationId, ''APPLICANT_SUBMITTED_FOR_REVIEW'', N''APPLICANT'',
+                 ''ApplicantFinalConfirmation'', @ConfirmationId,
+                 (SELECT @ApplicationId AS applicationId FOR JSON PATH, WITHOUT_ARRAY_WRAPPER));
+        END;
+        SELECT ApplicantFinalConfirmationId, ManifestSha256, ConfirmedAtUtc
+        FROM dbo.ApplicantFinalConfirmation
+        WHERE ApplicantFinalConfirmationId = @ConfirmationId;
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+');
+
+EXEC(N'
+ALTER PROCEDURE dbo.ListPendingApplicantSubmissions
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT confirmation_row.ApplicantFinalConfirmationId,
+           confirmation_row.ApplicationId, confirmation_row.ConfirmedAtUtc
+    FROM dbo.ApplicantFinalConfirmation AS confirmation_row
+    WHERE confirmation_row.SupersededAtUtc IS NULL
+      AND NOT EXISTS
+          (SELECT 1 FROM dbo.ApplicantSyntheticWorkspace AS workspace_row
+           WHERE workspace_row.ApplicationId = confirmation_row.ApplicationId)
+      AND NOT EXISTS
+          (SELECT 1 FROM dbo.ApplicantFinalReviewDecision AS decision_row
+           WHERE decision_row.ApplicantFinalConfirmationId =
+                 confirmation_row.ApplicantFinalConfirmationId)
+    ORDER BY confirmation_row.ConfirmedAtUtc,
+             confirmation_row.ApplicantFinalConfirmationId;
+END;
+');
+
+EXEC(N'
+ALTER PROCEDURE dbo.GetApplicantSubmissionReview
+    @ApplicantFinalConfirmationId uniqueidentifier
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF EXISTS
+    (
+        SELECT 1
+        FROM dbo.ApplicantFinalConfirmation AS confirmation_row
+        JOIN dbo.ApplicantSyntheticWorkspace AS workspace_row
+          ON workspace_row.ApplicationId = confirmation_row.ApplicationId
+        WHERE confirmation_row.ApplicantFinalConfirmationId = @ApplicantFinalConfirmationId
+          AND confirmation_row.SupersededAtUtc IS NULL
+    )
+        THROW 52914, ''Synthetic workspaces are unavailable to submission review.'', 1;
+    SELECT confirmation_row.ApplicantFinalConfirmationId,
+           confirmation_row.ApplicationId, baseline.ProjectionJson,
+           confirmation_row.ManifestJson
+    FROM dbo.ApplicantFinalConfirmation AS confirmation_row
+    JOIN dbo.ApplicantPortalBaseline AS baseline
+      ON baseline.ApplicationId = confirmation_row.ApplicationId
+    WHERE confirmation_row.ApplicantFinalConfirmationId = @ApplicantFinalConfirmationId
+      AND confirmation_row.SupersededAtUtc IS NULL;
+    SELECT draft_row.SectionCode, draft_row.DraftJson
+    FROM dbo.ApplicantFinalConfirmation AS confirmation_row
+    JOIN dbo.ApplicantSectionDraft AS draft_row
+      ON draft_row.ApplicationId = confirmation_row.ApplicationId
+    WHERE confirmation_row.ApplicantFinalConfirmationId = @ApplicantFinalConfirmationId
+      AND confirmation_row.SupersededAtUtc IS NULL
+    ORDER BY draft_row.SectionCode;
 END;
 ');
 

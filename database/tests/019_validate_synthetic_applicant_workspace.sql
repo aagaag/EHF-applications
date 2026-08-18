@@ -122,6 +122,230 @@ END CATCH;
 IF @Denied = 0
     THROW 53910, 'A non-administrator created a synthetic workspace.', 1;
 
+SET @Denied = 0;
+BEGIN TRY
+    EXEC dbo.CreateSyntheticApplicantWorkspace
+        @ActorIdentity=N'validator-null-group', @ActorGroup=NULL,
+        @SessionTokenSha256=HASHBYTES('SHA2_256', N'019 null group session'),
+        @CsrfTokenSha256=HASHBYTES('SHA2_256', N'019 null group csrf'),
+        @IdleExpiresAtUtc=@IdleAt, @AbsoluteExpiresAtUtc=@AbsoluteAt;
+END TRY
+BEGIN CATCH
+    IF ERROR_NUMBER() <> 52900 THROW;
+    SET @Denied = 1;
+END CATCH;
+IF @Denied = 0
+    THROW 53914, 'A NULL administrator group created a synthetic workspace.', 1;
+
+DECLARE @InvitationId uniqueidentifier = NEWID(),
+        @NormalSessionHash binary(32) = HASHBYTES('SHA2_256', N'019 normal session'),
+        @NormalCsrfHash binary(32) = HASHBYTES('SHA2_256', N'019 normal csrf');
+INSERT dbo.ApplicantInvitation
+    (ApplicantInvitationId, ApplicationId, InvitationTokenSha256, ExpiresAtUtc,
+     CreatedByIdentity)
+VALUES
+    (@InvitationId, @ApplicationId, HASHBYTES('SHA2_256', N'019 normal invitation'),
+     DATEADD(day, 1, SYSUTCDATETIME()), N'VALIDATOR');
+INSERT dbo.ApplicantSession
+    (ApplicantInvitationId, ApplicationId, EntraObjectId, SyntheticActorIdentity,
+     SessionTokenSha256, CsrfTokenSha256, IdleExpiresAtUtc, AbsoluteExpiresAtUtc)
+VALUES
+    (@InvitationId, @ApplicationId, NULL, NULL, @NormalSessionHash,
+     @NormalCsrfHash, @IdleAt, @AbsoluteAt);
+DELETE FROM @V19;
+INSERT @V19
+EXEC dbo.GetApplicantSessionV19
+    @SessionTokenSha256=@NormalSessionHash, @IdleExpiresAtUtc=@IdleAt;
+IF EXISTS (SELECT 1 FROM @V19)
+    THROW 53915, 'A non-synthetic session opened a marked synthetic workspace.', 1;
+
+DECLARE @RuntimeCreated TABLE (ApplicationId uniqueidentifier NOT NULL),
+        @RuntimeApplicationId uniqueidentifier;
+EXECUTE AS USER = N'ehf_app';
+INSERT @RuntimeCreated
+EXEC dbo.CreateSyntheticApplicantWorkspace
+    @ActorIdentity=N'validator-runtime-admin', @ActorGroup=N'EHF-Administrators',
+    @SessionTokenSha256=HASHBYTES('SHA2_256', N'019 runtime session'),
+    @CsrfTokenSha256=HASHBYTES('SHA2_256', N'019 runtime csrf'),
+    @IdleExpiresAtUtc=@IdleAt, @AbsoluteExpiresAtUtc=@AbsoluteAt;
+REVERT;
+SELECT @RuntimeApplicationId = ApplicationId FROM @RuntimeCreated;
+IF @RuntimeApplicationId IS NULL
+    THROW 53916, 'Runtime execution could not create a synthetic workspace.', 1;
+
+DECLARE @RuntimeDirectDenied bit = 0;
+EXECUTE AS USER = N'ehf_app';
+BEGIN TRY
+    SELECT TOP (1) ApplicationId FROM dbo.ApplicantSyntheticWorkspace;
+END TRY
+BEGIN CATCH
+    IF ERROR_NUMBER() <> 229
+    BEGIN
+        REVERT;
+        THROW;
+    END;
+    SET @RuntimeDirectDenied = 1;
+END CATCH;
+REVERT;
+IF @RuntimeDirectDenied = 0
+    THROW 53917, 'Runtime directly read the synthetic workspace marker.', 1;
+
+DECLARE @MetricCallId uniqueidentifier;
+SELECT @MetricCallId = FellowshipCallId
+FROM dbo.FellowshipCall WITH (UPDLOCK, HOLDLOCK)
+WHERE CallCode = N'EHF-2026';
+IF @MetricCallId IS NULL
+BEGIN
+    SET @MetricCallId = NEWID();
+    INSERT dbo.FellowshipCall
+        (FellowshipCallId, CallCode, DisplayName, CallStatus, ApplicationDeadlineUtc)
+    VALUES
+        (@MetricCallId, N'EHF-2026', N'Validator metrics call', 'DRAFT',
+         DATEADD(day, 1, SYSUTCDATETIME()));
+END;
+UPDATE dbo.Application SET FellowshipCallId = @MetricCallId WHERE ApplicationId = @ApplicationId;
+
+DECLARE @Previews TABLE
+(
+    ApplicationId uniqueidentifier, ApplicantName nvarchar(401), ApplicationStatus varchar(20)
+);
+DECLARE @Metrics TABLE
+(
+    ApplicantName nvarchar(401), Degree nvarchar(200), AgeObservation decimal(8,2),
+    AcademicAgeObservation decimal(8,2), SelfReportedGender nvarchar(100),
+    FirstAuthorPaperCount int, LastAuthorPaperCount int, TotalPaperCount int, HIndex int,
+    TotalCitations bigint, Orcid nvarchar(200), GoogleScholarCitationCount bigint,
+    IdentityCertainty nvarchar(200)
+);
+EXECUTE AS USER = N'ehf_app';
+INSERT @Previews EXEC dbo.ListApplicantPreviews @ActorGroup=N'EHF-Administrators';
+INSERT @Metrics EXEC dbo.GetInternalApplicationMetrics @ActorGroup=N'EHF-Administrators';
+REVERT;
+IF EXISTS (SELECT 1 FROM @Previews WHERE ApplicationId = @ApplicationId)
+    THROW 53918, 'Synthetic workspace appeared in applicant previews.', 1;
+IF EXISTS (SELECT 1 FROM @Metrics WHERE ApplicantName = N'Synthetic Applicant')
+    THROW 53919, 'Synthetic workspace appeared in internal metrics.', 1;
+
+SET @Denied = 0;
+EXECUTE AS USER = N'ehf_app';
+BEGIN TRY
+    EXEC dbo.GetApplicantPreview
+        @ApplicationId=@ApplicationId, @ActorIdentity=N'validator-runtime-admin',
+        @ActorGroup=N'EHF-Administrators', @EmitResult=0, @EmitDrafts=0;
+END TRY
+BEGIN CATCH
+    DECLARE @PreviewError int = ERROR_NUMBER();
+    REVERT;
+    IF @PreviewError <> 52910 THROW;
+    SET @Denied = 1;
+END CATCH;
+IF @Denied = 0
+BEGIN
+    REVERT;
+    THROW 53920, 'Synthetic workspace opened in applicant preview.', 1;
+END;
+
+DECLARE @AccessRequestId uniqueidentifier = NEWID();
+INSERT dbo.ApplicantAccessRequest
+    (ApplicantAccessRequestId, RequestedEmail, RequestedDisplayName, RequestStatus,
+     ReviewedByIdentity, ReviewerGroup, ReviewedAtUtc)
+VALUES
+    (@AccessRequestId, N'synthetic-workspace@example.test', N'Synthetic workspace',
+     'APPROVED', N'VALIDATOR', 'EHF-Administrators', SYSUTCDATETIME());
+SET @Denied = 0;
+EXECUTE AS USER = N'ehf_app';
+BEGIN TRY
+    EXEC dbo.ProvisionApplicantAccessRequest
+        @ApplicantAccessRequestId=@AccessRequestId, @ApplicationId=@ApplicationId,
+        @EntraObjectId=NEWID(), @ProvisionedByIdentity=N'validator-runtime-admin',
+        @ProvisionerGroup='EHF-Administrators';
+END TRY
+BEGIN CATCH
+    DECLARE @ProvisionError int = ERROR_NUMBER();
+    REVERT;
+    IF @ProvisionError <> 52911 THROW;
+    SET @Denied = 1;
+END CATCH;
+IF @Denied = 0
+BEGIN
+    REVERT;
+    THROW 53921, 'Synthetic workspace received an Entra applicant identity.', 1;
+END;
+
+DECLARE @ManifestJson nvarchar(max) = N'{}',
+        @ManifestHash binary(32) = HASHBYTES('SHA2_256', CONVERT(varbinary(max), N'{}')),
+        @FinalConfirmationId uniqueidentifier = NEWID();
+SET @Denied = 0;
+EXECUTE AS USER = N'ehf_app';
+BEGIN TRY
+    EXEC dbo.SubmitApplicantFinalConfirmation
+        @SessionTokenSha256=@SessionHash, @ManifestJson=@ManifestJson,
+        @ManifestSha256=@ManifestHash;
+END TRY
+BEGIN CATCH
+    DECLARE @SubmissionError int = ERROR_NUMBER();
+    REVERT;
+    IF @SubmissionError <> 52913 THROW;
+    SET @Denied = 1;
+END CATCH;
+IF @Denied = 0
+BEGIN
+    REVERT;
+    THROW 53922, 'Synthetic workspace submitted a final confirmation.', 1;
+END;
+
+INSERT dbo.ApplicantFinalConfirmation
+    (ApplicantFinalConfirmationId, ApplicationId, ManifestJson, ManifestSha256,
+     ConfirmedByIdentity)
+VALUES
+    (@FinalConfirmationId, @ApplicationId, @ManifestJson, @ManifestHash, N'VALIDATOR');
+DECLARE @Pending TABLE
+(
+    ApplicantFinalConfirmationId uniqueidentifier, ApplicationId uniqueidentifier,
+    ConfirmedAtUtc datetime2(7)
+);
+EXECUTE AS USER = N'ehf_app';
+INSERT @Pending EXEC dbo.ListPendingApplicantSubmissions;
+REVERT;
+IF EXISTS (SELECT 1 FROM @Pending WHERE ApplicantFinalConfirmationId = @FinalConfirmationId)
+    THROW 53923, 'Synthetic workspace entered the approval queue.', 1;
+
+SET @Denied = 0;
+EXECUTE AS USER = N'ehf_app';
+BEGIN TRY
+    EXEC dbo.GetApplicantSubmissionReview @ApplicantFinalConfirmationId=@FinalConfirmationId;
+END TRY
+BEGIN CATCH
+    DECLARE @ReviewError int = ERROR_NUMBER();
+    REVERT;
+    IF @ReviewError <> 52914 THROW;
+    SET @Denied = 1;
+END CATCH;
+IF @Denied = 0
+BEGIN
+    REVERT;
+    THROW 53924, 'Synthetic workspace opened in submission review.', 1;
+END;
+
+SET @Denied = 0;
+EXECUTE AS USER = N'ehf_app';
+BEGIN TRY
+    EXEC dbo.ApproveApplicantSubmission
+        @ApplicantFinalConfirmationId=@FinalConfirmationId,
+        @ReviewedByIdentity=N'validator-runtime-admin', @ReviewerGroup='EHF-Administrators';
+END TRY
+BEGIN CATCH
+    DECLARE @ApprovalError int = ERROR_NUMBER();
+    REVERT;
+    IF @ApprovalError <> 52912 THROW;
+    SET @Denied = 1;
+END CATCH;
+IF @Denied = 0
+BEGIN
+    REVERT;
+    THROW 53925, 'Synthetic workspace entered approval.', 1;
+END;
+
 UPDATE dbo.ApplicantSyntheticWorkspace
 SET ClosedAtUtc = SYSUTCDATETIME()
 WHERE ApplicationId = @ApplicationId;
