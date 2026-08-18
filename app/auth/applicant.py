@@ -106,6 +106,18 @@ class StoredSession:
     revoked_at: datetime | None = None
     invitation_id: UUID | None = None
     entra_object_id: UUID | None = None
+    synthetic_actor_identity: str | None = None
+
+    def __post_init__(self) -> None:
+        if sum(
+            source is not None
+            for source in (
+                self.invitation_id,
+                self.entra_object_id,
+                self.synthetic_actor_identity,
+            )
+        ) != 1:
+            raise ValueError("an applicant session must have exactly one authentication source")
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +136,7 @@ class ApplicantSessionContext:
     idle_expires_at: datetime
     absolute_expires_at: datetime
     entra_object_id: UUID | None = None
+    synthetic_actor_identity: str | None = None
 
 
 class InMemoryApplicantAuthRepository:
@@ -373,6 +386,7 @@ class ApplicantAuthService:
             stored.idle_expires_at,
             stored.absolute_expires_at,
             stored.entra_object_id,
+            stored.synthetic_actor_identity,
         )
 
     def valid_csrf(self, context: ApplicantSessionContext, csrf_token: str) -> bool:

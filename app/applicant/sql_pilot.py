@@ -52,7 +52,10 @@ from app.auth.applicant import (
     ApplicantAuthService,
     ApplicantSessionContext,
     CapturingVerificationDelivery,
+    NewApplicantSession,
     StoredSession,
+    _keyed_hash,
+    new_opaque_token,
 )
 from app.config import Settings
 from app.db import connect
@@ -85,8 +88,8 @@ class EntraApplicantServices:
 def build_entra_applicant_services(settings: Settings) -> EntraApplicantServices:
     connections: ConnectionFactory = lambda: connect(settings)
     scope = ApplicantSqlSessionScope()
-    auth_repository = SqlEntraApplicantAuthRepository(connections, scope)
     session_pepper = settings.read_session_pepper().encode("utf-8")
+    auth_repository = SqlEntraApplicantAuthRepository(connections, scope, session_pepper)
     auth = ApplicantAuthService(
         auth_repository,  # type: ignore[arg-type]
         CapturingVerificationDelivery(),
@@ -152,9 +155,44 @@ class ApplicantSqlSessionScope:
 class SqlEntraApplicantAuthRepository:
     """Persist Entra-derived applicant sessions without accepting application IDs."""
 
-    def __init__(self, connections: ConnectionFactory, scope: ApplicantSqlSessionScope) -> None:
+    def __init__(
+        self,
+        connections: ConnectionFactory,
+        scope: ApplicantSqlSessionScope,
+        session_pepper: bytes,
+    ) -> None:
         self._connections = connections
         self._scope = scope
+        self._session_pepper = session_pepper
+
+    def create(self, actor: str, actor_group: str) -> NewApplicantSession:
+        now = datetime.now(UTC)
+        raw_session = new_opaque_token()
+        raw_csrf = new_opaque_token()
+        idle_expires_at = now + timedelta(minutes=30)
+        absolute_expires_at = now + timedelta(hours=24)
+        with self._connections() as connection:
+            row = connection.execute(
+                "EXEC dbo.CreateSyntheticApplicantWorkspace "
+                "@ActorIdentity = ?, @ActorGroup = ?, @SessionTokenSha256 = ?, "
+                "@CsrfTokenSha256 = ?, @IdleExpiresAtUtc = ?, @AbsoluteExpiresAtUtc = ?",
+                actor,
+                actor_group,
+                _keyed_hash(raw_session, self._session_pepper),
+                _keyed_hash(raw_csrf, self._session_pepper),
+                _sql_time(idle_expires_at),
+                _sql_time(absolute_expires_at),
+            ).fetchone()
+            connection.commit()
+        if row is None:
+            raise RuntimeError("The synthetic applicant workspace could not be created.")
+        return NewApplicantSession(
+            UUID(str(row[0])),
+            raw_session,
+            raw_csrf,
+            idle_expires_at,
+            absolute_expires_at,
+        )
 
     def application_for_entra(self, entra_object_id: UUID) -> UUID | None:
         with self._connections() as connection:
@@ -184,7 +222,7 @@ class SqlEntraApplicantAuthRepository:
         proposed_idle = min(now + timedelta(minutes=30), now + timedelta(hours=24))
         with self._connections() as connection:
             row = connection.execute(
-                "EXEC dbo.GetApplicantSession "
+                "EXEC dbo.GetApplicantSessionV19 "
                 "@SessionTokenSha256 = ?, @IdleExpiresAtUtc = ?",
                 session_hash,
                 _sql_time(proposed_idle),
@@ -193,15 +231,20 @@ class SqlEntraApplicantAuthRepository:
         if row is None:
             self._scope.clear()
             return None
-        stored = StoredSession(
-            application_id=UUID(str(row[0])),
-            session_hash=session_hash,
-            csrf_hash=bytes(row[1]),
-            idle_expires_at=_utc(row[2]),
-            absolute_expires_at=_utc(row[3]),
-            invitation_id=UUID(str(row[4])) if row[4] is not None else None,
-            entra_object_id=UUID(str(row[5])) if row[5] is not None else None,
-        )
+        try:
+            stored = StoredSession(
+                application_id=UUID(str(row[0])),
+                session_hash=session_hash,
+                csrf_hash=bytes(row[1]),
+                idle_expires_at=_utc(row[2]),
+                absolute_expires_at=_utc(row[3]),
+                invitation_id=UUID(str(row[4])) if row[4] is not None else None,
+                entra_object_id=UUID(str(row[5])) if row[5] is not None else None,
+                synthetic_actor_identity=str(row[6]) if row[6] is not None else None,
+            )
+        except ValueError:
+            self._scope.clear()
+            return None
         self._scope.bind(session_hash)
         return stored
 
