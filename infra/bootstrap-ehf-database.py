@@ -134,8 +134,14 @@ def run_validators(connection) -> None:
     ]:
         raise BootstrapError("The EHF validator set is incomplete or unexpected.")
     try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "SET ANSI_NULLS ON; SET QUOTED_IDENTIFIER ON; SET ANSI_PADDING ON; "
+            "SET ANSI_WARNINGS ON; SET ARITHABORT ON; "
+            "SET CONCAT_NULL_YIELDS_NULL ON; SET NUMERIC_ROUNDABORT OFF;"
+        )
         for path in files:
-            connection.cursor().execute(path.read_text(encoding="utf-8"))
+            cursor.execute(path.read_text(encoding="utf-8"))
     except Exception as error:
         raise BootstrapError("The EHF SQL validator failed.") from error
 

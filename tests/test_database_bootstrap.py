@@ -108,6 +108,25 @@ def test_master_creation_connection_is_autocommit_but_application_migration_is_n
     assert modes == [True, False]
 
 
+def test_validators_enable_required_filtered_index_session_options() -> None:
+    helper = load_helper()
+    connection = Connection()
+
+    helper.run_validators(connection)
+
+    settings = connection.cursor_instance.statements[0]
+    for fragment in (
+        "SET ANSI_NULLS ON",
+        "SET QUOTED_IDENTIFIER ON",
+        "SET ANSI_PADDING ON",
+        "SET ANSI_WARNINGS ON",
+        "SET ARITHABORT ON",
+        "SET CONCAT_NULL_YIELDS_NULL ON",
+        "SET NUMERIC_ROUNDABORT OFF",
+    ):
+        assert fragment in settings
+
+
 @pytest.mark.parametrize(
     ("owner", "group", "mode", "accepted"),
     (
