@@ -6,6 +6,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "database" / "migrations" / "023_open_citation_sources.sql"
 VALIDATOR = ROOT / "database" / "tests" / "023_validate_open_citation_sources.sql"
+PREVIOUS_VALIDATOR = (
+    ROOT / "database" / "tests" / "022_validate_applicant_publication_preview.sql"
+)
 
 
 def test_release_twenty_three_adds_open_citation_sources_and_latest_preview_values() -> None:
@@ -40,5 +43,17 @@ def test_release_twenty_three_validator_checks_both_sources_and_runtime_preview(
         "EHFApplicationRuntime",
         "ROLLBACK TRANSACTION",
         "PASS 023 open citation sources",
+    ):
+        assert fragment in source
+
+
+def test_release_twenty_two_validator_accepts_the_extended_preview_result_shape() -> None:
+    source = PREVIOUS_VALIDATOR.read_text(encoding="utf-8")
+
+    for fragment in (
+        "OpenAlexCitationCount bigint",
+        "OpenAlexCitationStatus varchar(40)",
+        "SemanticScholarCitationCount bigint",
+        "SemanticScholarCitationStatus varchar(40)",
     ):
         assert fragment in source

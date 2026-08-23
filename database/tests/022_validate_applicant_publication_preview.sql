@@ -85,7 +85,11 @@ BEGIN TRY
         PublicationYear smallint,
         CitationCount bigint,
         CitationStatus varchar(40),
-        Doi varchar(255)
+        Doi varchar(255),
+        OpenAlexCitationCount bigint,
+        OpenAlexCitationStatus varchar(40),
+        SemanticScholarCitationCount bigint,
+        SemanticScholarCitationStatus varchar(40)
     );
     INSERT @PublicationRows
     EXEC dbo.GetApplicantPreview
