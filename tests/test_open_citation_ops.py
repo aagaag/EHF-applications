@@ -45,6 +45,8 @@ def test_collection_wrapper_runs_unprivileged_on_isab01_and_cleans_private_stagi
     assert "sudo" not in source.lower()
     assert "finally" in source and "rm -rf -- '$RemoteTransfer'" in source
     assert "must remain outside the repository" in source
+    assert "GetRelativePath" not in source
+    assert "[StringComparison]::OrdinalIgnoreCase" in source
 
 
 def test_import_wrapper_protects_private_snapshot_and_verifier_compares_both_sources() -> None:

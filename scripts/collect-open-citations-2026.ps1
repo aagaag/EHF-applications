@@ -10,8 +10,10 @@ $Manifest = (Resolve-Path -LiteralPath $ManifestPath).Path
 $Output = [IO.Path]::GetFullPath($OutputPath)
 
 function Assert-OutsideRepository([string] $Path) {
-    $relative = [IO.Path]::GetRelativePath($RepositoryRoot, $Path)
-    if (-not $relative.StartsWith('..')) {
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $repositoryPrefix = $RepositoryRoot.TrimEnd('\') + '\'
+    if ($fullPath.Equals($RepositoryRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        $fullPath.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'The publication manifest and citation snapshot must remain outside the repository.'
     }
 }
