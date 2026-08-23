@@ -26,6 +26,8 @@ from app.importer.publications import PublicationWork, normalize_doi
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _NON_WORD_RE = re.compile(r"[^a-z0-9]+")
+_MAX_REQUEST_ATTEMPTS = 20
+_REQUEST_INTERVAL_SECONDS = 2.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,11 +67,11 @@ class OfficialCitationApiClient:
         allow_not_found: bool = False,
         **kwargs: Any,
     ) -> Any | None:
-        for attempt in range(6):
+        for attempt in range(_MAX_REQUEST_ATTEMPTS):
             try:
                 response = self._client.request(method, url, **kwargs)
             except httpx.HTTPError as error:
-                if attempt == 5:
+                if attempt == _MAX_REQUEST_ATTEMPTS - 1:
                     raise OpenCitationCollectionError(
                         "An official citation API request failed."
                     ) from error
@@ -83,7 +85,7 @@ class OfficialCitationApiClient:
                     f"The official API at {host} returned unexpected HTTP 404."
                 )
             if response.status_code == 429 or 500 <= response.status_code < 600:
-                if attempt == 5:
+                if attempt == _MAX_REQUEST_ATTEMPTS - 1:
                     host = urlparse(url).hostname or "unknown host"
                     raise OpenCitationCollectionError(
                         f"The official API at {host} remained unavailable with "
@@ -410,7 +412,7 @@ def collect_open_citation_rows(
                 )
             )
             semantic_observed[work.final_work_id] = observed_at
-        time.sleep(1.05)
+        time.sleep(_REQUEST_INTERVAL_SECONDS)
     for index, work in enumerate(manifest.works, start=1):
         if semantic_matches.get(work.final_work_id) is None:
             title = work.canonical_metadata.title or ""
@@ -449,7 +451,7 @@ def collect_open_citation_rows(
             semantic_urls[work.final_work_id] = query_url
             semantic_matches[work.final_work_id] = match
             semantic_observed[work.final_work_id] = _utc_now()
-            time.sleep(1.05)
+            time.sleep(_REQUEST_INTERVAL_SECONDS)
         if progress is not None:
             progress(index, total, "SEMANTIC_SCHOLAR")
 

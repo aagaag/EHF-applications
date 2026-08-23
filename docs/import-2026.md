@@ -120,7 +120,7 @@ For comparative applicant review, use Semantic Scholar as the single required ci
 
 Run the conservative, unprivileged collector on ISAB01. DOI-bearing works use
 the official Semantic Scholar batch endpoint in groups of at most 500; remaining
-title searches are paced at approximately one request per second. The private
+title searches are paced at one request every two seconds. The private
 transfer area is removed after the completed snapshot is copied back:
 
 ```powershell

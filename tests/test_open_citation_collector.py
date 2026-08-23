@@ -111,6 +111,42 @@ def test_http_404_is_absence_only_for_direct_paper_lookup() -> None:
         )
 
 
+def test_retry_window_survives_a_longer_shared_pool_throttle(monkeypatch) -> None:
+    class Response:
+        headers: dict[str, str] = {}
+
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, str]:
+            return {"status": "available"}
+
+    class RecoveringClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def request(self, *args, **kwargs):
+            self.calls += 1
+            return Response(429 if self.calls <= 6 else 200)
+
+        def close(self) -> None:
+            pass
+
+    transport = RecoveringClient()
+    client = OfficialCitationApiClient(user_agent="fixture")
+    client._client.close()
+    client._client = transport
+    monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
+
+    assert client.get_json("https://api.semanticscholar.org/graph/v1/paper/search/bulk") == {
+        "status": "available"
+    }
+    assert transport.calls == 7
+
+
 def test_openalex_doi_requests_are_batched_at_the_documented_limit() -> None:
     batches = build_openalex_doi_batch_urls(
         tuple(f"10.1000/example-{index}" for index in range(205))
