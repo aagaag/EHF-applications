@@ -201,7 +201,7 @@ def test_semantic_scholar_queries_raw_citation_when_metadata_is_unresolved(
         url for url in client.urls if "api.semanticscholar.org" in url
     ]
     assert len(semantic_urls) == 1
-    assert "paper/search?" in semantic_urls[0]
+    assert "paper/search/bulk?" in semantic_urls[0]
     assert "fixture+publication" in semantic_urls[0]
 
 

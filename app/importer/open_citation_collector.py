@@ -319,10 +319,9 @@ def build_openalex_doi_batch_urls(
 
 
 def _semantic_search_url(title: str) -> str:
-    return "https://api.semanticscholar.org/graph/v1/paper/search?" + urlencode(
+    return "https://api.semanticscholar.org/graph/v1/paper/search/bulk?" + urlencode(
         {
             "query": title,
-            "limit": 5,
             "fields": "paperId,title,year,citationCount,url,externalIds,authors",
         }
     )
