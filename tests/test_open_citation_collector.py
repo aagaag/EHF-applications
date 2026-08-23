@@ -30,7 +30,12 @@ def test_collection_uses_semantic_scholar_without_calling_openalex(monkeypatch) 
         def get_json(self, url: str, *, allow_not_found: bool = False):
             if "api.openalex.org" in url:
                 raise AssertionError("OpenAlex must be optional and unqueried")
-            return {
+            raise AssertionError("a DOI-bearing work must use the batch endpoint")
+
+        def post_json(self, url: str, payload: dict):
+            assert "api.semanticscholar.org" in url
+            assert payload == {"ids": ["DOI:10.1000/example"]}
+            return [{
                 "paperId": "0123456789abcdef0123456789abcdef01234567",
                 "title": "A fixture publication",
                 "year": 2025,
@@ -38,7 +43,7 @@ def test_collection_uses_semantic_scholar_without_calling_openalex(monkeypatch) 
                 "url": "https://www.semanticscholar.org/paper/0123456789abcdef0123456789abcdef01234567",
                 "externalIds": {"DOI": "10.1000/example"},
                 "authors": [{"name": "Alex Example"}],
-            }
+            }]
 
     monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
     monkeypatch.setattr(
@@ -118,7 +123,7 @@ def test_openalex_doi_requests_are_batched_at_the_documented_limit() -> None:
     assert all("select=id%2Cdoi%2Ctitle%2Cpublication_year%2Ccited_by_count%2Cauthorships" in url for _dois, url in batches)
 
 
-def test_semantic_scholar_uses_rate_paced_direct_doi_requests(
+def test_semantic_scholar_batches_doi_requests_at_the_documented_limit(
     monkeypatch,
 ) -> None:
     manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
@@ -126,25 +131,18 @@ def test_semantic_scholar_uses_rate_paced_direct_doi_requests(
     class FakeClient:
         def __init__(self) -> None:
             self.urls: list[str] = []
+            self.payloads: list[dict] = []
 
         def get_json(self, url: str, *, allow_not_found: bool = False):
             self.urls.append(url)
-            if "api.openalex.org" in url:
-                return {
-                    "results": [
-                        {
-                            "id": "https://openalex.org/W123",
-                            "doi": "https://doi.org/10.1000/example",
-                            "title": "A fixture publication",
-                            "publication_year": 2025,
-                            "cited_by_count": 19,
-                            "authorships": [
-                                {"author": {"display_name": "Alex Example"}}
-                            ],
-                        }
-                    ]
-                }
+            raise AssertionError("a DOI-bearing work must not use a GET request")
+
+        def post_json(self, url: str, payload: dict):
+            self.urls.append(url)
+            self.payloads.append(payload)
             return {
+                "unexpected": "shape"
+            } if not payload.get("ids") else [{
                 "paperId": "paper-1",
                 "title": "A fixture publication",
                 "year": 2025,
@@ -152,10 +150,7 @@ def test_semantic_scholar_uses_rate_paced_direct_doi_requests(
                 "url": "https://www.semanticscholar.org/paper/paper-1",
                 "externalIds": {"DOI": "10.1000/example"},
                 "authors": [{"name": "Alex Example"}],
-            }
-
-        def post_json(self, url: str, payload: dict):
-            raise AssertionError("the unauthenticated batch endpoint must not be used")
+            }]
 
     client = FakeClient()
     monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
@@ -171,7 +166,8 @@ def test_semantic_scholar_uses_rate_paced_direct_doi_requests(
     assert [row["observed_at_utc"] for row in rows] == [
         "2026-08-23T15:00:00Z",
     ]
-    assert any("/paper/DOI:10.1000%2Fexample" in url for url in client.urls)
+    assert any("/paper/batch?" in url for url in client.urls)
+    assert client.payloads == [{"ids": ["DOI:10.1000/example"]}]
 
 
 def test_semantic_scholar_queries_raw_citation_when_metadata_is_unresolved(

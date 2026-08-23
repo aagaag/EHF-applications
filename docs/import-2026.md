@@ -118,9 +118,10 @@ bioRxiv and medRxiv statuses retain null counts when those services do not expos
 
 For comparative applicant review, use Semantic Scholar as the single required citation-count source so every applicant is measured consistently. The collector never substitutes or labels the value as Google Scholar. Exact DOI matches take precedence; title and dossier-citation fallbacks are accepted only when the returned title and applicant identity satisfy the strict match rules. Rate limits and API failures abort collection instead of being recorded as `NOT_FOUND`.
 
-Run the conservative, unprivileged collector on ISAB01. Semantic Scholar paper
-requests are paced at approximately one per second; the private transfer area is
-removed after the completed snapshot is copied back:
+Run the conservative, unprivileged collector on ISAB01. DOI-bearing works use
+the official Semantic Scholar batch endpoint in groups of at most 500; remaining
+title searches are paced at approximately one request per second. The private
+transfer area is removed after the completed snapshot is copied back:
 
 ```powershell
 powershell -NoProfile -File scripts\collect-open-citations-2026.ps1 `

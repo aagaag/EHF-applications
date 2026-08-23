@@ -371,36 +371,46 @@ def collect_open_citation_rows(
     semantic_matches: dict[str, CitationApiMatch | None] = {}
     semantic_urls: dict[str, str] = {}
     semantic_observed: dict[str, str] = {}
-    for work in manifest.works:
-        doi = work.canonical_metadata.doi
-        if not doi:
-            continue
+    doi_works = tuple(
+        work for work in manifest.works if work.canonical_metadata.doi
+    )
+    semantic_fields = "paperId,title,year,citationCount,url,externalIds,authors"
+    for offset in range(0, len(doi_works), 500):
+        batch = doi_works[offset : offset + 500]
         query_url = (
-            "https://api.semanticscholar.org/graph/v1/paper/DOI:"
-            + quote(doi, safe="")
+            "https://api.semanticscholar.org/graph/v1/paper/batch"
             + "?"
-            + urlencode(
-                {
-                    "fields": (
-                        "paperId,title,year,citationCount,url,externalIds,authors"
-                    )
-                }
-            )
+            + urlencode({"fields": semantic_fields})
         )
-        payload = client.get_json(query_url, allow_not_found=True)
-        if payload is not None and not isinstance(payload, dict):
+        payload = client.post_json(
+            query_url,
+            {
+                "ids": [
+                    "DOI:" + str(work.canonical_metadata.doi) for work in batch
+                ]
+            },
+        )
+        observed_at = _utc_now()
+        if not isinstance(payload, list) or len(payload) != len(batch):
             raise OpenCitationCollectionError(
-                "Semantic Scholar returned an unexpected DOI response shape."
+                "Semantic Scholar returned an unexpected DOI batch response shape."
             )
-        semantic_urls[work.final_work_id] = query_url
-        semantic_matches[work.final_work_id] = (
-            None
-            if payload is None
-            else match_semantic_scholar_candidate(
-                work, raw_by_work.get(work.final_work_id, ""), payload
+        for work, candidate in zip(batch, payload, strict=True):
+            if candidate is not None and not isinstance(candidate, dict):
+                raise OpenCitationCollectionError(
+                    "Semantic Scholar returned an invalid DOI batch item."
+                )
+            semantic_urls[work.final_work_id] = query_url
+            semantic_matches[work.final_work_id] = (
+                None
+                if candidate is None
+                else match_semantic_scholar_candidate(
+                    work,
+                    raw_by_work.get(work.final_work_id, ""),
+                    candidate,
+                )
             )
-        )
-        semantic_observed[work.final_work_id] = _utc_now()
+            semantic_observed[work.final_work_id] = observed_at
         time.sleep(1.05)
     for index, work in enumerate(manifest.works, start=1):
         if semantic_matches.get(work.final_work_id) is None:
