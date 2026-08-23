@@ -49,6 +49,8 @@ def test_publication_wrapper_transfers_one_manifest_with_protected_cleanup() -> 
     assert "--plan-only" in source
     assert "rm -rf -- '$RemoteTransfer'" in source
     assert "The publication manifest must remain outside the repository." in source
+    assert 'cd "$release"' in source
+    assert source.index('cd "$release"') < source.index('-m app.importer.run_publications')
 
 
 def test_publication_wrapper_preserves_existing_review_queue_and_replaces_atomically() -> None:

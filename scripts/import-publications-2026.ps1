@@ -78,6 +78,7 @@ if [ -n "$existing_queue" ]; then
 fi
 release=$( /usr/bin/readlink -f /opt/ehf/current )
 python="$release/venv/bin/python"
+cd "$release"
 set -a
 . /etc/ehf/ehf.env
 set +a
