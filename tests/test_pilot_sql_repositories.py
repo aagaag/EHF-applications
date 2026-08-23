@@ -385,6 +385,20 @@ def test_administrator_preview_repository_lists_and_loads_saved_applicant_form()
                 )
             ],
             [("identity", '{"telephone":"+41 71 111 11 11"}')],
+            [
+                (
+                    "a1000000-0000-4000-8000-000000000001",
+                    "Ada Author; Ben Biologist; Cara Chemist",
+                    "A publication title",
+                    "Journal of Synthetic Results",
+                    "12",
+                    "101-109",
+                    2025,
+                    37,
+                    "OBSERVED",
+                    "10.1000/example",
+                )
+            ],
         ]
     )
     detail_service = SqlApplicantApprovalService(factory(detail_connection))
@@ -397,12 +411,26 @@ def test_administrator_preview_repository_lists_and_loads_saved_applicant_form()
 
     assert preview.baseline["applicant"]["fullName"] == "Synthetic Applicant"
     assert preview.drafts["identity"]["telephone"] == "+41 71 111 11 11"
+    assert len(preview.publication_records) == 1
+    publication = preview.publication_records[0]
+    assert publication.authors_text == "Ada Author; Ben Biologist; Cara Chemist"
+    assert publication.title == "A publication title"
+    assert publication.journal_text == "Journal of Synthetic Results"
+    assert publication.volume_text == "12"
+    assert publication.pages_text == "101-109"
+    assert publication.publication_year == 2025
+    assert publication.citation_count == 37
+    assert publication.citation_status == "OBSERVED"
+    assert publication.google_scholar_url == (
+        "https://scholar.google.com/scholar?q=10.1000%2Fexample"
+    )
     assert detail_connection.cursor.calls[0][1] == (
         APPLICATION_A,
         "cloudflare:administrator",
         "EHF-Administrators",
     )
     assert "GetApplicantPreview" in detail_connection.cursor.calls[0][0]
+    assert "@EmitPublications = 1" in detail_connection.cursor.calls[0][0]
     assert detail_connection.commits == 1
 
 

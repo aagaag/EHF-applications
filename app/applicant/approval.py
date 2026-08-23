@@ -68,12 +68,27 @@ class ApplicantPreviewSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class ApplicantPublicationPreview:
+    application_publication_id: UUID
+    authors_text: str | None
+    title: str | None
+    journal_text: str | None
+    volume_text: str | None
+    pages_text: str | None
+    publication_year: int | None
+    citation_count: int | None
+    citation_status: str | None
+    google_scholar_url: str
+
+
+@dataclass(frozen=True, slots=True)
 class ApplicantPreviewBundle:
     application_id: UUID
     applicant_name: str
     application_status: str
     baseline: dict[str, Any]
     drafts: dict[str, dict[str, Any]]
+    publication_records: tuple[ApplicantPublicationPreview, ...] = ()
 
 
 class ApplicantApprovalService:

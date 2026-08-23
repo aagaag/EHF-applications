@@ -80,6 +80,7 @@ MIGRATIONS = {
     "019_synthetic_applicant_workspace.sql": (19, "synthetic_applicant_workspace"),
     "020_synthetic_metrics_academic_age.sql": (20, "synthetic_metrics_academic_age"),
     "021_application_publications.sql": (21, "application_publications"),
+    "022_applicant_publication_preview.sql": (22, "applicant_publication_preview"),
 }
 COMMANDS = (
     "inspect-production",
@@ -125,6 +126,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "019_validate_synthetic_applicant_workspace.sql",
         "020_validate_synthetic_metrics_academic_age.sql",
         "021_validate_application_publications.sql",
+        "022_validate_applicant_publication_preview.sql",
     }
 )
 

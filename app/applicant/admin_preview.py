@@ -26,7 +26,16 @@ def render_applicant_preview(bundle: ApplicantPreviewBundle) -> str:
         for code, title, _description in _SECTIONS
     )
     sections = "".join(
-        _section(code, title, description, values[code], first=index == 0)
+        _section(
+            code,
+            title,
+            description,
+            values[code],
+            publication_records=(
+                bundle.publication_records if code == "publications" else ()
+            ),
+            first=index == 0,
+        )
         for index, (code, title, description) in enumerate(_SECTIONS)
     )
     administrator_group = escape(INTERNAL_GROUPS.administrators)
@@ -65,13 +74,21 @@ def _section_values(bundle: ApplicantPreviewBundle) -> dict[str, dict[str, Any]]
 
 
 def _section(
-    code: str, title: str, description: str, values: dict[str, Any], *, first: bool
+    code: str,
+    title: str,
+    description: str,
+    values: dict[str, Any],
+    *,
+    publication_records: tuple[Any, ...],
+    first: bool,
 ) -> str:
     fields = "".join(
         _field(field, values.get(field.code))
         for field in FIELD_INVENTORY
         if field.section == code
     )
+    if code == "publications":
+        fields += _publication_records(publication_records)
     hidden = "" if first else " hidden"
     return (
         f'<section class="review-section" data-review-section="{code}" aria-labelledby="{code}-heading"{hidden}>'
@@ -121,6 +138,104 @@ def _publication_row(row: Any) -> str:
     item = row if isinstance(row, dict) else {}
     doi = _display_value(item.get("doi"))
     return f'<div class="publication-row"><span class="publication-summary"><strong>DOI</strong><span>{escape(doi)}</span></span></div>'
+
+
+def _publication_records(records: tuple[Any, ...]) -> str:
+    rows = "".join(_publication_record(record) for record in records)
+    if not rows:
+        rows = '<p class="field-help">No imported publication records.</p>'
+    headings = "".join(
+        f"<span>{escape(label)}</span>"
+        for label in (
+            "First author",
+            "Authors",
+            "Title",
+            "Journal, volume and pages",
+            "Google Scholar citations",
+        )
+    )
+    return (
+        '<fieldset class="repeatable-field review-field-wide publication-records-field">'
+        '<legend>Publication records</legend>'
+        '<p class="field-help publication-record-help">Double-click a paper to open it in Google Scholar. The complete row is also keyboard accessible.</p>'
+        f'<div class="publication-records"><div class="publication-records-header" aria-hidden="true">{headings}</div>{rows}</div>'
+        '</fieldset>'
+    )
+
+
+def _publication_record(record: Any) -> str:
+    authors = _optional_display(getattr(record, "authors_text", None))
+    first_author = _first_author(authors)
+    title = _optional_display(getattr(record, "title", None))
+    citation = _scientific_citation(record)
+    citation_count = _scholar_citation_count(record)
+    scholar_url = str(getattr(record, "google_scholar_url", ""))
+    label = f"Open {title} in Google Scholar"
+    fields = "".join(
+        _publication_record_field(field_label, value)
+        for field_label, value in (
+            ("First author", first_author),
+            ("Authors", authors),
+            ("Title", title),
+            ("Journal, volume and pages", citation),
+            ("Google Scholar citations", citation_count),
+        )
+    )
+    return (
+        '<div class="publication-record" data-publication-record '
+        f'data-google-scholar-url="{escape(scholar_url, quote=True)}" '
+        f'role="link" tabindex="0" aria-label="{escape(label, quote=True)}" '
+        'title="Double-click to open this paper in Google Scholar">'
+        f"{fields}</div>"
+    )
+
+
+def _publication_record_field(label: str, value: str) -> str:
+    return (
+        '<span class="publication-record-field" data-publication-field>'
+        f'<span class="publication-record-label">{escape(label)}</span>'
+        f'<span>{escape(value)}</span></span>'
+    )
+
+
+def _optional_display(value: Any) -> str:
+    if value is None or not str(value).strip():
+        return "Missing"
+    return str(value).strip()
+
+
+def _first_author(authors: str) -> str:
+    if authors == "Missing":
+        return authors
+    return authors.split(";", 1)[0].strip() or "Missing"
+
+
+def _scientific_citation(record: Any) -> str:
+    journal = _optional_value(getattr(record, "journal_text", None))
+    volume = _optional_value(getattr(record, "volume_text", None))
+    pages = _optional_value(getattr(record, "pages_text", None))
+    year_value = getattr(record, "publication_year", None)
+    year = str(year_value) if year_value is not None else ""
+    locus = year
+    if volume:
+        locus += (";" if locus else "") + volume
+    if pages:
+        locus += (":" if locus else "") + pages
+    parts = [part for part in (journal, locus) if part]
+    return ". ".join(parts) + ("." if parts else "Missing")
+
+
+def _scholar_citation_count(record: Any) -> str:
+    count = getattr(record, "citation_count", None)
+    if count is not None:
+        return str(count)
+    if getattr(record, "citation_status", None) == "MANUAL_REQUIRED":
+        return "Pending manual review"
+    return "Not available"
+
+
+def _optional_value(value: Any) -> str:
+    return "" if value is None else str(value).strip()
 
 
 def _display_value(value: Any) -> str:

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
 import pyodbc
@@ -38,6 +39,7 @@ from app.applicant.finalize import (
 from app.applicant.approval import (
     ApplicantApprovalBlocked,
     ApplicantDocumentReview,
+    ApplicantPublicationPreview,
     ApplicantPreviewBundle,
     ApplicantPreviewSummary,
     ApplicantSubmissionBundle,
@@ -834,7 +836,8 @@ class SqlApplicantApprovalService:
             with self._connections() as connection:
                 cursor = connection.execute(
                     "EXEC dbo.GetApplicantPreview "
-                    "@ApplicationId = ?, @ActorIdentity = ?, @ActorGroup = ?",
+                    "@ApplicationId = ?, @ActorIdentity = ?, @ActorGroup = ?, "
+                    "@EmitPublications = 1",
                     application_id,
                     actor.strip(),
                     actor_group,
@@ -844,6 +847,8 @@ class SqlApplicantApprovalService:
                     raise LookupError("The applicant preview is unavailable.")
                 cursor.nextset()
                 rows = cursor.fetchall()
+                cursor.nextset()
+                publication_rows = cursor.fetchall()
                 connection.commit()
         except pyodbc.Error as error:
             if _sql_error_has(error, "52811"):
@@ -858,12 +863,30 @@ class SqlApplicantApprovalService:
             isinstance(values, dict) for values in drafts.values()
         ):
             raise RuntimeError("The applicant preview bundle is invalid.")
+        publications = tuple(
+            ApplicantPublicationPreview(
+                UUID(str(row[0])),
+                None if row[1] is None else str(row[1]),
+                None if row[2] is None else str(row[2]),
+                None if row[3] is None else str(row[3]),
+                None if row[4] is None else str(row[4]),
+                None if row[5] is None else str(row[5]),
+                None if row[6] is None else int(row[6]),
+                None if row[7] is None else int(row[7]),
+                None if row[8] is None else str(row[8]),
+                "https://scholar.google.com/scholar?" + urlencode(
+                    {"q": str(row[9] or row[2] or row[0])}
+                ),
+            )
+            for row in publication_rows
+        )
         return ApplicantPreviewBundle(
             UUID(str(header[0])),
             str(header[1]),
             str(header[2]),
             baseline,
             drafts,
+            publications,
         )
 
     def detail(self, confirmation_id: UUID) -> ApplicantSubmissionBundle:

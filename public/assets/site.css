@@ -171,6 +171,16 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .publication-preview, .publication-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: center; border: 1px solid var(--line); border-radius: .75rem; background: var(--surface-soft); padding: .8rem; }
 .publication-summary { display: grid; min-width: 0; gap: .25rem; overflow-wrap: anywhere; }
 .publication-summary span { color: var(--muted); }
+.publication-records { width: 100%; min-width: 0; margin-top: 1rem; border: 1px solid var(--line); border-radius: 1rem; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+.publication-records-header, .publication-record { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr) minmax(0, 2fr) minmax(0, 1.25fr) minmax(0, .75fr); }
+.publication-records-header { background: var(--nav-background); color: var(--nav-text); font-size: .74rem; font-weight: 800; }
+.publication-records-header > span, .publication-record-field { min-width: 0; padding: .7rem .6rem; overflow-wrap: anywhere; }
+.publication-record { border-top: 1px solid var(--line); color: var(--text); cursor: pointer; text-align: left; }
+.publication-record:hover { background: var(--accent-quiet); }
+.publication-record:focus-visible { position: relative; z-index: 1; outline: 3px solid var(--focus); outline-offset: -3px; }
+.publication-record-field { line-height: 1.35; }
+.publication-record-label { display: none; color: var(--muted); font-size: .72rem; font-weight: 800; }
+.publication-record-help { margin: .55rem 0 0; color: var(--muted); font-size: .82rem; }
 .add-row-action { justify-self: start; }
 .remove-row-action { min-width: max-content; }
 .field-help, .character-counter { color: var(--muted); font-size: .9rem; }
@@ -194,9 +204,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .remove-row-action { min-width: 0; }
   .review-actions { align-items: stretch; flex-direction: column; }
   .confirm-action { margin-inline-start: 0; margin-top: .5rem; }
+  .publication-records-header { display: none; }
+  .publication-record { grid-template-columns: minmax(0, 1fr); gap: .35rem; padding: .7rem; }
+  .publication-record-field { display: grid; grid-template-columns: minmax(7rem, 30%) minmax(0, 1fr); gap: .5rem; padding: .35rem .45rem; }
+  .publication-record-label { display: block; }
 }
 @media (min-width: 721px) and (max-width: 1050px) {
   .review-fields-identity, .review-fields-employment { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .publication-records-header, .publication-record { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .publication-records-header > span, .publication-record-field { padding: .65rem .5rem; }
 }
 @media (min-width: 721px) and (max-width: 900px) {
   .degree-row, .doi-lookup-row, .publication-preview, .publication-row { grid-template-columns: minmax(0, 1fr); align-items: stretch; }

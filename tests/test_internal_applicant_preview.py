@@ -60,6 +60,40 @@ class PreviewApprovalService(ApplicantApprovalService):
                     "telephone": "+41 71 111 11 11",
                 }
             },
+            publication_records=(
+                SimpleNamespace(
+                    application_publication_id=UUID(
+                        "a1000000-0000-4000-8000-000000000001"
+                    ),
+                    authors_text="Ada Author; Ben Biologist; Cara Chemist",
+                    title="A <Synthetic> Publication",
+                    journal_text="Journal of Synthetic Results",
+                    volume_text="12",
+                    pages_text="101-109",
+                    publication_year=2025,
+                    citation_count=37,
+                    citation_status="OBSERVED",
+                    google_scholar_url=(
+                        "https://scholar.google.com/scholar?q=10.1000%2Fexample"
+                    ),
+                ),
+                SimpleNamespace(
+                    application_publication_id=UUID(
+                        "a1000000-0000-4000-8000-000000000002"
+                    ),
+                    authors_text="Dora Discoverer",
+                    title="Awaiting review",
+                    journal_text=None,
+                    volume_text=None,
+                    pages_text=None,
+                    publication_year=None,
+                    citation_count=None,
+                    citation_status="MANUAL_REQUIRED",
+                    google_scholar_url=(
+                        "https://scholar.google.com/scholar?q=Awaiting+review"
+                    ),
+                ),
+            ),
         )
 
 
@@ -104,6 +138,20 @@ def test_administrator_can_open_every_existing_application_in_the_read_only_appl
     assert "+41 71 111 11 11" in page.text
     assert "PhD" in page.text and "2020-06-30" in page.text
     assert "10.1000/example" in page.text
+    assert "Publication records" in page.text
+    assert "First author" in page.text
+    assert "Ada Author; Ben Biologist; Cara Chemist" in page.text
+    assert "A &lt;Synthetic&gt; Publication" in page.text
+    assert "Journal of Synthetic Results. 2025;12:101-109." in page.text
+    assert "Google Scholar citations" in page.text
+    assert "Pending manual review" in page.text
+    assert 'data-publication-record' in page.text
+    assert 'role="link"' in page.text
+    assert 'tabindex="0"' in page.text
+    assert (
+        'data-google-scholar-url="https://scholar.google.com/scholar?q=10.1000%2Fexample"'
+        in page.text
+    )
     assert "Save changes" not in page.text
     assert "Confirm this information" not in page.text
     assert "readonly" in page.text
