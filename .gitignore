@@ -16,6 +16,8 @@ credentials/
 *.pdf
 imports/output/
 import-output/
+publication-import-manifest*.json
+google-scholar-review*.csv
 
 *.log
 playwright-report/

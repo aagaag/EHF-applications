@@ -53,3 +53,36 @@ powershell -NoProfile -File scripts\verify-import-2026.ps1 `
 ```
 
 Expected result: 36 imported applications, all 162 source occurrences accounted for, eight reviewed call-level administrative exclusions, one explicitly recorded empty legacy PDF, every non-empty PDF admitted as `UNREVIEWED`, and zero applicant-visible documents. A failed run can be retried with the same fingerprint; a completed run is reused idempotently. Any unmatched folder, duplicate register row, non-empty admission failure, source inventory issue, or missing reviewed name part blocks completion.
+
+## Publication records
+
+Publication records use a separate manifest lane from the document import. The reviewed `publication-import-manifest.json` contains applicant-derived citations and must remain outside the repository. The initial accepted contract is exactly 36 applicants, 841 application publications, 883 dossier source occurrences, and 2,523 citation-source status observations.
+
+Create a validation plan and a manual Google Scholar queue without database writes:
+
+```powershell
+powershell -NoProfile -File scripts\import-publications-2026.ps1 `
+  -ManifestPath 'C:\approved\publication-import-manifest.json' `
+  -ScholarQueuePath 'C:\Users\aag\Documents\ChatGPT\EHF-pubs\google-scholar-review.csv'
+```
+
+The helper transfers only the manifest into unique mode-0700 staging directories, verifies mode-0600 files, validates the manifest self-hash and exact relationships, writes the queue outside Git, and removes both transfer and root staging data. The queue contains one row per paper and blank fields for the manual Google Scholar citation count, result URL, observation time, and reviewer. It does not scrape Google Scholar.
+
+After the plan succeeds, apply the identical manifest through the protected root SQL path:
+
+```powershell
+powershell -NoProfile -File scripts\import-publications-2026.ps1 `
+  -ManifestPath 'C:\approved\publication-import-manifest.json' `
+  -ScholarQueuePath 'C:\Users\aag\Documents\ChatGPT\EHF-pubs\google-scholar-review.csv' `
+  -SqlAdminCredentialPath '/root/.config/finances2/sql-sa' `
+  -Apply
+```
+
+The importer creates missing publication rows, fills only null canonical fields, preserves every non-null database value, and hashes each discrepancy into `ImportException`. Reapplying identical completed input is a no-op. Verify the deployed result with:
+
+```powershell
+powershell -NoProfile -File scripts\verify-publications-2026.ps1 `
+  -SqlAdminCredentialPath '/root/.config/finances2/sql-sa'
+```
+
+Google Scholar review remains manual. bioRxiv and medRxiv statuses retain null counts when those services do not expose a citation count; Crossref metadata must never be substituted for a requested-source citation count.

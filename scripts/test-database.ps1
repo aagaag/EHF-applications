@@ -39,12 +39,12 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 $migrationFiles = @(Get-ChildItem -LiteralPath $migrationDirectory -File -Filter '*.sql' | Sort-Object Name)
 $validationFiles = @(Get-ChildItem -LiteralPath $validationDirectory -File -Filter '*.sql' | Sort-Object Name)
 if (($migrationFiles.Name -join ',') -ne
-    '001_database_contract.sql,002_application_core.sql,003_audit_and_preferences.sql,004_audit_and_preference_hardening.sql,005_application_permissions.sql,006_user_preference_read.sql,007_document_store.sql,008_import_provenance.sql,009_document_permissions.sql,010_report_export_audit.sql,011_applicant_access.sql,012_applicant_drafts.sql,013_applicant_confirmations.sql,014_applicant_projection.sql,015_applicant_document_slots.sql,016_entra_applicant_workflow.sql,017_applicant_form_simplification.sql,018_applicant_admin_preview.sql,019_synthetic_applicant_workspace.sql,020_synthetic_metrics_academic_age.sql') {
-    throw 'The isolated test requires exactly migrations 001 through 020.'
+    '001_database_contract.sql,002_application_core.sql,003_audit_and_preferences.sql,004_audit_and_preference_hardening.sql,005_application_permissions.sql,006_user_preference_read.sql,007_document_store.sql,008_import_provenance.sql,009_document_permissions.sql,010_report_export_audit.sql,011_applicant_access.sql,012_applicant_drafts.sql,013_applicant_confirmations.sql,014_applicant_projection.sql,015_applicant_document_slots.sql,016_entra_applicant_workflow.sql,017_applicant_form_simplification.sql,018_applicant_admin_preview.sql,019_synthetic_applicant_workspace.sql,020_synthetic_metrics_academic_age.sql,021_application_publications.sql') {
+    throw 'The isolated test requires exactly migrations 001 through 021.'
 }
 if (($validationFiles.Name -join ',') -ne
-    '001_validate_database_contract.sql,002_validate_application_core.sql,003_validate_audit_and_preferences.sql,004_validate_audit_and_preference_hardening.sql,005_validate_application_permissions.sql,006_validate_user_preference_read.sql,007_validate_document_store.sql,008_validate_import_provenance.sql,009_validate_document_permissions.sql,010_validate_report_export_audit.sql,011_validate_applicant_access.sql,012_validate_applicant_drafts.sql,013_validate_applicant_confirmations.sql,014_validate_applicant_projection.sql,015_validate_applicant_document_slots.sql,016_validate_entra_applicant_workflow.sql,017_validate_applicant_form_simplification.sql,018_validate_applicant_admin_preview.sql,019_validate_synthetic_applicant_workspace.sql,020_validate_synthetic_metrics_academic_age.sql') {
-    throw 'The isolated test requires exactly validators 001 through 020.'
+    '001_validate_database_contract.sql,002_validate_application_core.sql,003_validate_audit_and_preferences.sql,004_validate_audit_and_preference_hardening.sql,005_validate_application_permissions.sql,006_validate_user_preference_read.sql,007_validate_document_store.sql,008_validate_import_provenance.sql,009_validate_document_permissions.sql,010_validate_report_export_audit.sql,011_validate_applicant_access.sql,012_validate_applicant_drafts.sql,013_validate_applicant_confirmations.sql,014_validate_applicant_projection.sql,015_validate_applicant_document_slots.sql,016_validate_entra_applicant_workflow.sql,017_validate_applicant_form_simplification.sql,018_validate_applicant_admin_preview.sql,019_validate_synthetic_applicant_workspace.sql,020_validate_synthetic_metrics_academic_age.sql,021_validate_application_publications.sql') {
+    throw 'The isolated test requires exactly validators 001 through 021.'
 }
 
 $sqlcmdCommand = Get-Command 'sqlcmd' -ErrorAction SilentlyContinue
@@ -165,8 +165,8 @@ try {
     $createdDatabase = $true
 
     $firstRun = @(Invoke-MigrationRunner)
-    if (($firstRun -join "`n") -notmatch 'Applied 20 migration\(s\)\.') {
-        throw 'The first migration run did not apply exactly twenty migrations.'
+    if (($firstRun -join "`n") -notmatch 'Applied 21 migration\(s\)\.') {
+        throw 'The first migration run did not apply exactly twenty-one migrations.'
     }
     $firstRun | Write-Output
 

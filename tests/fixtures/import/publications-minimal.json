@@ -1,0 +1,158 @@
+{
+  "schema_version": "publication-import-manifest-v1",
+  "generated_read_only": true,
+  "generated_at_utc": "2026-08-23T00:00:00Z",
+  "reconciliation_policy": {
+    "exact_crossref": "fixture",
+    "bibliographic_crossref": "fixture",
+    "conflicts": "fixture",
+    "deduplication": "fixture",
+    "citation_counts": "fixture"
+  },
+  "inputs": [
+    {
+      "path": "fixture.xlsx",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "schema_version": "fixture-v1"
+    }
+  ],
+  "applicants": [
+    {
+      "applicant_folder": "Applicant Fixture",
+      "workbook_applicant": "Alex Example",
+      "workbook_reported_total_raw": "1",
+      "workbook_reported_total": 1,
+      "source_preliminary_unique_work_count": 1,
+      "final_unique_work_count": 1,
+      "status": "MATCH",
+      "difference_unique_minus_reported": 0
+    }
+  ],
+  "works": [
+    {
+      "final_work_id": "work-001",
+      "applicant_folder": "Applicant Fixture",
+      "workbook_applicant": "Alex Example",
+      "source_work_ids": ["source-work-001"],
+      "representative_source_occurrence_id": "occ-001",
+      "source_occurrence_ids": ["occ-001", "occ-002"],
+      "canonical_metadata": {
+        "doi": "10.1000/example",
+        "doi_url": "https://doi.org/10.1000/example",
+        "authors_text": "A. Example; B. Researcher",
+        "title": "A fixture publication",
+        "journal": "Fixture Journal",
+        "volume": "12",
+        "pages": "10-20",
+        "year": 2025
+      },
+      "resolution": {
+        "status": "RESOLVED",
+        "method": "EXACT_CROSSREF",
+        "evidence": {
+          "doi": "10.1000/example",
+          "crossref_response_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    }
+  ],
+  "source_occurrences": [
+    {
+      "source_occurrence_id": "occ-001",
+      "final_work_id": "work-001",
+      "source_work_id": "source-work-001",
+      "applicant_folder": "Applicant Fixture",
+      "source_artifact": "fixture-dossier.json",
+      "source_record_index": 0,
+      "source_record_position": 1,
+      "normalized_doi_candidates": ["10.1000/example"],
+      "normalized_raw_citation": "a example b researcher a fixture publication fixture journal 12 10 20 2025",
+      "source_record": {
+        "pdf_page": 3,
+        "raw_citation_text": "A. Example; B. Researcher. A fixture publication. Fixture Journal 12:10-20 (2025)."
+      }
+    },
+    {
+      "source_occurrence_id": "occ-002",
+      "final_work_id": "work-001",
+      "source_work_id": "source-work-001",
+      "applicant_folder": "Applicant Fixture",
+      "source_artifact": "fixture-dossier.json",
+      "source_record_index": 1,
+      "source_record_position": 2,
+      "normalized_doi_candidates": ["10.1000/example"],
+      "normalized_raw_citation": "a example b researcher a fixture publication fixture journal 12 10 20 2025",
+      "source_record": {
+        "pdf_page": 7,
+        "raw_citation_text": "A. Example; B. Researcher. A fixture publication. Fixture Journal 12:10-20 (2025)."
+      }
+    }
+  ],
+  "citation_source_statuses": [
+    {
+      "final_work_id": "work-001",
+      "source": "GOOGLE_SCHOLAR",
+      "count": null,
+      "status": "MANUAL_REQUIRED",
+      "evidence": "manual fixture"
+    },
+    {
+      "final_work_id": "work-001",
+      "source": "BIORXIV",
+      "count": null,
+      "status": "NOT_FOUND",
+      "evidence": "fixture"
+    },
+    {
+      "final_work_id": "work-001",
+      "source": "MEDRXIV",
+      "count": null,
+      "status": "NOT_APPLICABLE",
+      "evidence": "fixture"
+    }
+  ],
+  "summary": {
+    "source_preliminary_unique_work_total": 1,
+    "source_occurrence_total": 2,
+    "final_unique_work_total": 1,
+    "pre_merge_resolved_source_work_total": 1,
+    "pre_merge_exact_crossref_resolved_source_work_total": 1,
+    "pre_merge_bibliographic_crossref_resolved_source_work_total": 0,
+    "resolved_doi_work_total": 1,
+    "exact_crossref_resolved_work_total": 1,
+    "bibliographic_crossref_resolved_work_total": 0,
+    "unresolved_work_total": 0,
+    "ambiguous_work_total": 0,
+    "duplicate_merge_total": 0,
+    "metadata_completeness": {
+      "doi": 1,
+      "doi_url": 1,
+      "authors_text": 1,
+      "title": 1,
+      "journal": 1,
+      "volume": 1,
+      "pages": 1,
+      "year": 1,
+      "fully_complete_canonical_records": 1
+    },
+    "issues_file": "fixture-issues.json",
+    "issues_sha256_excluding_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "excel_discrepancy_numeric_total": 0,
+    "excel_no_workbook_total_total": 0,
+    "excel_match_total": 1
+  },
+  "validation": {
+    "applicant_mappings_valid": true,
+    "source_occurrence_fk_valid": true,
+    "source_occurrence_uniqueness_valid": true,
+    "final_work_uniqueness_valid": true,
+    "per_applicant_confirmed_doi_uniqueness_valid": true,
+    "canonical_field_types_valid": true,
+    "input_hashes_valid": true,
+    "manifest_self_hash_valid": true,
+    "all_valid": true
+  },
+  "hashes": {
+    "manifest_sha256_excluding_hash": "6dd619284547581270ccb91dbc95a1cfbfdd2e362f581847e204f0096903b19b"
+  }
+}

@@ -243,7 +243,7 @@ def test_published_003_migration_and_current_validator_are_byte_stable() -> None
     assert hashlib.sha256(validator_payload).digest() == CURRENT_003_VALIDATOR_SHA256
 
 
-def test_original_003_prefix_upgrades_through_applicant_admin_preview() -> None:
+def test_original_003_prefix_upgrades_through_application_publications() -> None:
     """Break caught: an original-003 database could skip the current security release."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_admin_preview() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 17
-    assert sorted(connection.records) == list(range(1, 21))
+    assert applied == 18
+    assert sorted(connection.records) == list(range(1, 22))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,7 +290,7 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_twenty_migrations() -> None:
+def test_fresh_repository_run_applies_all_twenty_one_migrations() -> None:
     """Break caught: a new database could omit the synthetic-session boundary."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_twenty_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 21))
-    assert applied == 20
+    assert [migration.version for migration in migrations] == list(range(1, 22))
+    assert applied == 21
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -311,9 +311,10 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     """Break caught: a later metrics filter could remove the authoritative academic-age derivation."""
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
-    assert [migration.path.name for migration in migrations[-2:]] == [
+    assert [migration.path.name for migration in migrations[-3:]] == [
         "019_synthetic_applicant_workspace.sql",
         "020_synthetic_metrics_academic_age.sql",
+        "021_application_publications.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -492,6 +493,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "018_applicant_admin_preview.sql",
         "019_synthetic_applicant_workspace.sql",
         "020_synthetic_metrics_academic_age.sql",
+        "021_application_publications.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -514,6 +516,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "018_validate_applicant_admin_preview.sql",
         "019_validate_synthetic_applicant_workspace.sql",
         "020_validate_synthetic_metrics_academic_age.sql",
+        "021_validate_application_publications.sql",
     ]
 
 
@@ -564,6 +567,10 @@ def test_every_table_has_a_primary_key_and_database_generated_utc_timestamp() ->
         "ApplicantFinalReviewDecision",
         "ApplicantDocumentReviewDecision",
         "ApplicantSyntheticWorkspace",
+        "ApplicationPublication",
+        "ApplicationPublicationSourceOccurrence",
+        "PublicationMetadataObservation",
+        "PublicationCitationObservation",
     }
     for table_name, block in blocks.items():
         assert re.search(r"\bPRIMARY KEY\b", block, flags=re.IGNORECASE), table_name
@@ -601,6 +608,7 @@ def test_mutable_tables_have_rowversion_and_immutable_tables_reject_update_delet
         "ApplicantEntraIdentity",
         "ApplicantPortalBaseline",
         "ApplicantSyntheticWorkspace",
+        "ApplicationPublication",
     }
     for table_name in mutable_tables:
         assert re.search(r"\bRowVersion\s+rowversion\b", blocks[table_name], re.IGNORECASE)
@@ -624,6 +632,9 @@ def test_mutable_tables_have_rowversion_and_immutable_tables_reject_update_delet
         "ApplicantFinalConfirmation",
         "ApplicantFinalReviewDecision",
         "ApplicantDocumentReviewDecision",
+        "ApplicationPublicationSourceOccurrence",
+        "PublicationMetadataObservation",
+        "PublicationCitationObservation",
     }:
         assert re.search(
             rf"CREATE TRIGGER .*?\s+ON\s+dbo\.{table_name}.*?"
@@ -796,7 +807,9 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "019_validate_synthetic_applicant_workspace.sql" in script
     assert "020_synthetic_metrics_academic_age.sql" in script
     assert "020_validate_synthetic_metrics_academic_age.sql" in script
-    assert "Applied 20 migration\\(s\\)\\." in script
+    assert "021_application_publications.sql" in script
+    assert "021_validate_application_publications.sql" in script
+    assert "Applied 21 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1159,14 +1172,14 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_twenty() -> None:
+def test_database_contract_validator_reports_version_twenty_one() -> None:
     """Break caught: post-upgrade validation could still require the old schema tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 20" in validator
-    assert "WHERE MigrationCount = 20 AND CurrentVersion = 20" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 21" in validator
+    assert "WHERE MigrationCount = 21 AND CurrentVersion = 21" in validator
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")

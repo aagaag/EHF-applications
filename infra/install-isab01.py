@@ -42,6 +42,8 @@ MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
 REQUIRED_RELEASE_FILES = (
     "app/config.py",
     "app/main.py",
+    "app/importer/publications.py",
+    "app/importer/run_publications.py",
     "app/requirements.txt",
     "app/requirements-dev.txt",
     "infra/ehf.service",
@@ -71,6 +73,7 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/018_applicant_admin_preview.sql",
     "database/migrations/019_synthetic_applicant_workspace.sql",
     "database/migrations/020_synthetic_metrics_academic_age.sql",
+    "database/migrations/021_application_publications.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -91,6 +94,7 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/018_validate_applicant_admin_preview.sql",
     "database/tests/019_validate_synthetic_applicant_workspace.sql",
     "database/tests/020_validate_synthetic_metrics_academic_age.sql",
+    "database/tests/021_validate_application_publications.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",
