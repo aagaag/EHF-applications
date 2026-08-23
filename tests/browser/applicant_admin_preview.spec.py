@@ -48,6 +48,10 @@ def test_applicant_admin_preview_is_read_only_accessible_and_responsive() -> Non
                     37,
                     "OBSERVED",
                     "https://scholar.google.com/scholar?q=10.1000%2Fexample",
+                    39,
+                    "OBSERVED",
+                    35,
+                    "OBSERVED",
                 ),
             ),
         )
@@ -110,7 +114,12 @@ def test_applicant_admin_preview_is_read_only_accessible_and_responsive() -> Non
                     "Ada Author; Ben Biologist; Cara Chemist", exact=True
                 )
             ).to_be_visible()
-            expect(page.get_by_text("37", exact=True)).to_be_visible()
+            expect(
+                page.get_by_text(
+                    "Google Scholar: 37; OpenAlex: 39; Semantic Scholar: 35",
+                    exact=True,
+                )
+            ).to_be_visible()
 
             page.evaluate(
                 "window.__openedScholar = null; window.__scholarOpenCount = 0; "

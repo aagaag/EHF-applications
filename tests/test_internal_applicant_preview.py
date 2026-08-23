@@ -73,6 +73,10 @@ class PreviewApprovalService(ApplicantApprovalService):
                     publication_year=2025,
                     citation_count=37,
                     citation_status="OBSERVED",
+                    openalex_citation_count=39,
+                    openalex_citation_status="OBSERVED",
+                    semantic_scholar_citation_count=35,
+                    semantic_scholar_citation_status="OBSERVED",
                     google_scholar_url=(
                         "https://scholar.google.com/scholar?q=10.1000%2Fexample"
                     ),
@@ -89,6 +93,10 @@ class PreviewApprovalService(ApplicantApprovalService):
                     publication_year=None,
                     citation_count=None,
                     citation_status="MANUAL_REQUIRED",
+                    openalex_citation_count=None,
+                    openalex_citation_status="NOT_FOUND",
+                    semantic_scholar_citation_count=None,
+                    semantic_scholar_citation_status="NOT_FOUND",
                     google_scholar_url=(
                         "https://scholar.google.com/scholar?q=Awaiting+review"
                     ),
@@ -143,8 +151,12 @@ def test_administrator_can_open_every_existing_application_in_the_read_only_appl
     assert "Ada Author; Ben Biologist; Cara Chemist" in page.text
     assert "A &lt;Synthetic&gt; Publication" in page.text
     assert "Journal of Synthetic Results. 2025;12:101-109." in page.text
-    assert "Google Scholar citations" in page.text
-    assert "Pending manual review" in page.text
+    assert "Citations by source" in page.text
+    assert "Google Scholar: 37" in page.text
+    assert "OpenAlex: 39" in page.text
+    assert "Semantic Scholar: 35" in page.text
+    assert "OpenAlex: Not found" in page.text
+    assert "Semantic Scholar: Not found" in page.text
     assert 'data-publication-record' in page.text
     assert 'role="link"' in page.text
     assert 'tabindex="0"' in page.text

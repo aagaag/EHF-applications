@@ -95,6 +95,7 @@ def test_release_bundle_requires_the_scoped_sql_bootstrap_and_every_migration_ar
         "020_synthetic_metrics_academic_age.sql",
         "021_application_publications.sql",
         "022_applicant_publication_preview.sql",
+        "023_open_citation_sources.sql",
     ):
         assert f"database/migrations/{name}" in installer.REQUIRED_RELEASE_FILES
         assert f"database/tests/{name.replace('_', '_validate_', 1)}" in installer.REQUIRED_RELEASE_FILES

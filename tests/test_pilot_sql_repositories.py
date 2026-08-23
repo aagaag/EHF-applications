@@ -397,6 +397,10 @@ def test_administrator_preview_repository_lists_and_loads_saved_applicant_form()
                     37,
                     "OBSERVED",
                     "10.1000/example",
+                    39,
+                    "OBSERVED",
+                    35,
+                    "OBSERVED",
                 )
             ],
         ]
@@ -421,6 +425,10 @@ def test_administrator_preview_repository_lists_and_loads_saved_applicant_form()
     assert publication.publication_year == 2025
     assert publication.citation_count == 37
     assert publication.citation_status == "OBSERVED"
+    assert publication.openalex_citation_count == 39
+    assert publication.openalex_citation_status == "OBSERVED"
+    assert publication.semantic_scholar_citation_count == 35
+    assert publication.semantic_scholar_citation_status == "OBSERVED"
     assert publication.google_scholar_url == (
         "https://scholar.google.com/scholar?q=10.1000%2Fexample"
     )

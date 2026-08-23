@@ -81,6 +81,7 @@ MIGRATIONS = {
     "020_synthetic_metrics_academic_age.sql": (20, "synthetic_metrics_academic_age"),
     "021_application_publications.sql": (21, "application_publications"),
     "022_applicant_publication_preview.sql": (22, "applicant_publication_preview"),
+    "023_open_citation_sources.sql": (23, "open_citation_sources"),
 }
 COMMANDS = (
     "inspect-production",
@@ -127,6 +128,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "020_validate_synthetic_metrics_academic_age.sql",
         "021_validate_application_publications.sql",
         "022_validate_applicant_publication_preview.sql",
+        "023_validate_open_citation_sources.sql",
     }
 )
 

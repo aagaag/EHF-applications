@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_publication_preview() ->
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 19
-    assert sorted(connection.records) == list(range(1, 23))
+    assert applied == 20
+    assert sorted(connection.records) == list(range(1, 24))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,7 +290,7 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_twenty_two_migrations() -> None:
+def test_fresh_repository_run_applies_all_twenty_three_migrations() -> None:
     """Break caught: a new database could omit the synthetic-session boundary."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_twenty_two_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 23))
-    assert applied == 22
+    assert [migration.version for migration in migrations] == list(range(1, 24))
+    assert applied == 23
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -311,11 +311,12 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     """Break caught: a later metrics filter could remove the authoritative academic-age derivation."""
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
-    assert [migration.path.name for migration in migrations[-4:]] == [
+    assert [migration.path.name for migration in migrations[-5:]] == [
         "019_synthetic_applicant_workspace.sql",
         "020_synthetic_metrics_academic_age.sql",
         "021_application_publications.sql",
         "022_applicant_publication_preview.sql",
+        "023_open_citation_sources.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -496,6 +497,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "020_synthetic_metrics_academic_age.sql",
         "021_application_publications.sql",
         "022_applicant_publication_preview.sql",
+        "023_open_citation_sources.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -520,6 +522,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "020_validate_synthetic_metrics_academic_age.sql",
         "021_validate_application_publications.sql",
         "022_validate_applicant_publication_preview.sql",
+        "023_validate_open_citation_sources.sql",
     ]
 
 
@@ -814,7 +817,9 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "021_validate_application_publications.sql" in script
     assert "022_applicant_publication_preview.sql" in script
     assert "022_validate_applicant_publication_preview.sql" in script
-    assert "Applied 22 migration\\(s\\)\\." in script
+    assert "023_open_citation_sources.sql" in script
+    assert "023_validate_open_citation_sources.sql" in script
+    assert "Applied 23 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1177,14 +1182,14 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_twenty_two() -> None:
+def test_database_contract_validator_reports_version_twenty_three() -> None:
     """Break caught: post-upgrade validation could still require the old schema tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 22" in validator
-    assert "WHERE MigrationCount = 22 AND CurrentVersion = 22" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 23" in validator
+    assert "WHERE MigrationCount = 23 AND CurrentVersion = 23" in validator
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")

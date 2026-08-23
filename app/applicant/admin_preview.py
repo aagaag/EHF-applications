@@ -151,7 +151,7 @@ def _publication_records(records: tuple[Any, ...]) -> str:
             "Authors",
             "Title",
             "Journal, volume and pages",
-            "Google Scholar citations",
+            "Citations by source",
         )
     )
     return (
@@ -168,7 +168,7 @@ def _publication_record(record: Any) -> str:
     first_author = _first_author(authors)
     title = _optional_display(getattr(record, "title", None))
     citation = _scientific_citation(record)
-    citation_count = _scholar_citation_count(record)
+    citation_count = _citation_counts(record)
     scholar_url = str(getattr(record, "google_scholar_url", ""))
     label = f"Open {title} in Google Scholar"
     fields = "".join(
@@ -178,7 +178,7 @@ def _publication_record(record: Any) -> str:
             ("Authors", authors),
             ("Title", title),
             ("Journal, volume and pages", citation),
-            ("Google Scholar citations", citation_count),
+            ("Citations by source", citation_count),
         )
     )
     return (
@@ -231,6 +231,36 @@ def _scholar_citation_count(record: Any) -> str:
         return str(count)
     if getattr(record, "citation_status", None) == "MANUAL_REQUIRED":
         return "Pending manual review"
+    return "Not available"
+
+
+def _citation_counts(record: Any) -> str:
+    if hasattr(record, "openalex_citation_status") or hasattr(
+        record, "semantic_scholar_citation_status"
+    ):
+        openalex = _citation_source_value(
+            getattr(record, "openalex_citation_count", None),
+            getattr(record, "openalex_citation_status", None),
+        )
+        semantic_scholar = _citation_source_value(
+            getattr(record, "semantic_scholar_citation_count", None),
+            getattr(record, "semantic_scholar_citation_status", None),
+        )
+        google_scholar = _scholar_citation_count(record)
+        return (
+            f"Google Scholar: {google_scholar}; OpenAlex: {openalex}; "
+            f"Semantic Scholar: {semantic_scholar}"
+        )
+    return f"Google Scholar: {_scholar_citation_count(record)}"
+
+
+def _citation_source_value(count: Any, status: Any) -> str:
+    if count is not None:
+        return str(count)
+    if status == "NOT_FOUND":
+        return "Not found"
+    if status == "MANUAL_REQUIRED":
+        return "Pending review"
     return "Not available"
 
 

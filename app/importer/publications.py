@@ -817,6 +817,13 @@ class SqlPublicationRepository:
         if existing_row is None:
             existing_row = self._connection.execute(
                 f"SELECT TOP (1) {select_columns} FROM dbo.ApplicationPublication "
+                "WHERE ApplicationId = ? AND ManifestWorkKey = ?",
+                application_id,
+                work.final_work_id,
+            ).fetchone()
+        if existing_row is None:
+            existing_row = self._connection.execute(
+                f"SELECT TOP (1) {select_columns} FROM dbo.ApplicationPublication "
                 "WHERE ApplicationId = ? "
                 "AND PublicationIdentitySha256 = CONVERT(binary(32), CONVERT(varbinary(32), ?, 2))",
                 application_id,
@@ -1006,10 +1013,15 @@ def run_publication_import(
     return repository_factory().apply(manifest, fingerprint)
 
 
-_QUEUE_FIELDS = (
+_LEGACY_QUEUE_FIELDS = (
     "applicant", "final_work_id", "doi", "title", "year",
     "google_scholar_search_url", "citation_count", "result_url",
     "observed_at_utc", "reviewer",
+)
+GOOGLE_SCHOLAR_QUEUE_FIELDS = (
+    "applicant", "final_work_id", "doi", "title", "year",
+    "google_scholar_search_url", "citation_status", "citation_count",
+    "result_url", "observed_at_utc", "reviewer",
 )
 
 
@@ -1019,7 +1031,8 @@ def write_google_scholar_queue(manifest: PublicationManifest, output: Path) -> N
     if output.exists():
         with output.open(newline="", encoding="utf-8-sig") as existing_handle:
             reader = csv.DictReader(existing_handle)
-            if tuple(reader.fieldnames or ()) != _QUEUE_FIELDS:
+            fieldnames = tuple(reader.fieldnames or ())
+            if fieldnames not in {_LEGACY_QUEUE_FIELDS, GOOGLE_SCHOLAR_QUEUE_FIELDS}:
                 raise PublicationImportError(
                     "The existing Google Scholar queue has an unexpected schema."
                 )
@@ -1029,9 +1042,15 @@ def write_google_scholar_queue(manifest: PublicationManifest, output: Path) -> N
                     raise PublicationImportError(
                         "The existing Google Scholar queue has duplicate work identifiers."
                     )
+                status = row.get("citation_status", "")
+                if fieldnames == _LEGACY_QUEUE_FIELDS and not status and row["citation_count"]:
+                    status = "OBSERVED"
                 preserved_reviews[work_id] = {
-                    field: row[field]
-                    for field in ("citation_count", "result_url", "observed_at_utc", "reviewer")
+                    "citation_status": status,
+                    **{
+                        field: row[field]
+                        for field in ("citation_count", "result_url", "observed_at_utc", "reviewer")
+                    },
                 }
     temporary_handle = tempfile.NamedTemporaryFile(
         "w",
@@ -1045,7 +1064,7 @@ def write_google_scholar_queue(manifest: PublicationManifest, output: Path) -> N
     temporary = Path(temporary_handle.name)
     try:
         handle = temporary_handle
-        writer = csv.DictWriter(handle, fieldnames=_QUEUE_FIELDS)
+        writer = csv.DictWriter(handle, fieldnames=GOOGLE_SCHOLAR_QUEUE_FIELDS)
         writer.writeheader()
         for work in sorted(
             manifest.works, key=lambda item: (item.workbook_applicant.casefold(), item.final_work_id)
@@ -1061,6 +1080,7 @@ def write_google_scholar_queue(manifest: PublicationManifest, output: Path) -> N
                     "title": _csv_safe(metadata.title or ""),
                     "year": "" if metadata.year is None else str(metadata.year),
                     "google_scholar_search_url": "https://scholar.google.com/scholar?" + urlencode({"q": query}),
+                    "citation_status": review.get("citation_status", ""),
                     "citation_count": review.get("citation_count", ""),
                     "result_url": review.get("result_url", ""),
                     "observed_at_utc": review.get("observed_at_utc", ""),

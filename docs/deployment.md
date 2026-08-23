@@ -85,7 +85,7 @@ The path variable contains a path, not a password. Do not echo it or replace it
 with a credential value. The script builds `git archive` bytes for the exact
 commit, stages only fixed `/tmp/ehf-<pid>` paths, then creates only the exact
 `EHFApplications` database when it is absent. The release helper applies its
-checksum-bound migrations and the twenty-two fixed validators before isolated SQL
+checksum-bound migrations and the twenty-three fixed validators before isolated SQL
 principal verification and application-login setup. It refuses other database
 names and unexpected migration state. Only after all installer and repository
 tests pass does it change `/opt/ehf/current`, then it checks loopback readiness.

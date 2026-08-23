@@ -44,6 +44,12 @@ REQUIRED_RELEASE_FILES = (
     "app/main.py",
     "app/importer/publications.py",
     "app/importer/run_publications.py",
+    "app/importer/scholar_reviews.py",
+    "app/importer/run_scholar_reviews.py",
+    "app/importer/open_citations.py",
+    "app/importer/open_citation_collector.py",
+    "app/importer/collect_open_citations.py",
+    "app/importer/run_open_citations.py",
     "app/requirements.txt",
     "app/requirements-dev.txt",
     "infra/ehf.service",
@@ -75,6 +81,7 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/020_synthetic_metrics_academic_age.sql",
     "database/migrations/021_application_publications.sql",
     "database/migrations/022_applicant_publication_preview.sql",
+    "database/migrations/023_open_citation_sources.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -97,6 +104,7 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/020_validate_synthetic_metrics_academic_age.sql",
     "database/tests/021_validate_application_publications.sql",
     "database/tests/022_validate_applicant_publication_preview.sql",
+    "database/tests/023_validate_open_citation_sources.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",

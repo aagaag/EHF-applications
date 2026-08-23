@@ -242,7 +242,13 @@ def test_manual_google_scholar_queue_is_one_row_per_work_and_has_blank_review_fi
     assert rows[0]["google_scholar_search_url"].startswith(
         "https://scholar.google.com/scholar?q="
     )
-    for field in ("citation_count", "result_url", "observed_at_utc", "reviewer"):
+    for field in (
+        "citation_status",
+        "citation_count",
+        "result_url",
+        "observed_at_utc",
+        "reviewer",
+    ):
         assert rows[0][field] == ""
 
 
@@ -265,6 +271,7 @@ def test_scholar_queue_neutralizes_formulas_and_preserves_completed_review_field
     assert row["title"].startswith("'")
 
     row["citation_count"] = "17"
+    row["citation_status"] = "OBSERVED"
     row["result_url"] = "https://scholar.google.com/example"
     with output.open("w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.DictWriter(handle, fieldnames=row.keys())
@@ -274,8 +281,36 @@ def test_scholar_queue_neutralizes_formulas_and_preserves_completed_review_field
     with output.open(newline="", encoding="utf-8-sig") as handle:
         preserved = next(csv.DictReader(handle))
     assert preserved["citation_count"] == "17"
+    assert preserved["citation_status"] == "OBSERVED"
     assert preserved["result_url"] == "https://scholar.google.com/example"
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_legacy_scholar_queue_is_upgraded_without_losing_review_data(
+    tmp_path: Path,
+) -> None:
+    manifest = load_publication_manifest(_fixture_bytes(), expected=FIXTURE_COUNTS)
+    output = tmp_path / "scholar.csv"
+    write_google_scholar_queue(manifest, output)
+    with output.open(newline="", encoding="utf-8-sig") as handle:
+        row = next(csv.DictReader(handle))
+    row.pop("citation_status")
+    row["citation_count"] = "9"
+    row["result_url"] = "https://scholar.google.com/scholar?cluster=9"
+    row["observed_at_utc"] = "2026-08-23T15:00:00Z"
+    row["reviewer"] = "Adriano Aguzzi"
+    with output.open("w", newline="", encoding="utf-8-sig") as handle:
+        writer = csv.DictWriter(handle, fieldnames=row.keys())
+        writer.writeheader()
+        writer.writerow(row)
+
+    write_google_scholar_queue(manifest, output)
+
+    with output.open(newline="", encoding="utf-8-sig") as handle:
+        upgraded = next(csv.DictReader(handle))
+    assert upgraded["citation_status"] == "OBSERVED"
+    assert upgraded["citation_count"] == "9"
+    assert upgraded["reviewer"] == "Adriano Aguzzi"
 
 
 def test_reconciliation_fills_only_blanks_and_reports_every_discrepancy() -> None:
@@ -323,8 +358,16 @@ class _Cursor:
 
 
 class _PublicationConnection:
-    def __init__(self, *, existing_publication=None, completed_run=None, applications=None):
+    def __init__(
+        self,
+        *,
+        existing_publication=None,
+        existing_manifest_publication=None,
+        completed_run=None,
+        applications=None,
+    ):
         self.existing_publication = existing_publication
+        self.existing_manifest_publication = existing_manifest_publication
         self.completed_run = completed_run
         self.applications = applications or {"Alex Example": [("application-id",)]}
         self.executed = []
@@ -344,6 +387,15 @@ class _PublicationConnection:
             return _Cursor(self.applications.get(parameters[1], []))
         if "INSERT dbo.ImportRow" in normalized and "OUTPUT" in normalized:
             return _Cursor([("row-id",)])
+        if (
+            "FROM dbo.ApplicationPublication" in normalized
+            and "ManifestWorkKey = ?" in normalized
+        ):
+            return _Cursor(
+                []
+                if self.existing_manifest_publication is None
+                else [self.existing_manifest_publication]
+            )
         if "FROM dbo.ApplicationPublication" in normalized and "SELECT TOP (1)" in normalized:
             return _Cursor([] if self.existing_publication is None else [self.existing_publication])
         if "INSERT dbo.ApplicationPublication" in normalized and "OUTPUT" in normalized:
@@ -407,6 +459,31 @@ def test_sql_repository_preserves_existing_values_and_records_hashed_conflicts()
         "PUBLICATION_CONFLICT_PUBLICATION_YEAR",
     }
     assert all(len(parameters[3]) == 64 for parameters in exception_calls)
+
+
+def test_sql_repository_fills_a_previously_unresolved_work_by_manifest_key() -> None:
+    manifest = load_publication_manifest(_fixture_bytes(), expected=FIXTURE_COUNTS)
+    existing = (
+        "publication-id",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    connection = _PublicationConnection(existing_manifest_publication=existing)
+
+    from app.importer.publications import SqlPublicationRepository
+
+    SqlPublicationRepository(connection).apply(manifest, "1" * 64)
+
+    statements = "\n".join(statement for statement, _ in connection.executed)
+    assert "ManifestWorkKey = ?" in statements
+    assert "UPDATE dbo.ApplicationPublication SET" in statements
+    assert "INSERT dbo.ApplicationPublication (" not in statements
 
 
 def test_completed_identical_sql_import_is_reused_without_new_writes() -> None:

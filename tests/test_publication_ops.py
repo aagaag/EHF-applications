@@ -66,6 +66,7 @@ def test_publication_wrapper_preserves_existing_review_queue_and_replaces_atomic
     assert "[IO.File]::Replace($LocalQueueTemp, $QueueFullPath, $LocalQueueBackup)" in source
     assert "[IO.File]::Move($LocalQueueTemp, $QueueFullPath)" in source
     assert "final_work_id" in source
+    assert "citation_status" in source
     assert "841" in source
 
 

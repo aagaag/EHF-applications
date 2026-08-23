@@ -79,6 +79,10 @@ class ApplicantPublicationPreview:
     citation_count: int | None
     citation_status: str | None
     google_scholar_url: str
+    openalex_citation_count: int | None = None
+    openalex_citation_status: str | None = None
+    semantic_scholar_citation_count: int | None = None
+    semantic_scholar_citation_status: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

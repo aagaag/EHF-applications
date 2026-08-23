@@ -85,4 +85,71 @@ powershell -NoProfile -File scripts\verify-publications-2026.ps1 `
   -SqlAdminCredentialPath '/root/.config/finances2/sql-sa'
 ```
 
-Google Scholar review remains manual. bioRxiv and medRxiv statuses retain null counts when those services do not expose a citation count; Crossref metadata must never be substituted for a requested-source citation count.
+Google Scholar review remains manual. A queue row is complete only when `citation_status` is `OBSERVED` with a nonnegative integer `citation_count`, or `NOT_FOUND` with a blank count. Every completed row also requires the reviewed Google Scholar result/search URL, a UTC observation timestamp, and the reviewer name. CAPTCHA or access-block responses are not `NOT_FOUND` results and must remain unreviewed until direct access is restored.
+
+Before writing the reviewed counts, validate the completed queue without a database connection:
+
+```powershell
+powershell -NoProfile -File scripts\import-scholar-reviews-2026.ps1 `
+  -ManifestPath 'C:\approved\publication-import-manifest.json' `
+  -ScholarQueuePath 'C:\Users\aag\Documents\ChatGPT\EHF-pubs\google-scholar-review.csv'
+```
+
+The review importer requires exactly one completed row for every manifest work and rejects changed applicant, DOI, title, or year fields. It never updates the initial `MANUAL_REQUIRED` evidence. Apply appends a separately audited Google Scholar observation for every publication and is idempotent for an identical reviewed queue:
+
+```powershell
+powershell -NoProfile -File scripts\import-scholar-reviews-2026.ps1 `
+  -ManifestPath 'C:\approved\publication-import-manifest.json' `
+  -ScholarQueuePath 'C:\Users\aag\Documents\ChatGPT\EHF-pubs\google-scholar-review.csv' `
+  -SqlAdminCredentialPath '/root/.config/finances2/sql-sa' `
+  -Apply
+```
+
+Verify that each of the 841 publications has a latest reviewed Scholar observation and that none remains pending:
+
+```powershell
+powershell -NoProfile -File scripts\verify-scholar-reviews-2026.ps1 `
+  -SqlAdminCredentialPath '/root/.config/finances2/sql-sa'
+```
+
+bioRxiv and medRxiv statuses retain null counts when those services do not expose a citation count; Crossref metadata must never be substituted for a requested-source citation count.
+
+## Source-specific OpenAlex and Semantic Scholar counts
+
+For comparative applicant review, collect both official public sources into one private snapshot. The collector stores separate observations and never averages, substitutes, or labels either value as Google Scholar. Exact DOI matches take precedence; title and dossier-citation fallbacks are accepted only when the returned title and applicant identity satisfy the strict match rules. Rate limits and API failures abort collection instead of being recorded as `NOT_FOUND`.
+
+Run the conservative, unprivileged collector on ISAB01. Semantic Scholar paper
+requests are paced at approximately one per second; the private transfer area is
+removed after the completed snapshot is copied back:
+
+```powershell
+powershell -NoProfile -File scripts\collect-open-citations-2026.ps1 `
+  -ManifestPath 'C:\approved\publication-import-manifest.json' `
+  -OutputPath 'C:\approved\open-citations-2026.csv'
+```
+
+Validate the complete 1,682-row snapshot without a database write:
+
+```powershell
+powershell -NoProfile -File scripts\import-open-citations-2026.ps1 `
+  -ManifestPath 'C:\approved\publication-import-manifest.json' `
+  -SnapshotPath 'C:\approved\open-citations-2026.csv'
+```
+
+After successful validation, append the two source observations per publication and verify their latest source-specific state:
+
+```powershell
+powershell -NoProfile -File scripts\import-open-citations-2026.ps1 `
+  -ManifestPath 'C:\approved\publication-import-manifest.json' `
+  -SnapshotPath 'C:\approved\open-citations-2026.csv' `
+  -SqlAdminCredentialPath '/root/.config/finances2/sql-sa' `
+  -Apply
+
+powershell -NoProfile -File scripts\verify-open-citations-2026.ps1 `
+  -SqlAdminCredentialPath '/root/.config/finances2/sql-sa'
+```
+
+The applicant preview retains the existing Google Scholar value and shows the
+OpenAlex and Semantic Scholar values beside it with explicit source labels. A
+difference between the two open-source counts is preserved as a comparison
+result and included in the discrepancy report.

@@ -877,6 +877,10 @@ class SqlApplicantApprovalService:
                 "https://scholar.google.com/scholar?" + urlencode(
                     {"q": str(row[9] or row[2] or row[0])}
                 ),
+                None if row[10] is None else int(row[10]),
+                None if row[11] is None else str(row[11]),
+                None if row[12] is None else int(row[12]),
+                None if row[13] is None else str(row[13]),
             )
             for row in publication_rows
         )

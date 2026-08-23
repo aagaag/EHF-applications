@@ -95,7 +95,7 @@ fi
     & scp.exe -q "${Target}:$RemoteQueue" $LocalQueueTemp
     if ($LASTEXITCODE -ne 0) { throw 'Could not retrieve the manual Google Scholar review queue.' }
     $Rows = @(Import-Csv -LiteralPath $LocalQueueTemp -Encoding utf8)
-    $ExpectedHeaders = @('applicant', 'final_work_id', 'doi', 'title', 'year', 'google_scholar_search_url', 'citation_count', 'result_url', 'observed_at_utc', 'reviewer')
+    $ExpectedHeaders = @('applicant', 'final_work_id', 'doi', 'title', 'year', 'google_scholar_search_url', 'citation_status', 'citation_count', 'result_url', 'observed_at_utc', 'reviewer')
     $ActualHeaders = @($Rows[0].PSObject.Properties.Name)
     if ($Rows.Count -ne 841 -or ($ActualHeaders -join ',') -ne ($ExpectedHeaders -join ',')) {
         throw 'The retrieved Google Scholar review queue has an invalid row count or header.'
