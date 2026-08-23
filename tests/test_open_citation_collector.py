@@ -319,6 +319,26 @@ def test_title_and_raw_citation_matching_rejects_ranked_but_unrelated_results() 
     assert wrong_author_collision is None
 
 
+def test_semantic_scholar_doi_match_requires_author_evidence() -> None:
+    work, raw = _work()
+
+    match = match_semantic_scholar_candidate(
+        work,
+        raw,
+        {
+            "paperId": "paper-without-authors",
+            "title": "A fixture publication",
+            "year": 2025,
+            "citationCount": 17,
+            "url": "https://www.semanticscholar.org/paper/paper-without-authors",
+            "externalIds": {"DOI": "10.1000/example"},
+            "authors": [],
+        },
+    )
+
+    assert match is None
+
+
 def test_raw_citation_match_requires_title_in_source_and_applicant_author() -> None:
     work, _ = _work()
     candidate = {

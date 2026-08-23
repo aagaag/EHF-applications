@@ -238,10 +238,11 @@ def match_semantic_scholar_candidate(
     year_value = candidate.get("year")
     year = int(year_value) if isinstance(year_value, int) else None
     authors = [
-        str(item.get("name") or "")
+        str(item.get("name") or "").strip()
         for item in candidate.get("authors") or []
         if isinstance(item, dict)
     ]
+    authors = [author for author in authors if author]
     count = _count(candidate.get("citationCount"))
     method = _match_method(
         work,
@@ -257,6 +258,7 @@ def match_semantic_scholar_candidate(
         or not identifier
         or not url.startswith("https://www.semanticscholar.org/")
         or not title
+        or not authors
     ):
         return None
     return CitationApiMatch(
@@ -264,7 +266,7 @@ def match_semantic_scholar_candidate(
         url,
         doi,
         title,
-        "; ".join(author for author in authors if author),
+        "; ".join(authors),
         year,
         count,
         method,
