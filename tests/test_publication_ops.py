@@ -98,6 +98,7 @@ def test_publication_verifier_checks_exact_counts_integrity_conflicts_and_safety
         "Publication field conflicts:",
     ):
         assert expected in source
+    assert source.count("o.ImportRunId=?") >= 9
 
 
 def test_operator_documentation_keeps_publication_manifest_and_queue_out_of_git() -> None:
