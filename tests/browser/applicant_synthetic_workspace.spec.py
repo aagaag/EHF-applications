@@ -79,20 +79,38 @@ def test_administrator_action_is_one_keyboard_card_and_is_hidden_from_trustees()
                 "**/api/internal/applicant-document-submissions",
                 lambda route: route.fulfill(json={"submissions": []}),
             )
-            submitted: list[tuple[str, str | None]] = []
+            submitted: list[tuple[str, str | None, str | None]] = []
 
             def create(route) -> None:  # type: ignore[no-untyped-def]
-                submitted.append((route.request.method, route.request.post_data))
+                submitted.append(
+                    (
+                        route.request.method,
+                        route.request.post_data,
+                        route.request.headers.get("origin"),
+                    )
+                )
                 route.fulfill(
                     status=303,
-                    headers={"Location": "/applicant/review"},
+                    headers={
+                        "Location": "/applicant/review",
+                        "Set-Cookie": (
+                            "ehf_applicant_session=synthetic-session; Path=/; "
+                            "Secure; HttpOnly; SameSite=Strict"
+                        ),
+                    },
                     body="",
                 )
 
             page.route("**/api/internal/synthetic-applicants", create)
+            review_cookies: list[str | None] = []
+
+            def review(route) -> None:  # type: ignore[no-untyped-def]
+                review_cookies.append(route.request.headers.get("cookie"))
+                route.fulfill(body="<h1>Review your application</h1>")
+
             page.route(
                 "**/applicant/review",
-                lambda route: route.fulfill(body="<h1>Review your application</h1>"),
+                review,
             )
             page.set_content(_content("internal/applicant-review.html"))
             page.add_script_tag(
@@ -106,8 +124,14 @@ def test_administrator_action_is_one_keyboard_card_and_is_hidden_from_trustees()
             assert action.locator("xpath=ancestor::form").count() == 1
             action.focus()
             action.press("Enter")
+            page.wait_for_url("**/applicant/review")
             assert submitted and submitted[0][0] == "POST"
             assert submitted[0][1] in (None, "")
+            assert submitted[0][2] == "https://ehf.example"
+            assert review_cookies and "ehf_applicant_session=synthetic-session" in (
+                review_cookies[0] or ""
+            )
+            assert page.get_by_role("heading", name="Review your application").is_visible()
 
             trustee = browser.new_page(viewport={"width": 1024, "height": 768})
             trustee.set_default_timeout(5000)

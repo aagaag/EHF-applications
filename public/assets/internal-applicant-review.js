@@ -64,6 +64,19 @@
     if (!documentItems.length) empty(documentQueue, "No uploaded documents await review."); else documentQueue.replaceChildren(...documentItems.map((item) => card(item.displayName, [`Application ${item.applicationId}`, `Submitted ${item.submittedAtUtc}`], [button("Accept document", "document-accept", item.submissionId, "primary-action"), button("Reject document", "document-reject", item.submissionId, "secondary-action")])));
   };
   const postEmpty = (url) => fetch(url, { method: "POST", credentials: "same-origin" });
+  if (syntheticWorkspace) syntheticWorkspace.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const control = syntheticWorkspace.querySelector('button[type="submit"]');
+    if (control) control.disabled = true;
+    try {
+      const response = await fetch(syntheticWorkspace.action, { method: "POST", credentials: "same-origin", redirect: "manual" });
+      if (response.type !== "opaqueredirect") throw new Error();
+      window.location.assign(new URL("/applicant/review", syntheticWorkspace.action).href);
+    } catch (_error) {
+      show("The synthetic applicant could not be created. Please refresh and try again.");
+      if (control) control.disabled = false;
+    }
+  });
   document.addEventListener("click", async (event) => {
     const control = event.target.closest("[data-action]"); if (!control) return;
     control.disabled = true;
