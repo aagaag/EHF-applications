@@ -238,19 +238,19 @@ def _citation_counts(record: Any) -> str:
     if hasattr(record, "openalex_citation_status") or hasattr(
         record, "semantic_scholar_citation_status"
     ):
-        openalex = _citation_source_value(
-            getattr(record, "openalex_citation_count", None),
-            getattr(record, "openalex_citation_status", None),
-        )
+        openalex_count = getattr(record, "openalex_citation_count", None)
+        openalex_status = getattr(record, "openalex_citation_status", None)
         semantic_scholar = _citation_source_value(
             getattr(record, "semantic_scholar_citation_count", None),
             getattr(record, "semantic_scholar_citation_status", None),
         )
         google_scholar = _scholar_citation_count(record)
-        return (
-            f"Google Scholar: {google_scholar}; OpenAlex: {openalex}; "
-            f"Semantic Scholar: {semantic_scholar}"
-        )
+        parts = [f"Google Scholar: {google_scholar}"]
+        if openalex_count is not None or openalex_status is not None:
+            openalex = _citation_source_value(openalex_count, openalex_status)
+            parts.append(f"OpenAlex: {openalex}")
+        parts.append(f"Semantic Scholar: {semantic_scholar}")
+        return "; ".join(parts)
     return f"Google Scholar: {_scholar_citation_count(record)}"
 
 

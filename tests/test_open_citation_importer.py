@@ -1,4 +1,4 @@
-"""OpenAlex and Semantic Scholar reviewed snapshot import contracts."""
+"""Semantic Scholar reviewed snapshot import contracts."""
 
 from __future__ import annotations
 
@@ -53,24 +53,6 @@ def _snapshot_bytes(**changes: str) -> bytes:
             "doi": "10.1000/example",
             "title": "A fixture publication",
             "year": "2025",
-            "source_code": "OPENALEX",
-            "citation_status": "OBSERVED",
-            "citation_count": "19",
-            "source_identifier": "https://openalex.org/W123",
-            "result_url": "https://openalex.org/W123",
-            "matched_doi": "10.1000/example",
-            "matched_title": "A fixture publication",
-            "matched_authors": "Alex Example; B. Researcher",
-            "observed_at_utc": "2026-08-23T15:00:00Z",
-            "reviewer": "EHF open citation collector",
-            "match_method": "DOI_EXACT",
-        },
-        {
-            "applicant": "Alex Example",
-            "final_work_id": "work-001",
-            "doi": "10.1000/example",
-            "title": "A fixture publication",
-            "year": "2025",
             "source_code": "SEMANTIC_SCHOLAR",
             "citation_status": "OBSERVED",
             "citation_count": "17",
@@ -96,17 +78,16 @@ def _snapshot_bytes(**changes: str) -> bytes:
     return output.getvalue().encode("utf-8-sig")
 
 
-def test_snapshot_requires_one_observation_from_each_open_source_per_work() -> None:
+def test_snapshot_requires_one_semantic_scholar_observation_per_work() -> None:
     reviews = load_open_citation_reviews(_snapshot_bytes(), _manifest())
 
     assert [(row.source_code, row.citation_count) for row in reviews] == [
-        ("OPENALEX", 19),
         ("SEMANTIC_SCHOLAR", 17),
     ]
     assert all(row.citation_status == "OBSERVED" for row in reviews)
 
 
-def test_snapshot_plan_validates_every_source_without_constructing_a_repository() -> None:
+def test_snapshot_plan_validates_every_work_without_constructing_a_repository() -> None:
     result = run_open_citation_import(
         FIXTURE.read_bytes(),
         _snapshot_bytes(),
@@ -117,8 +98,8 @@ def test_snapshot_plan_validates_every_source_without_constructing_a_repository(
         ),
     )
 
-    assert result.review_count == 2
-    assert result.observed_count == 2
+    assert result.review_count == 1
+    assert result.observed_count == 1
     assert result.run_id is None
 
 
@@ -199,7 +180,7 @@ class _Connection:
         self.rollbacks += 1
 
 
-def test_sql_repository_appends_both_source_observations_without_overwrite() -> None:
+def test_sql_repository_appends_semantic_scholar_observations_without_overwrite() -> None:
     connection = _Connection()
     reviews = load_open_citation_reviews(_snapshot_bytes(), _manifest())
 
@@ -211,9 +192,9 @@ def test_sql_repository_appends_both_source_observations_without_overwrite() -> 
         if "INSERT dbo.PublicationCitationObservation" in statement
     ]
     statements = "\n".join(statement for statement, _ in connection.executed)
-    assert len(inserts) == 2
-    assert {parameters[2] for parameters in inserts} == {"OPENALEX", "SEMANTIC_SCHOLAR"}
+    assert len(inserts) == 1
+    assert {parameters[2] for parameters in inserts} == {"SEMANTIC_SCHOLAR"}
     assert "UPDATE dbo.PublicationCitationObservation" not in statements
     assert "ISAB01_OPEN_CITATION_IMPORT" in statements
-    assert result.review_count == 2
+    assert result.review_count == 1
     assert result.run_id == "run-id"

@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi.testclient import TestClient
 
 from app.applicant.approval import ApplicantApprovalService
+from app.applicant.admin_preview import _citation_counts
 from app.config import Settings
 from app.identity import AuthenticatedIdentity
 from app.main import ReadinessChecks, create_app
@@ -14,6 +15,21 @@ from app.preferences import Identity
 
 
 APPLICATION_ID = UUID("a7000000-0000-4000-8000-000000000001")
+
+
+def test_preview_omits_openalex_when_no_openalex_observation_exists() -> None:
+    value = _citation_counts(
+        SimpleNamespace(
+            citation_count=None,
+            citation_status=None,
+            openalex_citation_count=None,
+            openalex_citation_status=None,
+            semantic_scholar_citation_count=35,
+            semantic_scholar_citation_status="OBSERVED",
+        )
+    )
+
+    assert value == "Google Scholar: Not available; Semantic Scholar: 35"
 
 
 class PreviewApprovalService(ApplicantApprovalService):

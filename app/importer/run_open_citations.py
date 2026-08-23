@@ -1,4 +1,4 @@
-"""Plan or apply a complete OpenAlex and Semantic Scholar snapshot."""
+"""Plan or apply a complete Semantic Scholar citation snapshot."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from app.importer.run_publications import _validate_publication_credential
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Plan or apply source-specific open citation counts."
+        description="Plan or apply Semantic Scholar citation counts."
     )
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--snapshot", required=True, type=Path)

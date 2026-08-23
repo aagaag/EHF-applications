@@ -114,9 +114,9 @@ powershell -NoProfile -File scripts\verify-scholar-reviews-2026.ps1 `
 
 bioRxiv and medRxiv statuses retain null counts when those services do not expose a citation count; Crossref metadata must never be substituted for a requested-source citation count.
 
-## Source-specific OpenAlex and Semantic Scholar counts
+## Semantic Scholar citation counts
 
-For comparative applicant review, collect both official public sources into one private snapshot. The collector stores separate observations and never averages, substitutes, or labels either value as Google Scholar. Exact DOI matches take precedence; title and dossier-citation fallbacks are accepted only when the returned title and applicant identity satisfy the strict match rules. Rate limits and API failures abort collection instead of being recorded as `NOT_FOUND`.
+For comparative applicant review, use Semantic Scholar as the single required citation-count source so every applicant is measured consistently. The collector never substitutes or labels the value as Google Scholar. Exact DOI matches take precedence; title and dossier-citation fallbacks are accepted only when the returned title and applicant identity satisfy the strict match rules. Rate limits and API failures abort collection instead of being recorded as `NOT_FOUND`.
 
 Run the conservative, unprivileged collector on ISAB01. Semantic Scholar paper
 requests are paced at approximately one per second; the private transfer area is
@@ -128,7 +128,7 @@ powershell -NoProfile -File scripts\collect-open-citations-2026.ps1 `
   -OutputPath 'C:\approved\open-citations-2026.csv'
 ```
 
-Validate the complete 1,682-row snapshot without a database write:
+Validate the complete 841-row snapshot without a database write:
 
 ```powershell
 powershell -NoProfile -File scripts\import-open-citations-2026.ps1 `
@@ -136,7 +136,7 @@ powershell -NoProfile -File scripts\import-open-citations-2026.ps1 `
   -SnapshotPath 'C:\approved\open-citations-2026.csv'
 ```
 
-After successful validation, append the two source observations per publication and verify their latest source-specific state:
+After successful validation, append one Semantic Scholar observation per publication and verify its latest state:
 
 ```powershell
 powershell -NoProfile -File scripts\import-open-citations-2026.ps1 `
@@ -149,7 +149,7 @@ powershell -NoProfile -File scripts\verify-open-citations-2026.ps1 `
   -SqlAdminCredentialPath '/root/.config/finances2/sql-sa'
 ```
 
-The applicant preview retains the existing Google Scholar value and shows the
-OpenAlex and Semantic Scholar values beside it with explicit source labels. A
-difference between the two open-source counts is preserved as a comparison
-result and included in the discrepancy report.
+The applicant preview retains an existing Google Scholar value and shows the
+Semantic Scholar value with an explicit source label. The schema remains able
+to preserve and display an OpenAlex observation if one already exists, but
+OpenAlex is not required by this collection or import workflow.

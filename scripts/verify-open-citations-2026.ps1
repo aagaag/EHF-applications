@@ -44,34 +44,14 @@ try:
     if run is None:
         raise RuntimeError('no completed open citation import run')
     latest = cursor.execute("""
-    WITH ranked AS
-    (
-        SELECT publication_row.ApplicationPublicationId, observation.SourceCode,
-               observation.CitationStatus, observation.CitationCount,
-               observation.ObservedAtUtc, observation.EvidenceJson,
-               ROW_NUMBER() OVER
-               (
-                   PARTITION BY publication_row.ApplicationPublicationId, observation.SourceCode
-                   ORDER BY CASE WHEN observation.ObservedAtUtc IS NULL THEN 1 ELSE 0 END,
-                            observation.ObservedAtUtc DESC,
-                            observation.RecordedAtUtc DESC,
-                            observation.PublicationCitationObservationId DESC
-               ) AS row_number
-        FROM dbo.PublicationCitationObservation AS observation
-        JOIN dbo.ApplicationPublication AS publication_row
-          ON publication_row.ApplicationPublicationId=observation.ApplicationPublicationId
-        JOIN dbo.Application AS application_row
-          ON application_row.ApplicationId=publication_row.ApplicationId
-        WHERE application_row.FellowshipCallId=?
-          AND observation.SourceCode IN ('OPENALEX','SEMANTIC_SCHOLAR')
-    )
     SELECT CONVERT(varchar(36),ApplicationPublicationId),SourceCode,CitationStatus,
            CitationCount,ObservedAtUtc,EvidenceJson
-    FROM ranked WHERE row_number=1
-    """, call_id).fetchall()
-    openalex = {row[0]: row for row in latest if row[1] == 'OPENALEX'}
+    FROM dbo.PublicationCitationObservation AS observation
+    WHERE observation.ImportRunId=?
+      AND observation.SourceCode='SEMANTIC_SCHOLAR'
+    """, run[0]).fetchall()
     semantic = {row[0]: row for row in latest if row[1] == 'SEMANTIC_SCHOLAR'}
-    openalex_rows = len(openalex)
+    observation_rows = len(latest)
     semantic_rows = len(semantic)
     source_rows = cursor.execute("SELECT COUNT(*) FROM dbo.ImportRow WHERE ImportRunId=? AND MatchStatus='MATCHED'", run[0]).fetchone()[0]
     invalid = sum(
@@ -81,18 +61,13 @@ try:
         or row[4] is None or row[5] is None
         for row in latest
     )
-    citation_disagreements = sum(
-        openalex[key][2] == 'OBSERVED'
-        and semantic[key][2] == 'OBSERVED'
-        and openalex[key][3] != semantic[key][3]
-        for key in openalex.keys() & semantic.keys()
-    )
-    print(f'Latest OpenAlex rows: {openalex_rows}')
     print(f'Latest Semantic Scholar rows: {semantic_rows}')
+    print(f'Current-run Semantic Scholar observations: {observation_rows}')
     print(f'Imported source rows: {source_rows}')
-    print(f'Citation-count disagreements: {citation_disagreements}')
-    if (source_rows != 1682 or openalex_rows != 841 or semantic_rows != 841
-            or invalid != 0 or set(openalex) != set(semantic)):
+    print(f'Semantic Scholar observed: {sum(row[2] == "OBSERVED" for row in semantic.values())}')
+    print(f'Semantic Scholar not found: {sum(row[2] == "NOT_FOUND" for row in semantic.values())}')
+    if (source_rows != 841 or observation_rows != 841 or semantic_rows != 841
+            or invalid != 0):
         raise RuntimeError('open citation verification contract failed')
 finally:
     connection.close()

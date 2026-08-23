@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from app.importer.open_citation_collector import (
+    OfficialCitationApiClient,
+    OpenCitationCollectionError,
     build_openalex_doi_batch_urls,
     collect_open_citation_rows,
     match_openalex_candidate,
@@ -17,6 +21,89 @@ from app.importer.publications import ManifestCounts, load_publication_manifest
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "import" / "publications-minimal.json"
 FIXTURE_COUNTS = ManifestCounts(1, 1, 2, 3)
+
+
+def test_collection_uses_semantic_scholar_without_calling_openalex(monkeypatch) -> None:
+    manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
+
+    class SemanticOnlyClient:
+        def get_json(self, url: str, *, allow_not_found: bool = False):
+            if "api.openalex.org" in url:
+                raise AssertionError("OpenAlex must be optional and unqueried")
+            return {
+                "paperId": "0123456789abcdef0123456789abcdef01234567",
+                "title": "A fixture publication",
+                "year": 2025,
+                "citationCount": 17,
+                "url": "https://www.semanticscholar.org/paper/0123456789abcdef0123456789abcdef01234567",
+                "externalIds": {"DOI": "10.1000/example"},
+                "authors": [{"name": "Alex Example"}],
+            }
+
+    monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
+    monkeypatch.setattr(
+        "app.importer.open_citation_collector._utc_now",
+        lambda: "2026-08-23T15:00:00Z",
+    )
+
+    rows = collect_open_citation_rows(manifest, SemanticOnlyClient())
+
+    assert len(rows) == 1
+    assert rows[0]["source_code"] == "SEMANTIC_SCHOLAR"
+    assert rows[0]["citation_count"] == "17"
+
+
+def test_rate_limit_failure_identifies_the_official_api_host(monkeypatch) -> None:
+    class Response:
+        status_code = 429
+        headers: dict[str, str] = {}
+
+    class RateLimitedClient:
+        def request(self, *args, **kwargs):
+            return Response()
+
+        def close(self) -> None:
+            pass
+
+    client = OfficialCitationApiClient(user_agent="fixture")
+    client._client.close()
+    client._client = RateLimitedClient()
+    monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
+
+    with pytest.raises(
+        OpenCitationCollectionError,
+        match=r"api\.openalex\.org.*429",
+    ):
+        client.get_json("https://api.openalex.org/works/W123")
+
+
+def test_http_404_is_absence_only_for_direct_paper_lookup() -> None:
+    class Response:
+        status_code = 404
+        headers: dict[str, str] = {}
+
+        def raise_for_status(self) -> None:
+            raise AssertionError("404 handling must occur before raise_for_status")
+
+    class NotFoundClient:
+        def request(self, *args, **kwargs):
+            return Response()
+
+        def close(self) -> None:
+            pass
+
+    client = OfficialCitationApiClient(user_agent="fixture")
+    client._client.close()
+    client._client = NotFoundClient()
+
+    assert client.get_json(
+        "https://api.semanticscholar.org/graph/v1/paper/DOI:10.1000%2Fmissing",
+        allow_not_found=True,
+    ) is None
+    with pytest.raises(OpenCitationCollectionError, match=r"404"):
+        client.get_json(
+            "https://api.semanticscholar.org/graph/v1/paper/search?query=missing"
+        )
 
 
 def test_openalex_doi_requests_are_batched_at_the_documented_limit() -> None:
@@ -40,7 +127,7 @@ def test_semantic_scholar_uses_rate_paced_direct_doi_requests(
         def __init__(self) -> None:
             self.urls: list[str] = []
 
-        def get_json(self, url: str):
+        def get_json(self, url: str, *, allow_not_found: bool = False):
             self.urls.append(url)
             if "api.openalex.org" in url:
                 return {
@@ -72,7 +159,7 @@ def test_semantic_scholar_uses_rate_paced_direct_doi_requests(
 
     client = FakeClient()
     monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
-    observed_times = iter(("2026-08-23T15:00:00Z", "2026-08-23T15:00:01Z"))
+    observed_times = iter(("2026-08-23T15:00:00Z",))
     monkeypatch.setattr(
         "app.importer.open_citation_collector._utc_now",
         lambda: next(observed_times),
@@ -80,10 +167,9 @@ def test_semantic_scholar_uses_rate_paced_direct_doi_requests(
 
     rows = collect_open_citation_rows(manifest, client)
 
-    assert [row["citation_count"] for row in rows] == ["19", "17"]
+    assert [row["citation_count"] for row in rows] == ["17"]
     assert [row["observed_at_utc"] for row in rows] == [
         "2026-08-23T15:00:00Z",
-        "2026-08-23T15:00:01Z",
     ]
     assert any("/paper/DOI:10.1000%2Fexample" in url for url in client.urls)
 
@@ -103,7 +189,7 @@ def test_semantic_scholar_queries_raw_citation_when_metadata_is_unresolved(
         def __init__(self) -> None:
             self.urls: list[str] = []
 
-        def get_json(self, url: str):
+        def get_json(self, url: str, *, allow_not_found: bool = False):
             self.urls.append(url)
             if "api.openalex.org" in url:
                 return {"results": []}
@@ -114,7 +200,7 @@ def test_semantic_scholar_queries_raw_citation_when_metadata_is_unresolved(
 
     rows = collect_open_citation_rows(manifest, client)
 
-    assert rows[1]["citation_status"] == "NOT_FOUND"
+    assert rows[0]["citation_status"] == "NOT_FOUND"
     semantic_urls = [
         url for url in client.urls if "api.semanticscholar.org" in url
     ]

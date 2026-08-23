@@ -49,7 +49,7 @@ def test_collection_wrapper_runs_unprivileged_on_isab01_and_cleans_private_stagi
     assert "[StringComparison]::OrdinalIgnoreCase" in source
 
 
-def test_import_wrapper_protects_private_snapshot_and_verifier_compares_both_sources() -> None:
+def test_import_wrapper_protects_private_snapshot_and_verifier_requires_semantic_scholar() -> None:
     assert IMPORT_SCRIPT.exists() and VERIFY_SCRIPT.exists()
     importer = IMPORT_SCRIPT.read_text(encoding="utf-8")
     verifier = VERIFY_SCRIPT.read_text(encoding="utf-8")
@@ -58,13 +58,25 @@ def test_import_wrapper_protects_private_snapshot_and_verifier_compares_both_sou
     assert "-m app.importer.run_open_citations" in importer
     assert "The open citation snapshot must remain outside the repository." in importer
     for fragment in (
-        "OPENALEX",
         "SEMANTIC_SCHOLAR",
-        "source_rows != 1682",
-        "openalex_rows != 841",
+        "source_rows != 841",
         "semantic_rows != 841",
-        "citation_disagreements",
+        "observation_rows != 841",
+        "observation.ImportRunId=?",
         "EHF_INVITATIONS_ENABLED=false",
         "EHF_PRODUCTION_MAIL_ENABLED=false",
     ):
         assert fragment in verifier
+    for obsolete_requirement in (
+        "OPENALEX",
+        "source_rows != 1682",
+        "openalex_rows != 841",
+        "citation_disagreements",
+    ):
+        assert obsolete_requirement not in verifier
+
+
+def test_collection_cli_reports_semantic_scholar_only() -> None:
+    collector = COLLECTOR.read_text(encoding="utf-8")
+    assert "Semantic Scholar observed:" in collector
+    assert "OpenAlex observed:" not in collector

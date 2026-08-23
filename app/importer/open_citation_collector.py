@@ -1,4 +1,4 @@
-"""Collect source-specific counts from the official OpenAlex and Semantic Scholar APIs."""
+"""Collect citation counts from the official Semantic Scholar API."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ class OpenCitationCollectionError(RuntimeError):
 
 
 class OfficialCitationApiClient:
-    """Small retrying client for the two official public APIs."""
+    """Small retrying client for official citation APIs."""
 
     def __init__(self, *, user_agent: str, timeout_seconds: float = 30.0) -> None:
         self._client = httpx.Client(
@@ -57,7 +57,14 @@ class OfficialCitationApiClient:
     def close(self) -> None:
         self._client.close()
 
-    def _request(self, method: str, url: str, **kwargs: Any) -> Any | None:
+    def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        allow_not_found: bool = False,
+        **kwargs: Any,
+    ) -> Any | None:
         for attempt in range(6):
             try:
                 response = self._client.request(method, url, **kwargs)
@@ -69,11 +76,18 @@ class OfficialCitationApiClient:
                 time.sleep(min(2**attempt, 20))
                 continue
             if response.status_code == 404:
-                return None
+                if allow_not_found:
+                    return None
+                host = urlparse(url).hostname or "unknown host"
+                raise OpenCitationCollectionError(
+                    f"The official API at {host} returned unexpected HTTP 404."
+                )
             if response.status_code == 429 or 500 <= response.status_code < 600:
                 if attempt == 5:
+                    host = urlparse(url).hostname or "unknown host"
                     raise OpenCitationCollectionError(
-                        "An official citation API remained rate-limited or unavailable."
+                        f"The official API at {host} remained unavailable with "
+                        f"HTTP {response.status_code}."
                     )
                 retry_after = response.headers.get("Retry-After", "")
                 try:
@@ -93,8 +107,8 @@ class OfficialCitationApiClient:
                 ) from error
         raise AssertionError("unreachable")
 
-    def get_json(self, url: str) -> Any | None:
-        return self._request("GET", url)
+    def get_json(self, url: str, *, allow_not_found: bool = False) -> Any | None:
+        return self._request("GET", url, allow_not_found=allow_not_found)
 
     def post_json(self, url: str, payload: dict[str, Any]) -> Any | None:
         return self._request("POST", url, json=payload)
@@ -350,112 +364,15 @@ def collect_open_citation_rows(
     reviewer: str = "EHF open citation collector 2026.4",
     progress: Callable[[int, int, str], None] | None = None,
 ) -> tuple[dict[str, str], ...]:
-    """Collect both source rows, failing closed on API access errors."""
+    """Collect Semantic Scholar rows, failing closed on API access errors."""
 
     raw_by_work = _raw_citations(manifest)
-    openalex_matches: dict[str, CitationApiMatch | None] = {}
-    openalex_urls: dict[str, str] = {}
-    openalex_observed: dict[str, str] = {}
     total = len(manifest.works)
-    works_by_doi = {
-        work.canonical_metadata.doi: work
-        for work in manifest.works
-        if work.canonical_metadata.doi
-    }
-    candidates_by_doi: dict[str, dict[str, Any]] = {}
-    batch_url_by_doi: dict[str, str] = {}
-    batch_observed_by_doi: dict[str, str] = {}
-    for batch_dois, batch_url in build_openalex_doi_batch_urls(
-        tuple(works_by_doi)
-    ):
-        payload = client.get_json(batch_url)
-        if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
-            raise OpenCitationCollectionError(
-                "OpenAlex returned an unexpected DOI batch response shape."
-            )
-        batch_observed_at = _utc_now()
-        for doi in batch_dois:
-            batch_url_by_doi[doi] = batch_url
-            batch_observed_by_doi[doi] = batch_observed_at
-        for candidate in payload["results"]:
-            if not isinstance(candidate, dict):
-                continue
-            candidate_doi_value = str(candidate.get("doi") or "").strip()
-            if candidate_doi_value:
-                candidates_by_doi[normalize_doi(candidate_doi_value)] = candidate
-
-    for index, work in enumerate(manifest.works, start=1):
-        raw = raw_by_work.get(work.final_work_id, "")
-        doi = work.canonical_metadata.doi
-        if doi:
-            query_url = batch_url_by_doi[doi]
-            query_observed_at = batch_observed_by_doi[doi]
-            candidate = candidates_by_doi.get(doi)
-            candidates: Sequence[Any] = () if candidate is None else (candidate,)
-        else:
-            query_url = _openalex_query(work, raw)
-            payload = client.get_json(query_url)
-            query_observed_at = _utc_now()
-            if payload is None:
-                candidates = ()
-            elif isinstance(payload, dict) and isinstance(payload.get("results"), list):
-                candidates = payload["results"]
-            else:
-                raise OpenCitationCollectionError(
-                    "OpenAlex returned an unexpected response shape."
-                )
-        match = next(
-            (
-                candidate_match
-                for candidate in candidates
-                if isinstance(candidate, dict)
-                for candidate_match in (
-                    match_openalex_candidate(work, raw, candidate),
-                )
-                if candidate_match is not None
-            ),
-            None,
-        )
-        if match is None and doi:
-            fallback_query = work.canonical_metadata.title or raw[:1000]
-            fallback_url = "https://api.openalex.org/works?" + urlencode(
-                {"search": fallback_query, "per_page": 5}
-            )
-            fallback_payload = client.get_json(fallback_url)
-            query_observed_at = _utc_now()
-            if isinstance(fallback_payload, dict) and isinstance(
-                fallback_payload.get("results"), list
-            ):
-                match = next(
-                    (
-                        candidate_match
-                        for candidate in fallback_payload["results"]
-                        if isinstance(candidate, dict)
-                        for candidate_match in (
-                            match_openalex_candidate(work, raw, candidate),
-                        )
-                        if candidate_match is not None
-                    ),
-                    None,
-                )
-                query_url = fallback_url
-            elif fallback_payload is not None:
-                raise OpenCitationCollectionError(
-                    "OpenAlex returned an unexpected fallback response shape."
-                )
-        openalex_matches[work.final_work_id] = match
-        openalex_urls[work.final_work_id] = query_url
-        openalex_observed[work.final_work_id] = query_observed_at
-        if progress is not None:
-            progress(index, total, "OPENALEX")
-        time.sleep(0.15)
-
     semantic_matches: dict[str, CitationApiMatch | None] = {}
     semantic_urls: dict[str, str] = {}
     semantic_observed: dict[str, str] = {}
     for work in manifest.works:
-        openalex = openalex_matches[work.final_work_id]
-        doi = work.canonical_metadata.doi or (openalex.matched_doi if openalex else "")
+        doi = work.canonical_metadata.doi
         if not doi:
             continue
         query_url = (
@@ -470,7 +387,7 @@ def collect_open_citation_rows(
                 }
             )
         )
-        payload = client.get_json(query_url)
+        payload = client.get_json(query_url, allow_not_found=True)
         if payload is not None and not isinstance(payload, dict):
             raise OpenCitationCollectionError(
                 "Semantic Scholar returned an unexpected DOI response shape."
@@ -487,10 +404,7 @@ def collect_open_citation_rows(
         time.sleep(1.05)
     for index, work in enumerate(manifest.works, start=1):
         if semantic_matches.get(work.final_work_id) is None:
-            openalex = openalex_matches[work.final_work_id]
-            title = work.canonical_metadata.title or (
-                openalex.matched_title if openalex is not None else ""
-            )
+            title = work.canonical_metadata.title or ""
             if not title:
                 title = raw_by_work.get(work.final_work_id, "")[:300]
             if not title:
@@ -532,16 +446,6 @@ def collect_open_citation_rows(
 
     rows: list[dict[str, str]] = []
     for work in manifest.works:
-        rows.append(
-            _row(
-                work,
-                "OPENALEX",
-                openalex_observed[work.final_work_id],
-                reviewer,
-                openalex_urls[work.final_work_id],
-                openalex_matches[work.final_work_id],
-            )
-        )
         rows.append(
             _row(
                 work,

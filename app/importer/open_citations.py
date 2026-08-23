@@ -1,4 +1,4 @@
-"""Strict append-only import of reviewed OpenAlex and Semantic Scholar counts."""
+"""Strict append-only import of reviewed Semantic Scholar citation counts."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from app.importer.run import ImportMode
 
 
 OPEN_CITATION_IMPORTER_VERSION = "2026.4-open-citations"
-OPEN_CITATION_SOURCES = ("OPENALEX", "SEMANTIC_SCHOLAR")
+OPEN_CITATION_SOURCES = ("SEMANTIC_SCHOLAR",)
 OPEN_CITATION_FIELDS = (
     "applicant",
     "final_work_id",
@@ -325,7 +325,7 @@ def load_open_citation_reviews(
     }
     if seen != expected:
         raise OpenCitationImportError(
-            "The snapshot must contain both sources for every manifest work."
+            "The snapshot must contain Semantic Scholar for every manifest work."
         )
     return tuple(reviews)
 
