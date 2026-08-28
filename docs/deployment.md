@@ -1,9 +1,32 @@
-# EHF ISAB01 deployment and rollback
+# EHF deployment and rollback
 
-The EHF service is installed only on ISAB01 (`aag@10.10.20.29`) from the exact
-clean GitHub `main` commit. It remains a loopback-only Uvicorn service on
-`127.0.0.1:8086`; Nginx is the local proxy for `ehf.isab.science` only.
-This process does not publish Cloudflare DNS, create a Tunnel route, change
+## Production architecture and startup order
+
+The EHF production workload runs on the Hestia compute platform in the
+`isab-db01` VM. The VM hosts both the loopback-only Uvicorn service on
+`127.0.0.1:8086`, with its active release at `/opt/ehf/current`, and the SQL
+Server engine used by the application. Nginx on that VM is the local proxy for
+`ehf.isab.science` only.
+
+Only SQL Server data for the exact `EHFApplications` database belongs on the
+QNAP TS-873A `ISAB_DBS` iSCSI storage. The iSCSI-backed XFS filesystem is
+mounted at `/var/opt/mssql/data`, where SQL Server keeps that database's files.
+This placement does not put `/var/lib/ehf/documents` or
+`/var/lib/ehf/quarantine` on QNAP; those application paths are outside this
+QNAP SQL-storage claim.
+
+Startup must preserve this dependency chain:
+
+1. Bring the `ISAB_DBS` iSCSI storage online and mount its XFS filesystem at
+   `/var/opt/mssql/data`.
+2. Start SQL Server only after that mount is available.
+3. Start `ehf.service` only after SQL Server is available, so its Uvicorn
+   process at `/opt/ehf/current` cannot begin before its database engine.
+
+The corresponding systemd configuration must enforce storage before SQL
+Server before `ehf.service`; a service restart or host boot must never allow
+SQL Server to initialize `EHFApplications` on fallback local storage. This
+process does not publish Cloudflare DNS, create a Tunnel route, change
 Cloudflare Access, enable invitations, enable production mail, import
 applicant records, or send any message.
 

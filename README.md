@@ -30,6 +30,17 @@ $Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies
 & $Python -m pytest tests\test_repository_contract.py -q
 ```
 
+## Production topology
+
+EHF runs on the Hestia compute platform in the `isab-db01` VM. The
+loopback-only Uvicorn application release is `/opt/ehf/current`, and SQL
+Server runs in that same VM. Only the `EHFApplications` SQL database files are
+stored on the QNAP TS-873A `ISAB_DBS` iSCSI storage, mounted as XFS at
+`/var/opt/mssql/data`. The application document and quarantine paths
+(`/var/lib/ehf/documents` and `/var/lib/ehf/quarantine`) are not claimed to be
+on QNAP. See [deployment.md](docs/deployment.md) for the required startup
+ordering and deployment safeguards.
+
 ## Import
 
 The root-mediated 2026 workflow is PlanOnly unless `-Apply` is explicit. It requires private reviewed identity and folder-alias maps outside Git, reconciles all 36 rows before writing, and preserves every register observation for later applicant confirmation. See [import-2026.md](docs/import-2026.md) for the exact commands.
