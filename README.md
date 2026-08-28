@@ -56,7 +56,7 @@ Imported PDFs are scanned and encrypted. Every document begins `UNREVIEWED`; rec
 
 ## Deploy and rollback
 
-Deployment targets ISAB01 only after the release has passed its focused tests and the full suite on a clean, synchronized `main`:
+Deployment targets `isab-db01` only after the release has passed its focused tests and the full suite on a clean, synchronized `main`:
 
 ```powershell
 $Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
@@ -75,8 +75,12 @@ git diff --exit-code origin/main
 powershell -NoProfile -File scripts\deploy-isab01.ps1 -WhatIf
 ```
 
+The unavoidable `isab01` text in legacy script filenames and labels is tooling
+terminology only; it does not identify another deployment host. Those scripts
+operate on `isab-db01`.
+
 Apply only after the reviewed commit has been pushed, local `HEAD` equals
-`origin/main`, the ISAB01 non-secret configuration/credential prerequisites are
+`origin/main`, the `isab-db01` non-secret configuration/credential prerequisites are
 available, and the approved protected SQL administrator credential **path** is
 known. The complete procedure is in [deployment.md](docs/deployment.md).
 

@@ -15,24 +15,29 @@ This placement does not put `/var/lib/ehf/documents` or
 `/var/lib/ehf/quarantine` on QNAP; those application paths are outside this
 QNAP SQL-storage claim.
 
-Startup must preserve this dependency chain:
+Startup must preserve this exact fail-closed dependency chain:
 
-1. Bring the `ISAB_DBS` iSCSI storage online and mount its XFS filesystem at
-   `/var/opt/mssql/data`.
-2. Start SQL Server only after that mount is available.
-3. Start `ehf.service` only after SQL Server is available, so its Uvicorn
+1. Start Hestia/libvirt.
+2. Bring up the persistent `isab-db01-mgmt` VM network.
+3. Start the `isab-db01` VM only after that network is available.
+4. In `isab-db01`, bring the `ISAB_DBS` iSCSI storage online and mount its XFS
+   filesystem at `/var/opt/mssql/data`.
+5. Start SQL Server only after that mount is available.
+6. Start `ehf.service` only after SQL Server is available, so its Uvicorn
    process at `/opt/ehf/current` cannot begin before its database engine.
 
-The corresponding systemd configuration must enforce storage before SQL
-Server before `ehf.service`; a service restart or host boot must never allow
-SQL Server to initialize `EHFApplications` on fallback local storage. This
-process does not publish Cloudflare DNS, create a Tunnel route, change
+Every dependency must fail closed: an unavailable predecessor prevents the
+dependent network, VM, mount, SQL Server, or `ehf.service` from starting. The
+Hestia/libvirt and VM configuration, and the guest systemd configuration, must
+enforce this order. A service restart or host boot must never allow SQL Server
+to initialize `EHFApplications` on fallback local storage. This process does
+not publish Cloudflare DNS, create a Tunnel route, change
 Cloudflare Access, enable invitations, enable production mail, import
 applicant records, or send any message.
 
 ## First-install prerequisites
 
-An ISAB01 administrator must prepare the non-secret environment file and the
+An `isab-db01` administrator must prepare the non-secret environment file and the
 four protected application credentials before `-Apply`. Do not put credential
 contents in this repository, in a command line, or in a deployment log.
 
@@ -77,6 +82,10 @@ contents in this repository, in a command line, or in a deployment log.
 The administrator must not create a public DNS record, alter a Cloudflare
 Tunnel, or enable invitations/mail as part of these prerequisites.
 
+The unavoidable `isab01` text in legacy deployment and verification script or
+test filenames is tooling terminology only; it does not identify another host.
+Those tools operate on `isab-db01`.
+
 ## Local release gate and dry run
 
 From the repository root, use the pinned repository Python runtime:
@@ -89,7 +98,7 @@ powershell -NoProfile -File scripts\deploy-isab01.ps1 -WhatIf
 ```
 
 `-WhatIf` names the exact local commit and planned actions without connecting
-to ISAB01 or mutating any server. It is not an authorization to deploy.
+to `isab-db01` or mutating any server. It is not an authorization to deploy.
 
 ## Apply
 
@@ -99,7 +108,7 @@ branch, or a mismatch between `HEAD` and `origin/main`.
 
 ```powershell
 git push origin main
-$AdminCredentialPath = '<approved root-only path on ISAB01>'
+$AdminCredentialPath = '<approved root-only path on isab-db01>'
 powershell -NoProfile -File scripts\deploy-isab01.ps1 -Apply -SqlAdminCredentialPath $AdminCredentialPath
 powershell -NoProfile -File scripts\verify-isab01.ps1
 ```
@@ -118,7 +127,7 @@ the prior service state automatically.
 ## Explicit rollback
 
 First identify the previous immutable commit from a trusted deployment record
-or from the validated release directory on ISAB01. It must be exactly 40
+or from the validated release directory on `isab-db01`. It must be exactly 40
 lowercase hexadecimal characters and match that release's `.commit` marker.
 
 ```powershell
