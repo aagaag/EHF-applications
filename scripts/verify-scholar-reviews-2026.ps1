@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Target = 'aag@10.10.20.29'
+$Target = 'isab-db01-hestia'
 $RemoteScript = @'
 set -eu
 /usr/bin/grep -qx 'EHF_INVITATIONS_ENABLED=false' /etc/ehf/ehf.env

@@ -42,7 +42,7 @@ def test_service_uses_systemd_credentials_and_hardens_a_loopback_only_runtime() 
         "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
         "ReadWritePaths=/var/lib/ehf/documents /var/lib/ehf/quarantine",
         "127.0.0.1",
-        "8086",
+        "8087",
     ):
         assert entry in source
     assert "EHF_SQL_PASSWORD=" not in source
@@ -65,11 +65,27 @@ def test_nginx_only_serves_the_exact_ehf_host_and_loopback_upstream() -> None:
     source = NGINX.read_text(encoding="utf-8")
 
     assert "server_name ehf.isab.science;" in source
-    assert "proxy_pass http://127.0.0.1:8086;" in source
+    assert "proxy_pass http://127.0.0.1:8087;" in source
     assert "proxy_set_header Host $host;" in source
     assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;" in source
     assert "proxy_set_header X-Forwarded-Proto https;" in source
-    assert "0.0.0.0:8086" not in source
+    assert "0.0.0.0:8087" not in source
+
+
+def test_operational_scripts_cannot_target_the_retired_appen_guest() -> None:
+    """Break caught: an operator could deploy or import against the read-only Appen rollback guest."""
+    offenders = []
+    hestia_targets = []
+    for script in sorted((ROOT / "scripts").glob("*.ps1")):
+        source = script.read_text(encoding="utf-8")
+        if "10.10.20.29" in source:
+            offenders.append(script.name)
+        if "isab-db01-hestia" in source:
+            hestia_targets.append(script.name)
+
+    assert offenders == []
+    assert "deploy-isab01.ps1" in hestia_targets
+    assert "verify-isab01.ps1" in hestia_targets
 
 
 def test_nginx_allows_the_same_bounded_pdf_upload_size_as_the_application() -> None:
@@ -175,7 +191,7 @@ def test_verify_transports_a_base64_decoded_remote_script_without_nested_shell_q
     encoded = re.search(r"'([A-Za-z0-9+/=]+)'\s*\|\s*/usr/bin/base64", remote_command)
     assert encoded is not None
     decoded = base64.b64decode(encoded.group(1)).decode("utf-8")
-    assert "ss -ltn '( sport = :8086 )'" in decoded
+    assert "ss -ltn '( sport = :8087 )'" in decoded
     assert "Host: ehf.isab.science" in decoded
     assert "^[[:space:]]*server_name" in decoded
     assert "^[[:space:]]*proxy_pass" in decoded

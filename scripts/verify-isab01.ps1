@@ -4,7 +4,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Target = 'aag@10.10.20.29'
+$Target = 'isab-db01-hestia'
 $ExpectedCommitCheck = if ($ExpectedCommit) { "test `"`$commit`" = '$ExpectedCommit'" } else { ':' }
 
 if ($WhatIf) {
@@ -24,13 +24,13 @@ __EXPECTED_COMMIT_CHECK__
 systemctl is-active --quiet ehf.service
 systemctl show ehf.service --property=ProtectSystem --property=ProtectHome --property=PrivateTmp --property=NoNewPrivileges --property=CapabilityBoundingSet --property=RestrictAddressFamilies
 /usr/sbin/nginx -t
-/usr/bin/curl --fail --silent --show-error --max-time 5 --header 'Host: ehf.isab.science' http://127.0.0.1:8086/health/ready >/dev/null
-/usr/bin/ss -ltn '( sport = :8086 )' | /usr/bin/grep -F '127.0.0.1:8086' >/dev/null
+/usr/bin/curl --fail --silent --show-error --max-time 5 --header 'Host: ehf.isab.science' http://127.0.0.1:8087/health/ready >/dev/null
+/usr/bin/ss -ltn '( sport = :8087 )' | /usr/bin/grep -F '127.0.0.1:8087' >/dev/null
 /usr/bin/ss -ltn '( sport = :1433 )' | /usr/bin/grep -F '127.0.0.1:1433' >/dev/null
 /usr/bin/grep -qx 'EHF_INVITATIONS_ENABLED=false' /etc/ehf/ehf.env
 /usr/bin/grep -qx 'EHF_PRODUCTION_MAIL_ENABLED=false' /etc/ehf/ehf.env
 /usr/bin/grep -Eq '^[[:space:]]*server_name[[:space:]]+ehf\.isab\.science;[[:space:]]*$' /etc/nginx/sites-available/ehf
-/usr/bin/grep -Eq '^[[:space:]]*proxy_pass[[:space:]]+http://127\.0\.0\.1:8086;[[:space:]]*$' /etc/nginx/sites-available/ehf
+/usr/bin/grep -Eq '^[[:space:]]*proxy_pass[[:space:]]+http://127\.0\.0\.1:8087;[[:space:]]*$' /etc/nginx/sites-available/ehf
 printf 'EHF verification passed for %s\n' "$commit"
 '@.Replace('__EXPECTED_COMMIT_CHECK__', $ExpectedCommitCheck).Replace("`r`n", "`n")
 $EncodedRemoteCheck = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteCheck))

@@ -513,7 +513,7 @@ def _ready() -> None:
             "5",
             "--header",
             "Host: ehf.isab.science",
-            "http://127.0.0.1:8086/health/ready",
+            "http://127.0.0.1:8087/health/ready",
         ]
     )
 

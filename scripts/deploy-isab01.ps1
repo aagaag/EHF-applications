@@ -6,7 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Target = 'aag@10.10.20.29'
+$Target = 'isab-db01-hestia'
 $Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
 $InstalledHelper = '/usr/local/sbin/ehf-deploy'
 

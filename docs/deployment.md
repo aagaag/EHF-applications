@@ -4,7 +4,7 @@
 
 The EHF production workload runs on the Hestia compute platform in the
 `isab-db01` VM. The VM hosts both the loopback-only Uvicorn service on
-`127.0.0.1:8086`, with its active release at `/opt/ehf/current`, and the SQL
+`127.0.0.1:8087`, with its active release at `/opt/ehf/current`, and the SQL
 Server engine used by the application. Nginx on that VM is the local proxy for
 `ehf.isab.science` only.
 

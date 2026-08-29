@@ -14,7 +14,7 @@ LoadCredential=document-keyring:/etc/ehf/document-keyring
 LoadCredential=session-pepper:/etc/ehf/session-pepper
 LoadCredential=otp-pepper:/etc/ehf/otp-pepper
 LoadCredential=turnstile-secret:/etc/ehf/turnstile-secret
-ExecStart=/opt/ehf/current/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8086 --workers 2 --proxy-headers --forwarded-allow-ips=127.0.0.1
+ExecStart=/opt/ehf/current/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8087 --workers 2 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=on-failure
 RestartSec=3
 UMask=0077

@@ -38,7 +38,7 @@ def test_collector_and_import_cli_are_separate_and_apply_is_root_mediated() -> N
 def test_collection_wrapper_runs_unprivileged_on_isab01_and_cleans_private_staging() -> None:
     assert COLLECT_SCRIPT.exists()
     source = COLLECT_SCRIPT.read_text(encoding="utf-8")
-    assert "aag@10.10.20.29" in source
+    assert "isab-db01-hestia" in source
     assert "chmod 700" in source and "chmod 600" in source
     assert "/opt/ehf/current/venv/bin/python" in source
     assert "-m app.importer.collect_open_citations" in source

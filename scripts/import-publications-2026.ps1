@@ -16,7 +16,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Target = 'aag@10.10.20.29'
+$Target = 'isab-db01-hestia'
 $TransferId = [Guid]::NewGuid().ToString('N')
 $RemoteTransfer = "/home/aag/.ehf-publication-transfer/$TransferId"
 $RemoteManifest = "$RemoteTransfer/manifest.json"

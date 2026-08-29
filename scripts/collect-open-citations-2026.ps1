@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)] [string] $ManifestPath,
     [Parameter(Mandatory = $true)] [string] $OutputPath,
-    [string] $Target = 'aag@10.10.20.29'
+    [string] $Target = 'isab-db01-hestia'
 )
 
 $ErrorActionPreference = 'Stop'
