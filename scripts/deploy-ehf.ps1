@@ -6,7 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Target = 'isab-db01-hestia'
+$Target = 'ehf-hestia'
 $Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
 $InstalledHelper = '/usr/local/sbin/ehf-deploy'
 
@@ -32,7 +32,7 @@ function Assert-DeployRepositoryState {
 }
 
 if ($WhatIf) {
-    Write-Output "WhatIf: would deploy immutable EHF commit $Head to ISAB01."
+    Write-Output "WhatIf: would deploy immutable EHF commit $Head to the EHF VM."
     Write-Output 'WhatIf: would create exact git archive bytes, run local and Linux safety tests, then validate SQL before activation.'
     Write-Output 'WhatIf: would atomically switch /opt/ehf/current only after all pre-activation checks pass.'
     Write-Output 'WhatIf: would keep invitations and production mail disabled and would not alter Cloudflare, DNS, or outbound communications.'
@@ -49,11 +49,11 @@ if ($Rollback) {
 }
 
 if (-not $SqlAdminCredentialPath) {
-    throw 'Apply requires -SqlAdminCredentialPath with the protected path on ISAB01; do not provide a credential value.'
+    throw 'Apply requires -SqlAdminCredentialPath with the protected path on the EHF VM; do not provide a credential value.'
 }
 Assert-DeployRepositoryState
 
-& $Python -m pytest infra\test-install-isab01.py tests\test_deployment_contract.py -q
+& $Python -m pytest infra\test-install-ehf.py tests\test_deployment_contract.py -q
 if ($LASTEXITCODE -ne 0) {
     throw 'The EHF installer/deployment safety tests failed.'
 }
@@ -63,8 +63,8 @@ $Archive = Join-Path $TempRoot 'r.tar'
 $RemoteArchive = "/tmp/ehf-$PID.tar"
 $RemoteHelper = "/tmp/ehf-$PID.py"
 $RemoteTest = "/tmp/ehf-$PID-test.py"
-$LocalHelper = Join-Path $PSScriptRoot '..\infra\install-isab01.py'
-$LocalTest = Join-Path $PSScriptRoot '..\infra\test-install-isab01.py'
+$LocalHelper = Join-Path $PSScriptRoot '..\infra\install-ehf.py'
+$LocalTest = Join-Path $PSScriptRoot '..\infra\test-install-ehf.py'
 
 try {
     New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
@@ -73,15 +73,15 @@ try {
         throw 'The exact tested release archive could not be created.'
     }
     & scp.exe -- $Archive "${Target}:${RemoteArchive}"
-    if ($LASTEXITCODE -ne 0) { throw 'The release archive could not be staged on ISAB01.' }
+    if ($LASTEXITCODE -ne 0) { throw 'The release archive could not be staged on the EHF VM.' }
     & scp.exe -- $LocalHelper "${Target}:${RemoteHelper}"
-    if ($LASTEXITCODE -ne 0) { throw 'The reviewed deployment helper could not be staged on ISAB01.' }
+    if ($LASTEXITCODE -ne 0) { throw 'The reviewed deployment helper could not be staged on the EHF VM.' }
     & scp.exe -- $LocalTest "${Target}:${RemoteTest}"
-    if ($LASTEXITCODE -ne 0) { throw 'The Linux installer safety test could not be staged on ISAB01.' }
+    if ($LASTEXITCODE -ne 0) { throw 'The Linux installer safety test could not be staged on the EHF VM.' }
     & ssh.exe -o BatchMode=yes $Target "sudo -n /usr/bin/install -o root -g root -m 0755 '$RemoteHelper' '$InstalledHelper'"
     if ($LASTEXITCODE -ne 0) { throw 'The reviewed deployment helper could not be installed.' }
     & ssh.exe -o BatchMode=yes $Target "sudo -n /usr/bin/python3 '$InstalledHelper' --archive '$RemoteArchive' --commit '$Head' --sql-admin-credential '$SqlAdminCredentialPath' --apply"
-    if ($LASTEXITCODE -ne 0) { throw 'The EHF ISAB01 deployment failed.' }
+    if ($LASTEXITCODE -ne 0) { throw 'The EHF the EHF VM deployment failed.' }
 } finally {
     & ssh.exe -o BatchMode=yes $Target "rm -f -- '$RemoteArchive' '$RemoteHelper' '$RemoteTest'" 2>$null | Out-Null
     if (Test-Path -LiteralPath $TempRoot) {

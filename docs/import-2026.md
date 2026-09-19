@@ -2,7 +2,7 @@
 
 The 2026 importer is deliberately PlanOnly by default. It does not send mail, create invitations, make a document applicant-visible, or write source material to Git. Every imported document version is `UNREVIEWED` until an administrator records a separate classification decision.
 
-## Root-mediated ISAB01 path
+## Root-mediated the EHF VM path
 
 Use a locally prepared source-package directory, a separate reviewed `identity-parts.json` file, and a reviewed `folder-aliases.json` file. The maps are required because the Word register has one full-name field and the legacy applicant folders do not consistently use full legal names. Keep both maps outside the repository. The helper `scripts\build-identity-map.py` uses the reviewed folder aliases to preserve compound family-name suffixes; the resulting fields remain provisional until each applicant explicitly confirms or corrects them. The identity map format is:
 
@@ -18,7 +18,7 @@ The folder-alias map format is:
 {"call":"2026","aliases":{"Example Applicant":"Applicant"}}
 ```
 
-After Plans 1–2 are deployed on ISAB01, create a non-writing reconciliation plan:
+After Plans 1–2 are deployed on the EHF VM, create a non-writing reconciliation plan:
 
 ```powershell
 powershell -NoProfile -File scripts\import-call-2026.ps1 `
@@ -28,11 +28,11 @@ powershell -NoProfile -File scripts\import-call-2026.ps1 `
   -CallId '<fellowship-call-guid>'
 ```
 
-The script creates a temporary tar archive, transfers it into a unique mode-0700 directory below `/home/aag/.ehf-transfer`, verifies mode-0600 files, and asks ISAB01 root to extract it into a new mode-0700 `/root/ehf-import/call-2026.*` directory. The transfer and copied maps are removed after the operation. Nothing is committed or copied into Git.
+The script creates a temporary tar archive, transfers it into a unique mode-0700 directory below `/home/aag/.ehf-transfer`, verifies mode-0600 files, and asks the EHF VM root to extract it into a new mode-0700 `/root/ehf-import/call-2026.*` directory. The transfer and copied maps are removed after the operation. Nothing is committed or copied into Git.
 
 Review the printed source-manifest hash, fingerprint, count of 36 planned applications, and the internal HTML/CSV exception report. The report contains only exception codes, counts, and short internal IDs; it contains no names, paths, document text, or raw hashes.
 
-Only after that review, run the same command with `-Apply`. Apply uses the protected root-only SQL administrator credential path on ISAB01, validates/scans/encrypts PDFs, creates each applicant transaction only when all its metadata is consistent, and records every non-PDF or failed admission as a source occurrence requiring review.
+Only after that review, run the same command with `-Apply`. Apply uses the protected root-only SQL administrator credential path on the EHF VM, validates/scans/encrypts PDFs, creates each applicant transaction only when all its metadata is consistent, and records every non-PDF or failed admission as a source occurrence requiring review.
 
 ```powershell
 powershell -NoProfile -File scripts\import-call-2026.ps1 `
@@ -118,7 +118,7 @@ bioRxiv and medRxiv statuses retain null counts when those services do not expos
 
 For comparative applicant review, use Semantic Scholar as the single required citation-count source so every applicant is measured consistently. The collector never substitutes or labels the value as Google Scholar. Exact DOI matches take precedence; title and dossier-citation fallbacks are accepted only when the returned title and applicant identity satisfy the strict match rules. Rate limits and API failures abort collection instead of being recorded as `NOT_FOUND`.
 
-Run the conservative, unprivileged collector on ISAB01. DOI-bearing works use
+Run the conservative, unprivileged collector on the EHF VM. DOI-bearing works use
 the official Semantic Scholar batch endpoint in groups of at most 500; remaining
 title searches are paced at one request every two seconds. The private
 transfer area is removed after the completed snapshot is copied back:

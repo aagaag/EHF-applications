@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Target = 'isab-db01-hestia'
+$Target = 'ehf-hestia'
 $RemoteScript = @'
 set -eu
 /usr/bin/grep -qx 'EHF_INVITATIONS_ENABLED=false' /etc/ehf/ehf.env
@@ -91,4 +91,4 @@ PY
 '@
 $EncodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteScript.Replace("`r`n", "`n")))
 & ssh.exe -o BatchMode=yes $Target "printf %s '$EncodedScript' | /usr/bin/base64 --decode | sudo -n /bin/sh -s -- '$SqlAdminCredentialPath'"
-if ($LASTEXITCODE -ne 0) { throw 'ISAB01 Google Scholar review verification failed.' }
+if ($LASTEXITCODE -ne 0) { throw 'the EHF VM Google Scholar review verification failed.' }

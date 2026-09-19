@@ -12,7 +12,7 @@ VERIFY_SCRIPT = ROOT / "scripts" / "verify-scholar-reviews-2026.ps1"
 
 
 def test_release_requires_scholar_review_modules() -> None:
-    source = (ROOT / "infra" / "install-isab01.py").read_text(encoding="utf-8")
+    source = (ROOT / "infra" / "install-ehf.py").read_text(encoding="utf-8")
     assert '"app/importer/scholar_reviews.py"' in source
     assert '"app/importer/run_scholar_reviews.py"' in source
 

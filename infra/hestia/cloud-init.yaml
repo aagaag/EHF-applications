@@ -1,0 +1,69 @@
+#cloud-config
+# Bootstrap for the dedicated EHF VM. Everything host-independent lives here so the
+# same definition can be applied on any KVM/libvirt host that carries the Ubuntu image.
+hostname: ehf
+fqdn: ehf.isab.science
+manage_etc_hosts: true
+disable_root: true
+ssh_pwauth: false
+timezone: UTC
+
+bootcmd:
+  - [sh, -c, "sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources"]
+
+users:
+  - name: aag
+    gecos: Adriano Aguzzi
+    groups: [adm, sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKM/jA5TqSdrppPVzBGfUwH1Tu5/uWAWFw0IXQPJMHig aag@AagHomeOffice
+  - name: hermes
+    gecos: Hestia automation
+    groups: [adm, sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJu1fwm8hprCEvS0iPfpMfmR6hEFMgMbhN60YPFgFpMY hermes@hestia
+
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - openssl
+  - tar
+  - unzip
+  - python3-venv
+  - python3-pip
+  - nginx
+  - qemu-guest-agent
+
+# The second virtio disk carries the SQL Server data directory, so database files are
+# never mixed with the operating system and the whole VM stays movable as two qcow2 files.
+disk_setup:
+  /dev/vdb:
+    table_type: gpt
+    layout: true
+    overwrite: false
+
+fs_setup:
+  - device: /dev/vdb1
+    filesystem: ext4
+    label: ehf-data
+    overwrite: false
+
+mounts:
+  - [ "LABEL=ehf-data", /var/opt/mssql/data, ext4, "defaults,noatime", "0", "2" ]
+
+runcmd:
+  - [systemctl, enable, --now, qemu-guest-agent]
+  - [systemctl, enable, --now, nginx]
+  - [install, -d, -m, '0750', -o, root, -g, root, /etc/ehf]
+  - [install, -d, -m, '0755', -o, root, -g, root, /opt/ehf]
+
+final_message: EHF guest cloud-init completed

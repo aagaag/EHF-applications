@@ -1,4 +1,4 @@
-"""Repository-level contracts for the EHF ISAB01 deployment boundary."""
+"""Repository-level contracts for the EHF deployment boundary."""
 
 from __future__ import annotations
 
@@ -15,11 +15,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SERVICE = ROOT / "infra" / "ehf.service"
 NGINX = ROOT / "infra" / "ehf.nginx.conf"
-DEPLOY = ROOT / "scripts" / "deploy-isab01.ps1"
-VERIFY = ROOT / "scripts" / "verify-isab01.ps1"
+DEPLOY = ROOT / "scripts" / "deploy-ehf.ps1"
+VERIFY = ROOT / "scripts" / "verify-ehf.ps1"
 IMPORT_2026 = ROOT / "scripts" / "import-call-2026.ps1"
 PWSH = shutil.which("pwsh") or shutil.which("powershell") or "powershell"
 SQL_LOGIN_TEST = ROOT / "infra" / "test-sql-login.sh"
+
+# The retired Appenzell estate must not appear in operational tooling. The literals are
+# assembled from parts so that this guard does not itself contain the retired values.
+RETIRED_APPENZELL_PREFIX = ".".join(("10", "10", "20")) + "."
+RETIRED_HOST = "-".join(("isab", "db01"))
 
 
 def test_service_uses_systemd_credentials_and_hardens_a_loopback_only_runtime() -> None:
@@ -73,19 +78,19 @@ def test_nginx_only_serves_the_exact_ehf_host_and_loopback_upstream() -> None:
 
 
 def test_operational_scripts_cannot_target_the_retired_appen_guest() -> None:
-    """Break caught: an operator could deploy or import against the read-only Appen rollback guest."""
+    """Break caught: a script could still address the retired Appenzell estate."""
     offenders = []
     hestia_targets = []
     for script in sorted((ROOT / "scripts").glob("*.ps1")):
         source = script.read_text(encoding="utf-8")
-        if "10.10.20.29" in source:
+        if RETIRED_APPENZELL_PREFIX in source or RETIRED_HOST in source:
             offenders.append(script.name)
-        if "isab-db01-hestia" in source:
+        if "ehf-hestia" in source:
             hestia_targets.append(script.name)
 
     assert offenders == []
-    assert "deploy-isab01.ps1" in hestia_targets
-    assert "verify-isab01.ps1" in hestia_targets
+    assert "deploy-ehf.ps1" in hestia_targets
+    assert "verify-ehf.ps1" in hestia_targets
 
 
 def test_nginx_allows_the_same_bounded_pdf_upload_size_as_the_application() -> None:
@@ -114,7 +119,7 @@ def test_sql_dml_denial_probe_uses_columns_declared_by_current_import_migrations
 
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell deployment contracts run on the Windows controller")
 def test_deploy_whatif_names_the_exact_commit_without_starting_remote_mutation() -> None:
-    """Break caught: a dry run could connect to ISAB01 or hide the release revision it would deploy."""
+    """Break caught: a dry run could connect to the EHF VM or hide the release revision it would deploy."""
     completed = subprocess.run(
         ["powershell", "-NoProfile", "-File", str(DEPLOY), "-WhatIf"],
         cwd=ROOT,
@@ -148,7 +153,7 @@ def test_deploy_and_verify_scripts_parse_without_executing_a_live_deployment() -
 
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell deployment contracts run on the Windows controller")
 def test_verify_whatif_never_invokes_ssh_and_names_its_read_only_checks() -> None:
-    """Break caught: verification preview could contact ISAB01 despite being requested as a dry run."""
+    """Break caught: verification preview could contact the EHF VM despite being requested as a dry run."""
     command = (
         "function ssh.exe { throw 'SSH_CALLED' }; "
         f"& '{VERIFY}' -WhatIf"

@@ -23,6 +23,14 @@ $Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies
 & $Python -m pytest -q
 ```
 
+The deployment safety contracts live outside `tests/` and are run explicitly:
+
+```powershell
+$Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
+& $Python -m pytest infra\test-install-ehf.py tests\test_deployment_contract.py -q
+$Python -m pytest tests\browser\*.spec.py -q   # browser/accessibility scenarios
+```
+
 For the repository bootstrap contract only:
 
 ```powershell
@@ -32,14 +40,21 @@ $Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies
 
 ## Production topology
 
-EHF runs on the Hestia compute platform in the `isab-db01` VM. The
-loopback-only Uvicorn application release is `/opt/ehf/current`, and SQL
-Server runs in that same VM. Only the `EHFApplications` SQL database files are
-stored on the QNAP TS-873A `ISAB_DBS` iSCSI storage, mounted as XFS at
-`/var/opt/mssql/data`. The application document and quarantine paths
-(`/var/lib/ehf/documents` and `/var/lib/ehf/quarantine`) are not claimed to be
-on QNAP. See [deployment.md](docs/deployment.md) for the required startup
-ordering and deployment safeguards.
+EHF runs in a dedicated, self-contained KVM virtual machine named `EHF` on the
+Hestia compute platform. The loopback-only Uvicorn release at `/opt/ehf/current`,
+its own SQL Server 2025 instance and the encrypted document store all live inside
+that VM, and the database files sit on the VM's dedicated data disk
+(`ehf-data.qcow2`, mounted at `/var/opt/mssql/data`). The workload therefore moves
+between KVM/libvirt hosts as two qcow2 images without depending on any host-local
+storage, address plan or retired network.
+
+Ingress is unchanged in shape: the Cloudflare tunnel terminates on `isab-proxy01`,
+whose EHF server block proxies to the VM's port 80. The VM is reached at
+`192.168.254.2` on the Hestia-local management network `ehf-net`; operator access
+uses the `ehf-hestia` SSH alias. See [hestia-vm.md](docs/hestia-vm.md) for the
+provisioning assets and the moving procedure, and
+[deployment.md](docs/deployment.md) for the startup ordering and deployment
+safeguards.
 
 ## Import
 
@@ -56,7 +71,7 @@ Imported PDFs are scanned and encrypted. Every document begins `UNREVIEWED`; rec
 
 ## Deploy and rollback
 
-Deployment targets `isab-db01` only after the release has passed its focused tests and the full suite on a clean, synchronized `main`:
+Deployment targets the `EHF` VM through the `ehf-hestia` SSH alias, only after the release has passed its focused tests and the full suite on a clean, synchronized `main`:
 
 ```powershell
 $Python = 'C:\Users\aag\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
@@ -72,15 +87,11 @@ if ($Status) {
 Write-Host 'Expected: main branch and empty git status --short output.'
 git diff --exit-code origin/main
 & $Python -m pytest -q
-powershell -NoProfile -File scripts\deploy-isab01.ps1 -WhatIf
+powershell -NoProfile -File scripts\deploy-ehf.ps1 -WhatIf
 ```
 
-The unavoidable `isab01` text in legacy script filenames and labels is tooling
-terminology only; it does not identify another deployment host. Those scripts
-operate on `isab-db01`.
-
 Apply only after the reviewed commit has been pushed, local `HEAD` equals
-`origin/main`, the `isab-db01` non-secret configuration/credential prerequisites are
+`origin/main`, the `EHF` VM's non-secret configuration/credential prerequisites are
 available, and the approved protected SQL administrator credential **path** is
 known. The complete procedure is in [deployment.md](docs/deployment.md).
 
@@ -90,8 +101,8 @@ previous release:
 
 ```powershell
 $PreviousCommit = '<validated 40-hex previous commit>'
-powershell -NoProfile -File scripts\deploy-isab01.ps1 -Rollback $PreviousCommit
-powershell -NoProfile -File scripts\verify-isab01.ps1 -ExpectedCommit $PreviousCommit
+powershell -NoProfile -File scripts\deploy-ehf.ps1 -Rollback $PreviousCommit
+powershell -NoProfile -File scripts\verify-ehf.ps1 -ExpectedCommit $PreviousCommit
 ```
 
 The deployment path does not configure Cloudflare, DNS, Access, invitations,

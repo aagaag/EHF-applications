@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)] [string] $ManifestPath,
     [Parameter(Mandatory = $true)] [string] $OutputPath,
-    [string] $Target = 'isab-db01-hestia'
+    [string] $Target = 'ehf-hestia'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,9 +33,9 @@ $TemporaryOutput = "$Output.part-$PID"
 
 try {
     & ssh.exe -o BatchMode=yes $Target "umask 077; mkdir -p -- '/home/aag/.ehf-open-citation-collect'; chmod 700 -- '/home/aag/.ehf-open-citation-collect'; mkdir -- '$RemoteTransfer'; chmod 700 -- '$RemoteTransfer'"
-    if ($LASTEXITCODE -ne 0) { throw 'Could not create the protected ISAB01 collection directory.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the protected the EHF VM collection directory.' }
     & scp.exe -- $Manifest "$($Target):$RemoteManifest"
-    if ($LASTEXITCODE -ne 0) { throw 'Could not transfer the publication manifest to ISAB01.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not transfer the publication manifest to the EHF VM.' }
 
     $ProtectScript = @'
 set -eu
@@ -61,10 +61,10 @@ test "$(/usr/bin/stat -c '%U:%G:%a' "$snapshot")" = 'aag:aag:600'
 '@
     $EncodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteScript))
     & ssh.exe -o BatchMode=yes $Target "printf %s '$EncodedScript' | /usr/bin/base64 --decode | /bin/sh -s -- '$RemoteManifest' '$RemoteSnapshot'"
-    if ($LASTEXITCODE -ne 0) { throw 'The ISAB01 open-citation collection failed.' }
+    if ($LASTEXITCODE -ne 0) { throw 'The the EHF VM open-citation collection failed.' }
 
     & scp.exe -- "$($Target):$RemoteSnapshot" $TemporaryOutput
-    if ($LASTEXITCODE -ne 0) { throw 'Could not retrieve the open-citation snapshot from ISAB01.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not retrieve the open-citation snapshot from the EHF VM.' }
     Move-Item -LiteralPath $TemporaryOutput -Destination $Output -Force
     Write-Output "Open-citation snapshot collected at $Output"
 }

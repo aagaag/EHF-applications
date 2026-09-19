@@ -12,7 +12,7 @@ CLI = ROOT / "app" / "importer" / "run_publications.py"
 
 
 def test_deploy_release_requires_both_publication_import_modules() -> None:
-    source = (ROOT / "infra" / "install-isab01.py").read_text(encoding="utf-8")
+    source = (ROOT / "infra" / "install-ehf.py").read_text(encoding="utf-8")
 
     assert '"app/importer/publications.py"' in source
     assert '"app/importer/run_publications.py"' in source

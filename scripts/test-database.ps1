@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DatabaseName,
 
-    [string]$ServerInstance = 'ISAB01'
+    [string]$ServerInstance = 'ehf'
 )
 
 $ErrorActionPreference = 'Stop'

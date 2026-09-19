@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Target = 'isab-db01-hestia'
+$Target = 'ehf-hestia'
 $EncodedCallId = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($CallId))
 $RemoteScript = @'
 set -eu
@@ -77,4 +77,4 @@ PY
 '@
 $EncodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteScript.Replace("`r`n", "`n")))
 & ssh.exe -o BatchMode=yes $Target "printf %s '$EncodedScript' | /usr/bin/base64 --decode | sudo -n /bin/sh -s -- '$EncodedCallId' '$SqlAdminCredentialPath'"
-if ($LASTEXITCODE -ne 0) { throw 'ISAB01 import verification failed.' }
+if ($LASTEXITCODE -ne 0) { throw 'the EHF VM import verification failed.' }

@@ -16,7 +16,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Target = 'isab-db01-hestia'
+$Target = 'ehf-hestia'
 $TransferId = [Guid]::NewGuid().ToString('N')
 $RemoteTransfer = "/home/aag/.ehf-publication-transfer/$TransferId"
 $RemoteManifest = "$RemoteTransfer/manifest.json"
@@ -44,14 +44,14 @@ $RemoteExistingQueueArg = ''
 
 try {
     & ssh.exe -o BatchMode=yes $Target "umask 077; mkdir -p -- '/home/aag/.ehf-publication-transfer'; chmod 700 -- '/home/aag/.ehf-publication-transfer'; mkdir -- '$RemoteTransfer'; chmod 700 -- '$RemoteTransfer'"
-    if ($LASTEXITCODE -ne 0) { throw 'Could not create the protected ISAB01 publication transfer directory.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the protected the EHF VM publication transfer directory.' }
     & scp.exe -q $ManifestFullPath "${Target}:$RemoteManifest"
-    if ($LASTEXITCODE -ne 0) { throw 'Could not transfer the publication manifest to ISAB01.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not transfer the publication manifest to the EHF VM.' }
     & ssh.exe -o BatchMode=yes $Target "chmod 600 -- '$RemoteManifest'; test `"`$(/usr/bin/stat -c '%U:%G:%a' '$RemoteManifest')`" = 'aag:aag:600'"
     if ($LASTEXITCODE -ne 0) { throw 'The publication manifest transfer has unsafe permissions.' }
     if (Test-Path -LiteralPath $QueueFullPath -PathType Leaf) {
         & scp.exe -q $QueueFullPath "${Target}:$RemoteExistingQueue"
-        if ($LASTEXITCODE -ne 0) { throw 'Could not transfer the existing Google Scholar review queue to ISAB01.' }
+        if ($LASTEXITCODE -ne 0) { throw 'Could not transfer the existing Google Scholar review queue to the EHF VM.' }
         & ssh.exe -o BatchMode=yes $Target "chmod 600 -- '$RemoteExistingQueue'; test `"`$(/usr/bin/stat -c '%U:%G:%a' '$RemoteExistingQueue')`" = 'aag:aag:600'"
         if ($LASTEXITCODE -ne 0) { throw 'The existing Google Scholar review queue transfer has unsafe permissions.' }
         $RemoteExistingQueueArg = $RemoteExistingQueue
@@ -91,7 +91,7 @@ fi
 '@
     $EncodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteScript.Replace("`r`n", "`n")))
     & ssh.exe -o BatchMode=yes $Target "printf %s '$EncodedScript' | /usr/bin/base64 --decode | sudo -n /bin/sh -s -- '$RemoteManifest' '$RemoteQueue' '$RemoteExistingQueueArg' '$ApplyFlag' '$SqlAdminCredentialPath'"
-    if ($LASTEXITCODE -ne 0) { throw 'The root-mediated ISAB01 publication import operation failed.' }
+    if ($LASTEXITCODE -ne 0) { throw 'The root-mediated the EHF VM publication import operation failed.' }
     & scp.exe -q "${Target}:$RemoteQueue" $LocalQueueTemp
     if ($LASTEXITCODE -ne 0) { throw 'Could not retrieve the manual Google Scholar review queue.' }
     $Rows = @(Import-Csv -LiteralPath $LocalQueueTemp -Encoding utf8)

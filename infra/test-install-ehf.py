@@ -1,4 +1,4 @@
-"""Safety contracts for the Linux-side EHF ISAB01 installer."""
+"""Safety contracts for the Linux-side EHF the EHF VM installer."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-INSTALLER = ROOT / "infra" / "install-isab01.py"
+INSTALLER = ROOT / "infra" / "install-ehf.py"
 
 
 def load_installer():

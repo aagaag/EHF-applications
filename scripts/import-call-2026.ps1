@@ -10,7 +10,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Target = 'isab-db01-hestia'
+$Target = 'ehf-hestia'
 $TransferId = [Guid]::NewGuid().ToString('N')
 $Archive = Join-Path ([IO.Path]::GetTempPath()) "ehf-$TransferId.tar"
 $RemoteTransfer = "/home/aag/.ehf-transfer/$TransferId"
@@ -25,19 +25,19 @@ if ($Apply -and -not $SqlAdminCredentialPath) {
 }
 
 try {
-    # Source content is transferred only to an owned ISAB01 staging directory, never into Git.
+    # Source content is transferred only to an owned the EHF VM staging directory, never into Git.
     & tar.exe -cf $Archive -C $SourcePackage .
     if ($LASTEXITCODE -ne 0) { throw 'Could not package the selected source directory.' }
     & ssh.exe -o BatchMode=yes $Target "umask 077; mkdir -p -- '/home/aag/.ehf-transfer'; chmod 700 -- '/home/aag/.ehf-transfer'; mkdir -- '$RemoteTransfer'; chmod 700 -- '$RemoteTransfer'"
-    if ($LASTEXITCODE -ne 0) { throw 'Could not create the protected ISAB01 transfer directory.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the protected the EHF VM transfer directory.' }
     & scp.exe -q $Archive "${Target}:$RemoteArchive"
-    if ($LASTEXITCODE -ne 0) { throw 'Could not transfer the source package to ISAB01.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not transfer the source package to the EHF VM.' }
     & scp.exe -q $IdentityPartsPath "${Target}:$RemoteIdentity"
-    if ($LASTEXITCODE -ne 0) { throw 'Could not transfer the reviewed identity map to ISAB01.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not transfer the reviewed identity map to the EHF VM.' }
     & scp.exe -q $FolderAliasesPath "${Target}:$RemoteAliases"
-    if ($LASTEXITCODE -ne 0) { throw 'Could not transfer the reviewed folder-alias map to ISAB01.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not transfer the reviewed folder-alias map to the EHF VM.' }
     & ssh.exe -o BatchMode=yes $Target "chmod 600 -- '$RemoteArchive' '$RemoteIdentity' '$RemoteAliases'; if find '$RemoteTransfer' -maxdepth 1 -type f -perm /077 -print -quit | grep -q .; then exit 2; fi"
-    if ($LASTEXITCODE -ne 0) { throw 'The protected ISAB01 transfer files have unsafe permissions.' }
+    if ($LASTEXITCODE -ne 0) { throw 'The protected the EHF VM transfer files have unsafe permissions.' }
 
     $RemoteScript = @'
 set -eu
@@ -79,7 +79,7 @@ fi
 '@
     $EncodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteScript.Replace("`r`n", "`n")))
     & ssh.exe -o BatchMode=yes $Target "printf %s '$EncodedScript' | /usr/bin/base64 --decode | sudo -n /bin/sh -s -- '$RemoteArchive' '$RemoteIdentity' '$RemoteAliases' '$EncodedCallId' '$EncodedRegister' '$ApplyFlag' '$SqlAdminCredentialPath'"
-    if ($LASTEXITCODE -ne 0) { throw 'The root-mediated ISAB01 import operation failed.' }
+    if ($LASTEXITCODE -ne 0) { throw 'The root-mediated the EHF VM import operation failed.' }
 }
 finally {
     Remove-Item -LiteralPath $Archive -Force -ErrorAction SilentlyContinue

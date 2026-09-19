@@ -4,7 +4,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Target = 'isab-db01-hestia'
+$Target = 'ehf-hestia'
 $ExpectedCommitCheck = if ($ExpectedCommit) { "test `"`$commit`" = '$ExpectedCommit'" } else { ':' }
 
 if ($WhatIf) {
@@ -37,5 +37,5 @@ $EncodedRemoteCheck = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($
 
 & ssh.exe -o BatchMode=yes $Target "printf %s '$EncodedRemoteCheck' | /usr/bin/base64 --decode | sudo -n /bin/sh"
 if ($LASTEXITCODE -ne 0) {
-    throw 'ISAB01 EHF verification failed.'
+    throw 'the EHF VM EHF verification failed.'
 }

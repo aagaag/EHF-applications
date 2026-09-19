@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Atomic, fail-closed deployment helper for the EHF service on ISAB01."""
+"""Atomic, fail-closed deployment helper for the EHF service on the EHF VM."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ REQUIRED_RELEASE_FILES = (
     "infra/setup-sql-login.sh",
     "infra/sql-principal.py",
     "infra/test-sql-login.sh",
-    "infra/test-install-isab01.py",
+    "infra/test-install-ehf.py",
     "database/migrations/001_database_contract.sql",
     "database/migrations/002_application_core.sql",
     "database/migrations/003_audit_and_preferences.sql",
@@ -309,7 +309,7 @@ def switch_current(release: Path) -> Path | None:
             if os.name != "nt":
                 raise
             # Windows cannot atomically replace a directory link in the local
-            # import-only safety test. ISAB01 always uses the atomic POSIX path.
+            # import-only safety test. the EHF VM always uses the atomic POSIX path.
             if CURRENT.is_symlink():
                 CURRENT.unlink()
             os.replace(temporary, CURRENT)
@@ -401,7 +401,7 @@ def _install_configuration(release: Path, account: pwd.struct_passwd) -> None:
 def _build_venv(release: Path) -> Path:
     python = SYSTEM_PYTHON
     if not python.is_file():
-        raise DeploymentError("Python 3.12 is unavailable on ISAB01.")
+        raise DeploymentError("Python 3.12 is unavailable on the EHF VM.")
     venv = release / "venv"
     executable = venv / "bin" / "python"
     marker = venv / ".complete"
@@ -486,7 +486,7 @@ def _preactivation_tests(
             "EHF_SQL_PRINCIPAL_PYTHON": str(python),
         }
     )
-    _run([str(python), "-m", "pytest", "infra/test-install-isab01.py", "-q"], cwd=release)
+    _run([str(python), "-m", "pytest", "infra/test-install-ehf.py", "-q"], cwd=release)
     _run([str(python), "-m", "pytest", "-q"], cwd=release)
     _run(
         [
@@ -556,7 +556,7 @@ def _restore(
 def deploy(archive: Path, commit: str, sql_admin_credential: Path) -> None:
     _require_root()
     if not ARCHIVE_RE.fullmatch(str(archive)) or not archive.is_file() or archive.is_symlink():
-        raise DeploymentError("The release archive must use the fixed safe ISAB01 staging path.")
+        raise DeploymentError("The release archive must use the fixed safe the EHF VM staging path.")
     _require_protected_file(sql_admin_credential)
     account = _ensure_account()
     _ensure_directory(DOCUMENT_ROOT, account)
@@ -609,7 +609,7 @@ def rollback(commit: str) -> None:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Deploy an immutable EHF release on ISAB01.")
+    parser = argparse.ArgumentParser(description="Deploy an immutable EHF release on the EHF VM.")
     parser.add_argument("--archive", type=Path)
     parser.add_argument("--commit")
     parser.add_argument("--sql-admin-credential", type=Path)
