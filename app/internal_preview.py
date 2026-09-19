@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from html import escape
-from textwrap import wrap
+from math import ceil, floor, isfinite, log10
 
 from app.citation_plots import CitationPlotPoint, citation_plot_points
 from app.identity import AuthenticatedIdentity
@@ -116,8 +116,9 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
         '</select></label><a class="report-download" href="/internal/reports/metrics.xlsx">Download Excel</a></div>'
         f'{_report_table(records)}'
         '<div class="report-grid">'
-        f'{_scatterplot(records, "Citations by anagraphic age", "age")}'
-        f'{_scatterplot(records, "Citations by academic age", "academic_age")}'
+        f'{_scatterplot(records, "Citations by anagraphic age", "age", "Anagraphic age")}'
+        f'{_scatterplot(records, "Citations by academic age", "academic_age", "Academic age")}'
+        f'{_age_comparison_plot(records)}'
         "</div></section>"
     )
 
@@ -190,113 +191,304 @@ def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str
 
 
 def _scatterplot(
-    records: tuple[PreviewApplicantMetric, ...], title: str, age_field: str
+    records: tuple[PreviewApplicantMetric, ...],
+    title: str,
+    age_field: str,
+    age_label: str,
 ) -> str:
     points = citation_plot_points(records, age_field)
     if not points:
         plot = '<p class="report-empty">Not enough complete values to draw this report.</p>'
     else:
-        xs = tuple(point.age for point in points)
-        ys = tuple(point.citations for point in points)
-        min_x, max_x = min(xs), max(xs)
-        min_y, max_y = 0.0, max(ys) or 1.0
-        span_x = max(max_x - min_x, 1.0)
-        span_y = max(max_y - min_y, 1.0)
-        positioned = tuple(
-            (
-                point,
-                120 + ((point.age - min_x) / span_x) * 360,
-                330 - ((point.citations - min_y) / span_y) * 300,
-            )
-            for point in points
-        )
-        circles = "".join(
-            _plot_point(point, x, y) for point, x, y in positioned
-        )
-        plot = (
-            f'<svg viewBox="0 0 600 400" role="img" aria-label="{escape(title)}; {len(points)} candidates">'
-            '<path class="plot-axis" d="M120 30V330H480" />'
-            f'{circles}{_plot_callouts(positioned)}'
-            '<text x="300" y="386">Age (years)</text>'
-            '<text x="18" y="180" transform="rotate(-90 18 180)">Total citations</text></svg>'
+        plot = _value_plot(
+            title,
+            tuple(
+                (point, point.age, point.citations, point.citations)
+                for point in points
+            ),
+            x_label=f"{age_label} (years)",
+            y_label="Total citations",
         )
     return f'<article class="report-card"><h3>{escape(title)}</h3>{plot}</article>'
 
 
-def _plot_point(point: CitationPlotPoint, x: float, y: float) -> str:
-    description = (
-        f"{point.applicant}: age {_number(point.age)}, "
-        f"{int(point.citations):,} citations"
+def _age_comparison_plot(records: tuple[PreviewApplicantMetric, ...]) -> str:
+    citation_points = citation_plot_points(records, "age")
+    points = tuple(
+        (point, point.age, academic_age, point.citations)
+        for point in citation_points
+        if (academic_age := _finite_number(records[point.source_index].academic_age))
+        is not None
     )
-    escaped_description = escape(description)
+    title = "Academic age versus anagraphic age"
+    if not points:
+        plot = '<p class="report-empty">Not enough complete values to draw this report.</p>'
+    else:
+        plot = _value_plot(
+            title,
+            points,
+            x_label="Anagraphic age (years)",
+            y_label="Academic age (years)",
+            bubbles=True,
+        )
+    return f'<article class="report-card"><h3>{title}</h3>{plot}</article>'
+
+
+def _value_plot(
+    title: str,
+    points: tuple[tuple[CitationPlotPoint, float, float, float], ...],
+    *,
+    x_label: str,
+    y_label: str,
+    bubbles: bool = False,
+) -> str:
+    x_low, x_high, x_ticks = _axis_domain(tuple(point[1] for point in points))
+    y_low, y_high, y_ticks = _axis_domain(
+        tuple(point[2] for point in points), zero_based=not bubbles
+    )
+    largest_citation = max(point[3] for point in points) or 1.0
+    positioned = tuple(
+        (
+            point,
+            _plot_coordinate(point[1], x_low, x_high, 78.0, 558.0),
+            _plot_coordinate(point[2], y_low, y_high, 344.0, 34.0),
+        )
+        for point in points
+    )
+    circles = "".join(
+        _plot_point(
+            point,
+            x,
+            y,
+            x_value=x_value,
+            y_value=y_value,
+            bubble_radius=16.0 * (citations / largest_citation) ** 0.5 if bubbles else 6.0,
+            bubbles=bubbles,
+            x_label=x_label,
+            y_label=y_label,
+        )
+        for (point, x_value, y_value, citations), x, y in positioned
+    )
     return (
-        f'<circle class="plot-point" tabindex="0" '
-        f'aria-label="{escaped_description}" cx="{x:.1f}" cy="{y:.1f}" r="6" '
+        f'<svg viewBox="0 0 640 410" role="img" aria-label="{escape(title)}; {len(points)} candidates">'
+        f'{_plot_grid(x_ticks, y_ticks, x_low, x_high, y_low, y_high)}'
+        '<path class="plot-axis" d="M78 34V344H558" />'
+        f'{circles}{_plot_callouts(positioned, _callout_source_indices(points))}'
+        f'<text class="plot-axis-label" x="318" y="398">{escape(x_label)}</text>'
+        f'<text class="plot-axis-label" x="19" y="189" transform="rotate(-90 19 189)">{escape(y_label)}</text></svg>'
+    )
+
+
+def _axis_domain(
+    values: tuple[float, ...], *, zero_based: bool = False
+) -> tuple[float, float, tuple[float, ...]]:
+    minimum = 0.0 if zero_based else min(values)
+    maximum = max(values)
+    if maximum == minimum:
+        padding = max(abs(maximum) * 0.1, 1.0)
+        minimum = 0.0 if zero_based else minimum - padding
+        maximum += padding
+    raw_step = (maximum - minimum) / 5.0
+    magnitude = 10.0 ** floor(log10(raw_step))
+    normalized = raw_step / magnitude
+    multiplier = (
+        1.0
+        if normalized <= 1
+        else 2.0
+        if normalized <= 2
+        else 5.0
+        if normalized <= 5
+        else 10.0
+    )
+    step = multiplier * magnitude
+    lower = 0.0 if zero_based else floor(minimum / step) * step
+    upper = ceil(maximum / step) * step
+    ticks = tuple(
+        lower + index * step
+        for index in range(round((upper - lower) / step) + 1)
+    )
+    return lower, upper, ticks
+
+
+def _plot_coordinate(
+    value: float, lower: float, upper: float, start: float, end: float
+) -> float:
+    return start + ((value - lower) / (upper - lower)) * (end - start)
+
+
+def _plot_grid(
+    x_ticks: tuple[float, ...],
+    y_ticks: tuple[float, ...],
+    x_low: float,
+    x_high: float,
+    y_low: float,
+    y_high: float,
+) -> str:
+    vertical = "".join(
+        f'<path class="plot-gridline" d="M{x:.1f} 34V344" />'
+        f'<text class="plot-tick-label" x="{x:.1f}" y="361">{_number(tick)}</text>'
+        for tick in x_ticks
+        if (x := _plot_coordinate(tick, x_low, x_high, 78.0, 558.0))
+    )
+    horizontal = "".join(
+        f'<path class="plot-gridline" d="M78 {y:.1f}H558" />'
+        f'<text class="plot-tick-label" x="68" y="{y + 4:.1f}">{_number(tick)}</text>'
+        for tick in y_ticks
+        if (y := _plot_coordinate(tick, y_low, y_high, 344.0, 34.0))
+    )
+    return f'<g aria-hidden="true">{vertical}{horizontal}</g>'
+
+
+def _plot_point(
+    point: CitationPlotPoint,
+    x: float,
+    y: float,
+    *,
+    x_value: float,
+    y_value: float,
+    bubble_radius: float,
+    bubbles: bool,
+    x_label: str,
+    y_label: str,
+) -> str:
+    description = (
+        f"{point.applicant}: {x_label.removesuffix(' (years)').casefold()} "
+        f"{_number(x_value)}, {y_label.removesuffix(' (years)').casefold()} "
+        f"{_number(y_value)}, {int(point.citations):,} citations"
+    )
+    if not bubbles:
+        description = (
+            f"{point.applicant}: {x_label.removesuffix(' (years)').casefold()} "
+            f"{_number(x_value)}, {int(point.citations):,} citations"
+        )
+    escaped_description = escape(description)
+    classes = "plot-point plot-bubble" if bubbles else "plot-point"
+    return (
+        f'<circle class="{classes}" tabindex="0" '
+        f'aria-label="{escaped_description}" data-plot-x="{_number(x_value)}" '
+        f'data-plot-y="{_number(y_value)}" data-citations="{_number(point.citations)}" '
+        f'cx="{x:.1f}" cy="{y:.1f}" r="{bubble_radius:.1f}" '
         f'fill="{point.color}"><title>{escaped_description}</title></circle>'
     )
 
 
 def _plot_callouts(
-    positioned: tuple[tuple[CitationPlotPoint, float, float], ...]
+    positioned: tuple[
+        tuple[tuple[CitationPlotPoint, float, float, float], float, float], ...
+    ],
+    callout_source_indices: frozenset[int],
 ) -> str:
-    labelled = sorted(
-        (position for position in positioned if position[0].labelled),
-        key=lambda position: (position[1], position[2], position[0].source_index),
-    )
-    split_at = (len(labelled) + 1) // 2
-    sides = (("left", labelled[:split_at]), ("right", labelled[split_at:]))
+    plotted_points = tuple((x, y) for _point, x, y in positioned)
+    occupied: list[tuple[float, float, float, float]] = []
     callouts: list[str] = []
-    for side, side_points in sides:
-        ordered = sorted(
-            side_points, key=lambda position: (position[2], position[0].source_index)
+    labelled = sorted(
+        (position for position in positioned if position[0][0].source_index in callout_source_indices),
+        key=lambda position: (
+            -position[0][3], position[0][0].applicant.casefold(), position[0][0].source_index
+        ),
+    )
+    for (point, _x_value, _y_value, _citations), x, y in labelled:
+        placement = _callout_placement(point.surname, x, y, plotted_points, occupied)
+        if placement is None:
+            continue
+        side, label_x, label_y, rectangle = placement
+        occupied.append(rectangle)
+        path = f"M{x:.1f} {y:.1f} L{label_x:.1f} {label_y:.1f}"
+        callouts.append(
+            f'<g class="plot-callout"><path class="plot-callout-line" '
+            f'stroke="{point.color}" d="{path}" />'
+            f'{_plot_callout_label(point.surname, side, label_x, label_y)}</g>'
         )
-        for slot, (point, x, y) in enumerate(ordered):
-            label_y = _callout_y(slot, len(ordered))
-            if side == "left":
-                path = f"M{x:.1f} {y:.1f} L116 {y:.1f} L112 {label_y:.1f}"
-                label_x = 106
-            else:
-                path = f"M{x:.1f} {y:.1f} L484 {y:.1f} L488 {label_y:.1f}"
-                label_x = 494
-            callouts.append(
-                f'<g class="plot-callout"><path class="plot-callout-halo" '
-                f'd="{path}" /><path class="plot-callout-line" '
-                f'stroke="{point.color}" d="{path}" />'
-                f'{_plot_callout_label(point.surname, side, label_x, label_y)}</g>'
-            )
     return "".join(callouts)
 
 
-def _plot_callout_label(surname: str, side: str, x: int, y: float) -> str:
-    lines = wrap(
-        surname,
-        width=16,
-        break_long_words=True,
-        break_on_hyphens=True,
-    ) or ["Applicant"]
+def _callout_source_indices(
+    points: tuple[tuple[CitationPlotPoint, float, float, float], ...]
+) -> frozenset[int]:
+    ranked = sorted(
+        points,
+        key=lambda item: (-item[3], item[0].applicant.casefold(), item[0].source_index),
+    )
+    return frozenset(item[0].source_index for item in ranked[:15])
+
+
+def _callout_placement(
+    surname: str,
+    point_x: float,
+    point_y: float,
+    plotted_points: tuple[tuple[float, float], ...],
+    occupied: list[tuple[float, float, float, float]],
+) -> tuple[str, float, float, tuple[float, float, float, float]] | None:
+    label_width = _callout_label_width(surname)
+    for distance in (14.0, 28.0, 42.0):
+        for horizontal, vertical in ((1, -1), (1, 1), (-1, -1), (-1, 1), (0, -1), (0, 1)):
+            side = "left" if horizontal < 0 else "right"
+            label_x = point_x + horizontal * distance
+            label_y = point_y + vertical * distance
+            rectangle = _callout_rectangle(side, label_x, label_y, label_width)
+            if not _callout_rectangle_is_clear(rectangle, plotted_points, occupied):
+                continue
+            return side, label_x, label_y, rectangle
+    return None
+
+
+def _callout_rectangle(
+    side: str, x: float, y: float, width: float
+) -> tuple[float, float, float, float]:
+    left, right = (x - width, x) if side == "left" else (x, x + width)
+    return left, y - 10.0, right, y + 2.0
+
+
+def _callout_rectangle_is_clear(
+    rectangle: tuple[float, float, float, float],
+    plotted_points: tuple[tuple[float, float], ...],
+    occupied: list[tuple[float, float, float, float]],
+) -> bool:
+    left, top, right, bottom = rectangle
+    if left < 78.0 or right > 558.0 or top < 34.0 or bottom > 344.0:
+        return False
+    if any(_rectangles_overlap(rectangle, other) for other in occupied):
+        return False
+    return not any(
+        max(left - x, 0.0, x - right) ** 2 + max(top - y, 0.0, y - bottom) ** 2 < 400.0
+        for x, y in plotted_points
+    )
+
+
+def _rectangles_overlap(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> bool:
+    return not (
+        first[2] <= second[0]
+        or second[2] <= first[0]
+        or first[3] <= second[1]
+        or second[3] <= first[1]
+    )
+
+
+def _plot_callout_label(surname: str, side: str, x: float, y: float) -> str:
     attributes = (
         f'class="plot-callout-label" data-side="{side}" '
         f'x="{x}" y="{y:.1f}" aria-label="{escape(surname)}"'
     )
-    if len(lines) == 1:
-        line = lines[0]
-        width = min(100.0, max(8.0, len(line) * 7.2))
-        return (
-            f'<text {attributes} textLength="{width:.1f}" '
-            f'lengthAdjust="spacingAndGlyphs">{escape(line)}</text>'
-        )
-    offset = -((len(lines) - 1) * 6.5)
-    tspans = "".join(
-        f'<tspan x="{x}" y="{y + offset + index * 13:.1f}" '
-        f'textLength="{min(100.0, max(8.0, len(line) * 7.2)):.1f}" '
-        f'lengthAdjust="spacingAndGlyphs">{escape(line)}</tspan>'
-        for index, line in enumerate(lines)
+    width = _callout_label_width(surname)
+    return (
+        f'<text {attributes} textLength="{width:.1f}" '
+        f'lengthAdjust="spacingAndGlyphs">{escape(surname)}</text>'
     )
-    return f'<text {attributes}>{tspans}</text>'
 
 
-def _callout_y(slot: int, total: int) -> float:
-    return 180.0 if total <= 1 else 42.0 + slot * (276.0 / (total - 1))
+def _callout_label_width(surname: str) -> float:
+    return min(88.0, max(10.0, len(surname) * 5.6))
+
+
+def _finite_number(value: object | None) -> float | None:
+    try:
+        number = float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+    return number if number is not None and isfinite(number) else None
 
 
 def _display_markup(value: object | None) -> str:

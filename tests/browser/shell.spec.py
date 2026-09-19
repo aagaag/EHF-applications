@@ -357,8 +357,8 @@ def test_citation_plot_callouts_remain_distinct_accessible_and_responsive() -> N
     records = tuple(
         PreviewApplicantMetric(
             applicant=f"Given Exceptionally-Long-Hyphenated-Surname{index:02d}",
-            age=30 + index,
-            academic_age=3 + index,
+            age=40,
+            academic_age=8,
             total_citations=index,
         )
         for index in range(18)
@@ -376,10 +376,18 @@ def test_citation_plot_callouts_remain_distinct_accessible_and_responsive() -> N
                 page.set_content(html, wait_until="domcontentloaded")
                 page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
 
-                assert page.locator(".plot-point").count() == 36
-                assert page.locator(".plot-callout").count() == 30
-                assert page.locator(".plot-callout-halo").count() == 30
-                assert page.locator(".plot-callout-label tspan").count() == 90
+                assert page.locator(".report-card").count() == 3
+                assert page.locator(".plot-point").count() == 54
+                assert page.locator(".plot-bubble").count() == 18
+                assert 0 < page.locator(".plot-callout").count() <= 45
+                assert page.locator(".plot-callout-line").count() == page.locator(
+                    ".plot-callout"
+                ).count()
+                assert page.locator(".plot-callout-halo").count() == 0
+                assert page.locator(".plot-callout-label tspan").count() == 0
+                assert page.locator(".plot-callout-line").evaluate_all(
+                    "nodes => nodes.every(node => node.getTotalLength() <= 60)"
+                )
                 first_chart_colors = page.locator(
                     ".report-card:first-child .plot-point"
                 ).evaluate_all(
@@ -387,7 +395,7 @@ def test_citation_plot_callouts_remain_distinct_accessible_and_responsive() -> N
                 )
                 assert len(set(first_chart_colors)) == 18
                 assert page.locator(
-                    '.plot-point[aria-label="Given Exceptionally-Long-Hyphenated-Surname17: age 47, 17 citations"]'
+                    '.plot-point[aria-label="Given Exceptionally-Long-Hyphenated-Surname17: anagraphic age 40, 17 citations"]'
                 ).count() == 1
                 assert page.locator(".plot-callout-label").evaluate_all(
                     """nodes => nodes.every(node => {
@@ -397,6 +405,16 @@ def test_citation_plot_callouts_remain_distinct_accessible_and_responsive() -> N
                             && label.right <= svg.right + 0.5
                             && label.left >= -0.5
                             && label.right <= window.innerWidth + 0.5;
+                    })"""
+                )
+                assert page.locator(".plot-callout-label").evaluate_all(
+                    """nodes => nodes.every((label, index) => {
+                        const first = label.getBoundingClientRect();
+                        return nodes.slice(index + 1).every(other => {
+                            const second = other.getBoundingClientRect();
+                            return first.right <= second.left || second.right <= first.left
+                                || first.bottom <= second.top || second.bottom <= first.top;
+                        });
                     })"""
                 )
                 for skin in ("default", "high-contrast", "soft-earth", "blue"):
@@ -428,15 +446,15 @@ def test_citation_plot_callouts_remain_distinct_accessible_and_responsive() -> N
                                     getComputedStyle(card.querySelector('.plot-point')).stroke,
                                     surface
                                 ),
-                                leader: ratio(
-                                    getComputedStyle(card.querySelector('.plot-callout-halo')).stroke,
+                                label: ratio(
+                                    getComputedStyle(card.querySelector('.plot-callout-label')).fill,
                                     surface
                                 ),
                             };
                         }"""
                     )
                     assert contrast["point"] >= 3
-                    assert contrast["leader"] >= 3
+                    assert contrast["label"] >= 3
                 assert page.evaluate(
                     "document.documentElement.scrollWidth <= window.innerWidth"
                 )

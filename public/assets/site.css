@@ -90,10 +90,12 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .report-card circle { fill-opacity: .86; stroke: var(--text); stroke-width: 2; }
 .report-card .plot-point:focus { outline: none; stroke: var(--focus); stroke-width: 4; }
 .report-card .plot-axis { fill: none; stroke: var(--text); stroke-width: 1.2; }
+.report-card .plot-gridline { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 4; }
 .report-card text { fill: var(--muted); font: 14px Aptos, "Segoe UI", system-ui, sans-serif; text-anchor: middle; }
-.report-card .plot-callout-halo { fill: none; stroke: var(--text); stroke-width: 4; }
-.report-card .plot-callout-line { fill: none; stroke-width: 1.5; }
-.report-card .plot-callout-label { fill: var(--text); stroke: var(--surface); stroke-width: 3px; paint-order: stroke; font-size: 14px; font-weight: 800; }
+.report-card .plot-tick-label { font-size: 10px; }
+.report-card .plot-axis-label { font-size: 12px; }
+.report-card .plot-callout-line { fill: none; stroke-width: 1; opacity: .72; }
+.report-card .plot-callout-label { fill: var(--text); font-size: 10px; font-weight: 700; }
 .report-card .plot-callout-label[data-side="left"] { text-anchor: end; }
 .report-card .plot-callout-label[data-side="right"] { text-anchor: start; }
 .report-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: .8rem; margin-top: 1rem; }

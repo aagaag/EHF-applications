@@ -45,7 +45,7 @@ def test_populated_preview_places_reports_directly_after_workspaces_without_appl
     assert 'href="#applications"' not in html
     assert 'class="application-row"' not in html
     assert "Applicant One" in html
-    assert html.count('role="img"') == 2
+    assert html.count('role="img"') == 3
     assert 'class="report-table"' in html
     assert html.count('class="report-data-row"') == len(records)
     assert html.count('data-report-row tabindex="0"') == len(records)
@@ -63,6 +63,7 @@ def test_populated_preview_places_reports_directly_after_workspaces_without_appl
     assert ">Download Excel<" in html
     assert "Citations by anagraphic age" in html
     assert "Citations by academic age" in html
+    assert "Academic age versus anagraphic age" in html
     assert "No applicant records" not in html
 
 
@@ -91,20 +92,69 @@ def test_citation_plots_color_every_applicant_and_label_top_15_surnames() -> Non
     html = render_internal_preview(_administrator(), simulation=True, records=records)
 
     point_colors = re.findall(
-        r'<circle class="plot-point"[^>]+fill="(#[0-9A-F]{6})"', html
+        r'<circle class="plot-point[^\"]*"[^>]+fill="(#[0-9A-F]{6})"', html
     )
     callout_labels = re.findall(
         r'<text class="plot-callout-label"[^>]*>([^<]+)</text>', html
     )
 
-    assert len(point_colors) == 36
+    assert len(point_colors) == 54
     assert len(set(point_colors[:18])) == 18
-    assert point_colors[18:] == point_colors[:18]
-    assert len(callout_labels) == 30
-    assert sorted(callout_labels) == sorted(
-        [f"Surname{index:02d}" for index in range(3, 18)] * 2
-    )
+    assert point_colors[18:36] == point_colors[:18]
+    assert point_colors[36:] == point_colors[:18]
+    assert callout_labels
+    assert len(callout_labels) <= 45
+    assert set(callout_labels) <= {f"Surname{index:02d}" for index in range(3, 18)}
     for index in range(3):
         assert f">Surname{index:02d}</text>" not in html
-    assert html.count('class="plot-point" tabindex="0" aria-label=') == 36
-    assert 'aria-label="Given Surname17: age 47, 17 citations"' in html
+    assert html.count('class="plot-point') == 54
+    assert 'aria-label="Given Surname17: anagraphic age 47, 17 citations"' in html
+
+
+def test_report_plots_render_linear_value_axes_and_a_citation_scaled_age_bubble_plot() -> None:
+    """Break caught: charts could omit value scales or disguise a bubble plot as categories."""
+    records = (
+        PreviewApplicantMetric(
+            applicant="First Author", age=30, academic_age=4, total_citations=25
+        ),
+        PreviewApplicantMetric(
+            applicant="Second Author", age=40, academic_age=14, total_citations=100
+        ),
+    )
+
+    html = render_internal_preview(_administrator(), simulation=True, records=records)
+
+    assert html.count('class="plot-gridline"') >= 12
+    assert 'data-plot-x="30" data-plot-y="25"' in html
+    assert 'data-plot-x="40" data-plot-y="100"' in html
+    assert 'Academic age versus anagraphic age' in html
+    assert 'class="plot-point plot-bubble"' in html
+    assert 'data-plot-x="30" data-plot-y="4" data-citations="25"' in html
+    assert 'data-plot-x="40" data-plot-y="14" data-citations="100"' in html
+    bubble_radii = {
+        int(citations): float(radius)
+        for citations, radius in re.findall(
+            r'class="plot-point plot-bubble"[^>]+data-citations="(\d+)"[^>]+r="([\d.]+)"',
+            html,
+        )
+    }
+    assert bubble_radii[100] ** 2 == 4 * bubble_radii[25] ** 2
+
+
+def test_age_comparison_callouts_rank_only_records_that_can_be_plotted() -> None:
+    """Break caught: excluded high-citation records could consume bubble-chart labels."""
+    records = tuple(
+        PreviewApplicantMetric(
+            applicant=f"Excluded Author{index}", age=30 + index, total_citations=1000 + index
+        )
+        for index in range(15)
+    ) + (
+        PreviewApplicantMetric(
+            applicant="Visible Author", age=46, academic_age=12, total_citations=10
+        ),
+    )
+
+    html = render_internal_preview(_administrator(), simulation=True, records=records)
+    bubble_chart = html.split("Academic age versus anagraphic age", 1)[1]
+
+    assert ">Author</text>" in bubble_chart
