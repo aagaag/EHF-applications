@@ -206,6 +206,18 @@ GUEST_PROVISION = ROOT / "infra" / "hestia" / "provision-ehf-guest.sh"
 SCANNER_CONF = ROOT / "infra" / "ehf-clamav.conf"
 
 
+def test_guest_provisioning_pins_sql_server_to_the_loopback_interface() -> None:
+    """Break caught: SQL Server could listen on every interface instead of loopback."""
+    provisioning = GUEST_PROVISION.read_text(encoding="utf-8")
+
+    assert "mssql-conf set network.ipaddress 127.0.0.1" in provisioning
+    assert "'( sport = :1433 )'" in provisioning
+    assert "127.0.0.1:1433" in provisioning
+    # Re-binding over a live listener is what makes the engine refuse to start.
+    assert "systemctl reset-failed mssql-server" in provisioning
+    assert "SQL Server is not listening on the loopback interface" in provisioning
+
+
 def test_guest_provisioning_installs_the_scanner_the_upload_path_requires() -> None:
     """Break caught: a guest without clamd would reject every applicant document."""
     provisioning = GUEST_PROVISION.read_text(encoding="utf-8")

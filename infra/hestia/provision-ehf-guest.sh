@@ -56,6 +56,20 @@ if ! grep -qi 'accepteula' /var/opt/mssql/mssql.conf 2>/dev/null; then
     /opt/mssql/bin/mssql-conf -n setup
 fi
 
+# SQL Server must never accept connections from another host: the portal talks to it
+# over the loopback interface only, and verify-ehf.ps1 asserts exactly that.
+if [[ $(/opt/mssql/bin/mssql-conf get network.ipaddress 2>/dev/null || true) != 127.0.0.1 ]]; then
+  /opt/mssql/bin/mssql-conf set network.ipaddress 127.0.0.1
+  # Re-binding while the previous listener still holds the port makes the engine fail
+  # its start, so release the port and clear systemd's start-limit counter first.
+  systemctl stop mssql-server >/dev/null 2>&1 || true
+  for _ in $(seq 1 30); do
+    ss -ltn '( sport = :1433 )' | grep -q ':1433' || break
+    sleep 1
+  done
+  systemctl reset-failed mssql-server >/dev/null 2>&1 || true
+fi
+
 # Fail closed at boot: SQL Server must never initialize before its data volume is mounted.
 install -d -m 0755 /etc/systemd/system/mssql-server.service.d
 cat > /etc/systemd/system/mssql-server.service.d/10-ehf-data-volume.conf <<'UNIT'
@@ -78,6 +92,12 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 [[ $started == yes ]] || fail 'SQL Server did not accept connections after installation'
+if ! ss -ltn '( sport = :1433 )' | grep -qF '127.0.0.1:1433'; then
+  fail 'SQL Server is not listening on the loopback interface'
+fi
+if ss -ltn '( sport = :1433 )' | grep -qF '0.0.0.0:1433'; then
+  fail 'SQL Server must not listen on every interface'
+fi
 SQLCMDPASSWORD="$(cat "$admin_credential")" "$sqlcmd" -S tcp:127.0.0.1,1433 -U sa -C -X -I -h -1 -W \
   -Q "SET NOCOUNT ON; SELECT 'sql=' + CONVERT(varchar(60), SERVERPROPERTY('ProductVersion')) + ' ' + CONVERT(varchar(20), SERVERPROPERTY('Edition'));"
 
