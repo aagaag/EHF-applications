@@ -56,6 +56,16 @@ if ! grep -qi 'accepteula' /var/opt/mssql/mssql.conf 2>/dev/null; then
     /opt/mssql/bin/mssql-conf -n setup
 fi
 
+# Fail closed at boot: SQL Server must never initialize before its data volume is mounted.
+install -d -m 0755 /etc/systemd/system/mssql-server.service.d
+cat > /etc/systemd/system/mssql-server.service.d/10-ehf-data-volume.conf <<'UNIT'
+[Unit]
+RequiresMountsFor=/var/opt/mssql/data
+After=var-opt-mssql-data.mount
+UNIT
+chmod 0644 /etc/systemd/system/mssql-server.service.d/10-ehf-data-volume.conf
+systemctl daemon-reload
+
 install -d -m 0770 -o mssql -g mssql "$mssql_data"
 systemctl enable --now mssql-server >/dev/null 2>&1 || true
 started=no
