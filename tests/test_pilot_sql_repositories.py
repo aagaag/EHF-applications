@@ -468,6 +468,25 @@ def test_unknown_sql_applicant_preview_is_translated_to_a_neutral_lookup_error()
         )
 
 
+def test_access_request_review_maps_procedure_state_errors() -> None:
+    """Break caught: deciding an already-decided access request answered 500."""
+    from app.applicant.sql_pilot import SqlApplicantAccessRepository
+
+    for message, expected in [
+        ("[52612] The access request is unavailable.", LookupError),
+        ("[52611] A valid access-request review is required.", ValueError),
+    ]:
+        repository = SqlApplicantAccessRepository(factory(ErrorConnection(message)))
+
+        with pytest.raises(expected):
+            repository.review(
+                APPLICATION_A,
+                "REJECTED",
+                actor="cloudflare:administrator",
+                actor_group="EHF-Administrators",
+            )
+
+
 def test_return_for_correction_sql_races_are_translated_to_route_errors() -> None:
     for message, expected in [
         ("[52642] The applicant submission is unavailable.", LookupError),

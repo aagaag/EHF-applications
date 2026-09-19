@@ -290,14 +290,22 @@ class SqlApplicantAccessRepository:
     def review(
         self, request_id: UUID, decision: str, actor: str, actor_group: str
     ) -> ApplicantAccessRequest:
-        with self._connections() as connection:
-            row = connection.execute(
-                "EXEC dbo.ReviewApplicantAccessRequest "
-                "@ApplicantAccessRequestId=?, @Decision=?, "
-                "@ReviewedByIdentity=?, @ReviewerGroup=?",
-                request_id, decision, actor, actor_group,
-            ).fetchone()
-            connection.commit()
+        try:
+            with self._connections() as connection:
+                row = connection.execute(
+                    "EXEC dbo.ReviewApplicantAccessRequest "
+                    "@ApplicantAccessRequestId=?, @Decision=?, "
+                    "@ReviewedByIdentity=?, @ReviewerGroup=?",
+                    request_id, decision, actor, actor_group,
+                ).fetchone()
+                connection.commit()
+        except pyodbc.Error as error:
+            if _sql_error_has(error, "52612"):
+                # Decided meanwhile, or the request does not exist: a neutral lookup.
+                raise LookupError("The access request is unavailable.") from None
+            if _sql_error_has(error, "52611"):
+                raise ValueError("The access-request decision is invalid.") from None
+            raise
         if row is None:
             raise LookupError("The access request is unavailable.")
         return _access_request(row)
