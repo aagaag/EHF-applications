@@ -39,7 +39,10 @@ def register_internal_approval_routes(
                     "applicationStatus": item.application_status,
                     "href": f"/internal/applicant-previews/{item.application_id}",
                 }
-                for item in approval.previews(group)
+                for item in sorted(
+                    approval.previews(group),
+                    key=lambda item: (item.applicant_name.casefold(), str(item.application_id)),
+                )
             ]
         }))
 

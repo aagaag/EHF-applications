@@ -121,6 +121,29 @@ class PreviewApprovalService(ApplicantApprovalService):
         )
 
 
+class UnsortedPreviewApprovalService(PreviewApprovalService):
+    def previews(self, actor_group: str):  # type: ignore[no-untyped-def]
+        if actor_group != INTERNAL_GROUPS.administrators:
+            raise PermissionError
+        return (
+            SimpleNamespace(
+                application_id=UUID("a7000000-0000-4000-8000-000000000003"),
+                applicant_name="Zeta Applicant",
+                application_status="IMPORTED",
+            ),
+            SimpleNamespace(
+                application_id=UUID("a7000000-0000-4000-8000-000000000002"),
+                applicant_name="Alpha Applicant",
+                application_status="IMPORTED",
+            ),
+            SimpleNamespace(
+                application_id=UUID("a7000000-0000-4000-8000-000000000001"),
+                applicant_name="Alpha Applicant",
+                application_status="IMPORTED",
+            ),
+        )
+
+
 def _identity(group: str) -> AuthenticatedIdentity:
     return AuthenticatedIdentity(
         Identity("cloudflare:previewer", "previewer@example.test", "Previewer"),
@@ -128,12 +151,12 @@ def _identity(group: str) -> AuthenticatedIdentity:
     )
 
 
-def _app(group: str):  # type: ignore[no-untyped-def]
+def _app(group: str, approval: ApplicantApprovalService | None = None):  # type: ignore[no-untyped-def]
     return create_app(
         Settings.from_environment({}),
         readiness_checks=ReadinessChecks(lambda _timeout: None, lambda _timeout: None),
         identity_resolver=lambda _request: _identity(group),
-        applicant_approval_service=PreviewApprovalService(),
+        applicant_approval_service=approval or PreviewApprovalService(),
     )
 
 
@@ -183,6 +206,27 @@ def test_administrator_can_open_every_existing_application_in_the_read_only_appl
     assert "Save changes" not in page.text
     assert "Confirm this information" not in page.text
     assert "readonly" in page.text
+
+
+def test_administrator_applicant_previews_are_sorted_by_name_with_deterministic_ties() -> None:
+    with TestClient(
+        _app(
+            INTERNAL_GROUPS.administrators,
+            approval=UnsortedPreviewApprovalService(),
+        ),
+        base_url="https://localhost",
+    ) as client:
+        response = client.get("/api/internal/applicant-previews")
+
+    assert response.status_code == 200
+    assert [
+        (item["applicantName"], item["applicationId"])
+        for item in response.json()["applications"]
+    ] == [
+        ("Alpha Applicant", "a7000000-0000-4000-8000-000000000001"),
+        ("Alpha Applicant", "a7000000-0000-4000-8000-000000000002"),
+        ("Zeta Applicant", "a7000000-0000-4000-8000-000000000003"),
+    ]
 
 
 def test_trustee_cannot_list_or_open_administrator_applicant_previews() -> None:
