@@ -127,7 +127,7 @@ class _Connection:
         assert role == "EHF-Trustees"
         return SimpleNamespace(
             fetchall=lambda: [
-                ("Example Applicant", "PhD", 31, 4.5, None, 2, 0, 7, 5, 101, None, 110, "reviewed")
+                ("Example Applicant", "PhD", 31, 4.5, None, 2, 0, 7, 5, 101, None, 110, "reviewed", 125, "OPENALEX", "https://openalex.org/A123")
             ]
         )
 
@@ -139,3 +139,5 @@ def test_sql_metric_repository_maps_role_scoped_projection() -> None:
     assert records[0].applicant == "Example Applicant"
     assert records[0].academic_age == 4.5
     assert records[0].google_scholar_citations == 110
+    assert records[0].verified_citations == 125
+    assert records[0].verified_citation_source == "OPENALEX"

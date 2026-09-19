@@ -50,9 +50,9 @@ def test_populated_preview_places_reports_directly_after_workspaces_without_appl
     assert html.count('class="report-data-row"') == len(records)
     assert html.count('data-report-row tabindex="0"') == len(records)
     assert 'data-report-modal aria-labelledby="report-details-title"' in html
-    assert html.count('<strong class="missing-value">Missing</strong>') == 1
-    assert html.count('data-report-sort-direction="ascending"') == 13
-    assert html.count('data-report-sort-direction="descending"') == 13
+    assert html.count('<strong class="missing-value">Missing</strong>') == 3
+    assert html.count('data-report-sort-direction="ascending"') == 15
+    assert html.count('data-report-sort-direction="descending"') == 15
     assert 'aria-label="Sort Applicant ascending"' in html
     assert 'aria-label="Sort GS identity certainty descending"' in html
     assert 'data-report-filter' in html
@@ -65,6 +65,26 @@ def test_populated_preview_places_reports_directly_after_workspaces_without_appl
     assert "Citations by academic age" in html
     assert "Academic age versus anagraphic age" in html
     assert "No applicant records" not in html
+
+
+def test_reports_name_the_verified_profile_source_without_overwriting_the_self_report() -> None:
+    record = PreviewApplicantMetric(
+        applicant="Profile Source",
+        age=36,
+        academic_age=8.5,
+        total_citations=640,
+        verified_citations=710,
+        verified_citation_source="OpenAlex",
+        verified_citation_profile_url="https://openalex.org/A123",
+    )
+
+    html = render_internal_preview(_administrator(), simulation=True, records=(record,))
+
+    assert "Verified citations" in html
+    assert "Citation source" in html
+    assert ">710<" in html
+    assert ">OpenAlex<" in html
+    assert "Source-attributed profile totals take precedence" in html
 
 
 def test_empty_preview_remains_honest() -> None:

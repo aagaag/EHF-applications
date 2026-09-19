@@ -42,6 +42,9 @@ class SqlMetricRepository:
                 orcid=_text(row[10]),
                 google_scholar_citations=_integer(row[11]),
                 identity_certainty=_text(row[12]),
+                verified_citations=_integer(row[13]),
+                verified_citation_source=_text(row[14]),
+                verified_citation_profile_url=_text(row[15]),
             )
             for row in rows
         )

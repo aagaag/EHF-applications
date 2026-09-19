@@ -82,6 +82,7 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/021_application_publications.sql",
     "database/migrations/022_applicant_publication_preview.sql",
     "database/migrations/023_open_citation_sources.sql",
+    "database/migrations/024_applicant_citation_profiles.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -105,6 +106,7 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/021_validate_application_publications.sql",
     "database/tests/022_validate_applicant_publication_preview.sql",
     "database/tests/023_validate_open_citation_sources.sql",
+    "database/tests/024_validate_applicant_citation_profiles.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",

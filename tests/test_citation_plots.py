@@ -45,6 +45,26 @@ def test_plot_points_preserve_citation_fallback_and_exclude_incomplete_axes() ->
     ]
 
 
+def test_plot_points_prefer_a_verified_profile_total_over_self_report() -> None:
+    """Break caught: a verified, source-attributed total could be ignored by reports."""
+    records = (
+        PreviewApplicantMetric(
+            applicant="Profile Preferred",
+            age=30,
+            total_citations=10,
+            google_scholar_citations=20,
+            verified_citations=30,
+            verified_citation_source="OpenAlex",
+        ),
+    )
+
+    points = citation_plot_points(records, "age")
+
+    assert [(point.applicant, point.citations) for point in points] == [
+        ("Profile Preferred", 30.0),
+    ]
+
+
 def test_each_record_has_a_unique_color_shared_by_both_age_plots() -> None:
     """Break caught: one applicant could change or share color between plots."""
     records = tuple(

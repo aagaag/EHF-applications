@@ -34,6 +34,9 @@ class PreviewApplicantMetric:
     orcid: str | None = None
     google_scholar_citations: int | None = None
     identity_certainty: str | None = None
+    verified_citations: int | None = None
+    verified_citation_source: str | None = None
+    verified_citation_profile_url: str | None = None
 
 def render_internal_preview(
     principal: AuthenticatedIdentity,
@@ -107,7 +110,7 @@ def _sections(
 def _report_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
     return (
         '<section id="reports" aria-labelledby="reports-heading"><div class="section-heading">'
-        '<h2 id="reports-heading">Reports</h2><p>Source citation counts plotted against the age observations in the 2026 register. The graph uses total citations where recorded and otherwise the Google Scholar count.</p><p class="report-interaction-hint">Use the triangles beside any field title to sort ascending or descending. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
+        '<h2 id="reports-heading">Reports</h2><p>Source citation counts plotted against the age observations in the 2026 register. Source-attributed profile totals take precedence; applicant-reported and historic Google Scholar values remain visible for comparison.</p><p class="report-interaction-hint">Use the triangles beside any field title to sort ascending or descending. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
         '<div class="report-actions"><label class="report-filter" for="report-applicant-filter">Filter applicants'
         '<select id="report-applicant-filter" data-report-filter>'
         '<option value="" selected disabled>Select application status</option>'
@@ -129,6 +132,7 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
         ("Academic age (years)", "number"), ("Gender", "text"),
         ("First-author papers", "number"), ("Last-author papers", "number"),
         ("Total papers", "number"), ("h-index", "number"),
+        ("Verified citations", "number"), ("Citation source", "text"),
         ("Total citations", "number"), ("ORCID", "text"),
         ("Google Scholar citations", "number"), ("GS identity certainty", "text"),
     )
@@ -176,11 +180,13 @@ def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str
     values = (
         record.applicant, record.degree, _number(record.age), _number(record.academic_age),
         record.gender, record.first_author_papers, record.last_author_papers,
-        record.total_papers, record.h_index, record.total_citations, record.orcid,
+        record.total_papers, record.h_index, record.verified_citations,
+        _profile_source_markup(record), record.total_citations, record.orcid,
         record.google_scholar_citations, record.identity_certainty,
     )
     cells = "".join(
-        f'<span role="cell" data-label="{escape(label)}">{_display_markup(value)}</span>'
+        f'<span role="cell" data-label="{escape(label)}">'
+        f'{value if label == "Citation source" else _display_markup(value)}</span>'
         for label, value in zip(headers, values, strict=True)
     )
     status = "missing" if any(value in (None, "") for value in values) else "completed"
@@ -188,6 +194,16 @@ def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str
         f'<div class="report-data-row" role="row" data-report-row tabindex="0" data-report-status="{status}" '
         f'aria-label="Open full details for {escape(record.applicant)}">{cells}</div>'
     )
+
+
+def _profile_source_markup(record: PreviewApplicantMetric) -> str:
+    source = record.verified_citation_source
+    profile_url = record.verified_citation_profile_url
+    if source in (None, ""):
+        return _display_markup(None)
+    if profile_url and profile_url.startswith("https://"):
+        return f'<a href="{escape(profile_url, quote=True)}" target="_blank" rel="noopener noreferrer">{escape(source)}</a>'
+    return escape(source)
 
 
 def _scatterplot(

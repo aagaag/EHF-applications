@@ -12,6 +12,7 @@ class CitationMetric(Protocol):
     applicant: str
     total_citations: int | None
     google_scholar_citations: int | None
+    verified_citations: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,11 +55,13 @@ def citation_plot_points(
     candidates: list[tuple[int, str, float, float, str]] = []
     for source_index, record in enumerate(records):
         age = _finite_number(getattr(record, age_field, None))
-        citation_value = (
-            record.total_citations
-            if record.total_citations is not None
-            else record.google_scholar_citations
-        )
+        citation_value = getattr(record, "verified_citations", None)
+        if citation_value is None:
+            citation_value = (
+                record.total_citations
+                if record.total_citations is not None
+                else record.google_scholar_citations
+            )
         citations = _finite_number(citation_value)
         if age is None or citations is None:
             continue
