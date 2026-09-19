@@ -125,14 +125,27 @@ def test_wrong_object_substitution_is_rejected_by_aad(tmp_path: Path) -> None:
         object_store.decrypt_bytes(replace(first, object_key=second.object_key), binding(1))
 
 
-def test_duplicate_plaintext_hash_is_rejected_before_a_second_object_is_promoted(tmp_path: Path) -> None:
-    """Break caught: duplicate plaintext could create unnecessary encrypted copies."""
+def test_duplicate_plaintext_hash_is_rejected_only_inside_the_same_application(tmp_path: Path) -> None:
+    """Break caught: one applicant's document could block another applicant's upload.
+
+    The duplicate check exists to avoid storing the same bytes twice for one
+    application; scoping it per application keeps two applicants who legitimately
+    submit identical content (a shared template, a joint ethics approval) working.
+    """
     object_store = store(tmp_path)
-    object_store.store_bytes(b"same source", binding(1))
+    first = object_store.store_bytes(b"same source", binding(1))
 
     with pytest.raises(DuplicatePlaintextError):
-        object_store.store_bytes(b"same source", binding(2))
+        object_store.store_bytes(
+            b"same source", replace(binding(2), application_id=binding(1).application_id)
+        )
     assert len(list((tmp_path / "objects" / "o").iterdir())) == 1
+
+    second = object_store.store_bytes(b"same source", binding(2))
+
+    assert second.plaintext_sha256 == first.plaintext_sha256
+    assert second.object_key != first.object_key
+    assert len(list((tmp_path / "objects" / "o").iterdir())) == 2
 
 
 def test_metadata_failure_removes_only_the_unregistered_new_object(tmp_path: Path) -> None:

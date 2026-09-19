@@ -41,12 +41,15 @@ class SectionConfirmationService:
     def is_current(
         self, application_id: UUID, section: str, snapshot: DraftSnapshot
     ) -> bool:
+        """Compare the confirmed canonical content, not the historical row version.
+
+        A confirmation is keyed on the canonical hash of the saved content, so saving
+        identical content again (a browser autosave of an unchanged section) must keep
+        the section confirmed instead of stranding it behind an outdated row version.
+        """
         current = self._confirmations.get((application_id, section))
-        return current is not None and current == SectionConfirmation(
-            application_id,
-            section,
-            snapshot.row_version,
-            _canonical_hash(snapshot.values, snapshot.row_version),
+        return current is not None and current.canonical_sha256 == _canonical_hash(
+            snapshot.values, snapshot.row_version
         )
 
     def current(

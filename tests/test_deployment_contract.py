@@ -200,3 +200,40 @@ def test_verify_transports_a_base64_decoded_remote_script_without_nested_shell_q
     assert "Host: ehf.isab.science" in decoded
     assert "^[[:space:]]*server_name" in decoded
     assert "^[[:space:]]*proxy_pass" in decoded
+
+
+GUEST_PROVISION = ROOT / "infra" / "hestia" / "provision-ehf-guest.sh"
+SCANNER_CONF = ROOT / "infra" / "ehf-clamav.conf"
+
+
+def test_guest_provisioning_installs_the_scanner_the_upload_path_requires() -> None:
+    """Break caught: a guest without clamd would reject every applicant document."""
+    provisioning = GUEST_PROVISION.read_text(encoding="utf-8")
+    scanner_conf = SCANNER_CONF.read_text(encoding="utf-8")
+
+    assert "clamav-daemon" in provisioning
+    # Ubuntu 24.04 ships clamdscan in its own package; the application executes it.
+    assert "clamdscan" in provisioning
+    assert "install -y --no-install-recommends clamav-daemon clamav-freshclam clamdscan" in provisioning
+    assert "LocalSocket /run/clamav/clamd.ctl" in scanner_conf
+    assert "LocalSocketMode 0666" in scanner_conf
+    # The daemon must serve exactly the socket and mode the application's conf names.
+    assert "scanner_socket=/run/clamav/clamd.ctl" in provisioning
+    assert 'set_clamd_option LocalSocket "$scanner_socket"' in provisioning
+    assert "set_clamd_option LocalSocketMode 0666" in provisioning
+
+
+def test_service_waits_for_the_scanner_that_scans_applicant_documents() -> None:
+    """Break caught: the portal could accept uploads in the window before clamd listens."""
+    source = SERVICE.read_text(encoding="utf-8")
+
+    assert "After=network-online.target clamav-daemon.service" in source
+
+
+def test_verification_asserts_the_malware_scanner_is_present_and_working() -> None:
+    """Break caught: a deployment could pass verification without a usable scanner."""
+    source = VERIFY.read_text(encoding="utf-8")
+
+    assert "clamdscan" in source
+    assert "/run/clamav/clamd.ctl" in source
+    assert "ehf-clamav.conf" in source

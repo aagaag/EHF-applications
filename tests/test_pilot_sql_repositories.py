@@ -16,7 +16,7 @@ from app.applicant.sql_pilot import (
     SqlSyntheticProjectionRepository,
 )
 from app.applicant.approval import ApplicantApprovalBlocked
-from app.applicant.confirmations import SectionConfirmation
+from app.applicant.confirmations import SectionConfirmation, _canonical_hash
 from app.applicant.drafts import (
     CorrectionRequired,
     DraftConflict,
@@ -482,6 +482,62 @@ def test_return_for_correction_sql_races_are_translated_to_route_errors() -> Non
                 actor="cloudflare:reviewer",
                 actor_group="EHF-Administrators",
             )
+
+
+def test_approval_of_a_superseded_confirmation_is_a_neutral_lookup_error() -> None:
+    """Break caught: a stale review-queue entry could answer 500 instead of 404."""
+    service = SqlApplicantApprovalService(
+        factory(ErrorConnection("[52642] The applicant submission is unavailable."))
+    )
+
+    with pytest.raises(LookupError):
+        service.approve(
+            UUID("81000000-0000-4000-8000-000000000001"),
+            actor="cloudflare:administrator",
+            actor_group="EHF-Administrators",
+        )
+
+
+def test_synthetic_workspace_submission_is_not_approvable() -> None:
+    """Break caught: a synthetic workspace could enter the approval queue."""
+    service = SqlApplicantApprovalService(
+        factory(ErrorConnection("[52912] Synthetic workspaces cannot enter approval."))
+    )
+
+    with pytest.raises(LookupError):
+        service.approve(
+            UUID("81000000-0000-4000-8000-000000000001"),
+            actor="cloudflare:administrator",
+            actor_group="EHF-Administrators",
+        )
+
+
+def test_sql_section_confirmation_stays_current_after_an_identical_save() -> None:
+    """Break caught: a re-saved but unchanged section could never be confirmed again.
+
+    GetApplicantSectionConfirmation returns the confirmation stored for the canonical
+    content hash, whose draft row version is historical; a later save of the same
+    content must still count as confirmed for the current draft.
+    """
+    scope = ApplicantSqlSessionScope()
+    scope.bind(SESSION_HASH)
+    stored_hash = _canonical_hash({"preferredName": "Same"}, 7)
+    stored_row = (
+        APPLICATION_A,
+        "identity",
+        bytes.fromhex(stored_hash),
+        (7).to_bytes(8, "big"),
+    )
+    # The fake cursor pops one row per call, and each check reads the confirmation once.
+    connection = Connection([stored_row, stored_row, stored_row])
+    service = SqlSectionConfirmationService(factory(connection), scope)
+    resaved = DraftSnapshot(APPLICATION_A, "identity", {"preferredName": "Same"}, 21)
+
+    assert service.current(APPLICATION_A, "identity") is not None
+    assert service.is_current(APPLICATION_A, "identity", resaved) is True
+
+    changed = DraftSnapshot(APPLICATION_A, "identity", {"preferredName": "Other"}, 22)
+    assert service.is_current(APPLICATION_A, "identity", changed) is False
 
 
 def test_returned_section_must_be_saved_before_sql_reconfirmation() -> None:

@@ -463,10 +463,15 @@ def create_app(
         and applicant_turnstile is not None
         and applicant_rate_limiter is not None
     )
+    invitation_workflow_supported = applicant_auth_service is None or bool(
+        # A repository that does not declare a capability keeps its historical behaviour;
+        # the deployed SQL repository declares itself unable to serve invitations.
+        getattr(applicant_auth_service, "supports_invitation_verification", True)
+    )
     legacy_invitation_routes_enabled = (
         resolved_settings.environment != "production"
         or resolved_settings.invitations_enabled
-    )
+    ) and invitation_workflow_supported
     if applicant_auth_service is not None:
         register_applicant_entra_routes(
             application,
@@ -486,6 +491,11 @@ def create_app(
     )
     if resolved_settings.invitations_enabled and not applicant_dependencies_ready:
         raise RuntimeError("Applicant invitations are enabled without the required portal services.")
+    if resolved_settings.invitations_enabled and not invitation_workflow_supported:
+        raise RuntimeError(
+            "Applicant invitations are enabled without a repository that can serve the "
+            "invitation and verification-code workflow."
+        )
     if legacy_invitation_routes_enabled and applicant_dependencies_ready:
         register_applicant_auth_routes(
             application,

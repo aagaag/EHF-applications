@@ -11,6 +11,8 @@ from fastapi.responses import JSONResponse, Response
 
 from app.applicant.documents import (
     ApplicantDocumentService,
+    DocumentAlreadySubmitted,
+    DocumentScannerUnavailable,
     DocumentUnavailable,
     DocumentUploadRejected,
 )
@@ -92,6 +94,22 @@ def register_applicant_document_routes(
                 return JSONResponse(
                     status_code=404,
                     content={"message": "The document slot is unavailable."},
+                )
+            except DocumentScannerUnavailable:
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "message": (
+                            "Document scanning is temporarily unavailable. "
+                            "Please try again later."
+                        )
+                    },
+                    headers={"Retry-After": "300"},
+                )
+            except DocumentAlreadySubmitted:
+                return JSONResponse(
+                    status_code=409,
+                    content={"message": "This document is already part of your application."},
                 )
             except DocumentUploadRejected:
                 return JSONResponse(

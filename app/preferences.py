@@ -91,6 +91,9 @@ class SqlPreferenceRepository:
             identity.key,
         )
         row = cursor.fetchone()
+        # The connection is request-scoped and not autocommitted, so the write must be
+        # committed here or it is rolled back when the connection closes.
+        connection.commit()
         if row is None:
             return preference
         return SqlPreferenceRepository._decode_row(row)

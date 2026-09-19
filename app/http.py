@@ -9,9 +9,10 @@ import re
 import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
+from types import SimpleNamespace
 from typing import Any
 
-from app.errors import error_response
+from app.errors import error_response, log_unhandled_exception
 from app.security_headers import is_security_header, security_headers
 
 
@@ -161,7 +162,8 @@ class SecurityMiddleware:
 
         try:
             await self.app(scope, _replay_receive(buffered_body.messages), secure_send)
-        except Exception:
+        except Exception as error:
+            log_unhandled_exception(_RequestView(scope), error)
             if response_status is None:
                 await _send_response(
                     error_response(
@@ -299,6 +301,19 @@ class BufferedBody:
     messages: list[dict[str, Any]]
     length: int
     disconnected: bool
+
+
+class _RequestView:
+    """Scope-backed request facade so the error logger can run outside Starlette.
+
+    The live scope is kept by reference: the logger marks it as already reported, which
+    keeps a single failure from being logged twice by the middleware and the handler.
+    """
+
+    def __init__(self, scope: dict[str, Any]) -> None:
+        self.scope = scope
+        self.method = str(scope.get("method", "OTHER"))
+        self.url = SimpleNamespace(path=str(scope.get("path", "")))
 
 
 def _replay_receive(

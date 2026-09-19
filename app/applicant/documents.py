@@ -7,8 +7,10 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from app.auth.applicant import ApplicantSessionContext
+from app.documents.malware import MalwareDetectedError, MalwareUnavailableError
 from app.documents.store import (
     DocumentStoreError,
+    DuplicatePlaintextError,
     EncryptedObjectStore,
     ObjectBinding,
     StoredObjectRecord,
@@ -31,6 +33,14 @@ class DocumentUnavailable(RuntimeError):
 
 class DocumentUploadRejected(RuntimeError):
     pass
+
+
+class DocumentScannerUnavailable(DocumentUploadRejected):
+    """The malware scanner could not provide a verdict, so nothing may be accepted."""
+
+
+class DocumentAlreadySubmitted(DocumentUploadRejected):
+    """An identical document is already part of this application's dossier."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,6 +314,14 @@ class ApplicantDocumentService:
                 scanner=self._scanner,
                 register=register,
             )
+        except MalwareDetectedError:
+            raise DocumentUploadRejected("The PDF could not be accepted.") from None
+        except MalwareUnavailableError:
+            raise DocumentScannerUnavailable("Document scanning is unavailable.") from None
+        except DuplicatePlaintextError:
+            raise DocumentAlreadySubmitted(
+                "An identical document is already registered."
+            ) from None
         except (DocumentStoreError, OSError):
             raise DocumentUploadRejected("The PDF could not be accepted.") from None
         if registered is None:

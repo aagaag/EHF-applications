@@ -226,6 +226,15 @@ class InMemoryApplicantAuthRepository:
 class ApplicantAuthService:
     """Apply neutral invitation and OTP semantics without exposing record existence."""
 
+    _INVITATION_METHODS = (
+        "active_invitation",
+        "put_context",
+        "context",
+        "invitation_by_id",
+        "put_challenge",
+        "challenge",
+    )
+
     def __init__(
         self,
         repository: InMemoryApplicantAuthRepository,
@@ -242,6 +251,18 @@ class ApplicantAuthService:
         self._otp_pepper = otp_pepper
         self._session_pepper = session_pepper
         self._code_factory = code_factory or (lambda: f"{secrets.randbelow(1_000_000):06d}")
+
+    @property
+    def supports_invitation_verification(self) -> bool:
+        """Report whether the repository can serve the invitation and one-time-code flow.
+
+        The deployed SQL repository only serves Entra sessions; exposing the invitation
+        routes against it would answer 500 on the first applicant action.
+        """
+        return all(
+            callable(getattr(self._repository, name, None))
+            for name in self._INVITATION_METHODS
+        )
 
     def establish(self, invitation_token: str, now: datetime | None = None) -> str:
         timestamp = _aware_utc(now)

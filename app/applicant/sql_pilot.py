@@ -25,6 +25,8 @@ from app.applicant.access import ApplicantAccessRequest, ApplicantAccessService
 from app.applicant.documents import (
     ApplicantDocumentSlot,
     ApplicantDocumentVersion,
+    DocumentAlreadySubmitted,
+    DocumentScannerUnavailable,
     DocumentUnavailable,
     DocumentUploadRejected,
 )
@@ -63,9 +65,15 @@ from app.auth.applicant import (
 from app.config import Settings
 from app.db import connect
 from app.documents.keys import load_keyring
-from app.documents.malware import ClamDScanner, ScanResult
+from app.documents.malware import (
+    ClamDScanner,
+    MalwareDetectedError,
+    MalwareUnavailableError,
+    ScanResult,
+)
 from app.documents.store import (
     DocumentStoreError,
+    DuplicatePlaintextError,
     EncryptedObjectStore,
     ObjectBinding,
     StoredObjectRecord,
@@ -625,14 +633,20 @@ class SqlSectionConfirmationService:
         )
 
     def is_current(
-        self, application_id: UUID, section: str, snapshot: DraftSnapshot
+        self,
+        application_id: UUID,
+        section: str,
+        snapshot: DraftSnapshot,
     ) -> bool:
+        """Compare the confirmed canonical content, not the historical row version.
+
+        ``ConfirmApplicantSection`` is idempotent for one canonical hash and keeps the
+        row version of the first confirmation, so an application that saves the same
+        content again must still count as confirmed.
+        """
         current = self.current(application_id, section)
-        return current == SectionConfirmation(
-            application_id,
-            section,
-            snapshot.row_version,
-            _canonical_hash(snapshot.values, snapshot.row_version),
+        return current is not None and current.canonical_sha256 == _canonical_hash(
+            snapshot.values, snapshot.row_version
         )
 
     def invalidate(self, _application_id: UUID, _section: str) -> None:
@@ -698,6 +712,14 @@ class SqlApplicantDocumentService:
             self._object_store.ingest_file(
                 source, binding, validator=validator, scanner=ScanCapture(), register=register
             )
+        except MalwareDetectedError:
+            raise DocumentUploadRejected("The PDF could not be accepted.") from None
+        except MalwareUnavailableError:
+            raise DocumentScannerUnavailable("Document scanning is unavailable.") from None
+        except DuplicatePlaintextError:
+            raise DocumentAlreadySubmitted(
+                "An identical document is already registered."
+            ) from None
         except (DocumentStoreError, OSError):
             raise DocumentUploadRejected("The PDF could not be accepted.") from None
         if registered is None:
@@ -932,6 +954,9 @@ class SqlApplicantApprovalService:
                 ).fetchone()
                 connection.commit()
         except pyodbc.Error as error:
+            if _sql_error_has(error, "52642", "52912"):
+                # A missing, superseded, or synthetic confirmation is simply unavailable.
+                raise LookupError("The applicant submission is unavailable.") from None
             if _sql_error_has(error, "52646"):
                 raise ApplicantApprovalBlocked(
                     "Return the employment section to the applicant so they can answer "

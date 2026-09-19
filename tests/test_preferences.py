@@ -26,9 +26,16 @@ def test_preference_model_accepts_only_the_shared_four_skins() -> None:
 class RecordingConnection:
     executed: list[tuple[str, tuple[object, ...]]]
 
+    def __init__(self) -> None:
+        self.executed: list[tuple[str, tuple[object, ...]]] = []
+        self.commits = 0
+
     def execute(self, sql: str, *parameters: object) -> "RecordingConnection":
         self.executed.append((sql, parameters))
         return self
+
+    def commit(self) -> None:
+        self.commits += 1
 
     def fetchone(self) -> tuple[object, ...]:
         return (
@@ -43,11 +50,29 @@ class RecordingConnection:
         )
 
 
+def test_sql_preference_repository_commits_the_write_it_reports_as_saved() -> None:
+    """Break caught: a reported preference save could be rolled back at request end."""
+    from app.preferences import AppearancePreference, Identity, SqlPreferenceRepository
+
+    connection = RecordingConnection()
+    identity = Identity(
+        key="entra:person-001", email="person@example.org", display_name="Preview Person"
+    )
+    repository = SqlPreferenceRepository(lambda: connection)
+
+    repository.save(
+        identity,
+        AppearancePreference(skin="blue", invert=True, compact=True, reduce_motion=False),
+    )
+
+    assert connection.commits == 1
+
+
 def test_sql_preference_repository_reads_and_writes_only_the_current_identity() -> None:
     """Break caught: preferences could be held in browser state or written for another identity."""
     from app.preferences import AppearancePreference, Identity, SqlPreferenceRepository
 
-    connection = RecordingConnection([])
+    connection = RecordingConnection()
     identity = Identity(
         key="entra:person-001",
         email="person@example.org",

@@ -159,3 +159,28 @@ def test_exception_after_response_start_is_not_reraised_or_sent_twice() -> None:
 
     assert [message["type"] for message in sent].count("http.response.start") == 1
     assert sent[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
+
+
+def test_unhandled_exception_is_logged_by_type_and_frames_without_its_message(caplog) -> None:
+    """Break caught: a production 500 could leave no trace beyond a correlation id.
+
+    Diagnosis needs the exception type, the failing code path and the correlation id;
+    the exception message and any supplied value must still never reach the log.
+    """
+    caplog.set_level(logging.ERROR)
+    client = application()
+
+    response = client.get(
+        "/test-unhandled-error",
+        headers={"Authorization": "Bearer secret-not-for-logs"},
+    )
+
+    assert response.status_code == 500
+    output = caplog.text
+    assert "RuntimeError" in output
+    assert response.headers["x-request-id"] in output
+    assert "test_http_error" not in output
+    assert "server-01" not in output
+    assert "private/document.pdf" not in output
+    assert "token=" not in output
+    assert "secret-not-for-logs" not in output

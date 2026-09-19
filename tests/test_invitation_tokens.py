@@ -283,3 +283,74 @@ def test_production_invitation_routes_remain_absent_while_gate_is_false() -> Non
     )
 
     assert response.status_code == 404
+
+
+class _SessionOnlyRepository:
+    """Repository shape of the deployed SQL runtime: sessions only, no invitation state."""
+
+    def application_for_entra(self, _entra_object_id: UUID) -> None:
+        return None
+
+    def put_session(self, _record: object) -> None:
+        raise AssertionError("unused in this contract test")
+
+    def session(self, _session_hash: bytes, _now: datetime) -> None:
+        return None
+
+
+def _incapable_service() -> ApplicantAuthService:
+    return ApplicantAuthService(
+        _SessionOnlyRepository(),  # type: ignore[arg-type]
+        CapturingVerificationDelivery(),
+        otp_pepper=b"synthetic-otp-pepper-with-at-least-32-bytes",
+        session_pepper=b"synthetic-session-pepper-at-least-32-bytes",
+    )
+
+
+def _incapable_app(settings: Settings) -> TestClient:
+    return TestClient(
+        create_app(
+            settings,
+            readiness_checks=ReadinessChecks(lambda _timeout: None, lambda _timeout: None),
+            applicant_auth_service=_incapable_service(),
+            applicant_turnstile=TurnstileVerifier(
+                "synthetic-secret",
+                "localhost",
+                lambda *_args: {
+                    "success": True,
+                    "hostname": "localhost",
+                    "action": "applicant-code-request",
+                },
+            ),
+            applicant_rate_limiter=InMemoryRateLimiter(
+                RateLimitPolicy(limit=20, window=timedelta(minutes=10))
+            ),
+        ),
+        base_url="https://localhost",
+    )
+
+
+def test_invitation_routes_stay_absent_when_the_repository_cannot_serve_them() -> None:
+    """Break caught: a registered invitation route could answer 500 instead of 404.
+
+    The deployed SQL runtime has no repository implementation for invitations or
+    verification challenges, so the routes must not be exposed at all.
+    """
+    client = _incapable_app(Settings.from_environment({}))
+
+    assert client.get("/applicant/verify").status_code == 404
+    assert client.get(f"/a/{new_opaque_token()}", follow_redirects=False).status_code == 404
+    assert client.post("/api/applicant/auth/code", json={}).status_code == 404
+    assert client.get("/api/applicant/session").status_code == 401
+
+
+def test_invitations_enabled_without_a_capable_repository_refuse_to_start() -> None:
+    """Break caught: enabling invitations could silently expose a broken workflow."""
+    settings = replace(Settings.from_environment({}), invitations_enabled=True)
+
+    try:
+        _incapable_app(settings)
+    except RuntimeError as error:
+        assert "invitation" in str(error).casefold()
+    else:
+        raise AssertionError("startup must fail closed without an invitation-capable repository")

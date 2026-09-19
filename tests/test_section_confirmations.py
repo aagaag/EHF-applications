@@ -41,3 +41,25 @@ def test_any_later_change_visibly_invalidates_prior_confirmation() -> None:
     )
 
     assert confirmations.is_current(APPLICATION, "identity", changed) is False
+
+
+def test_resaving_identical_content_keeps_the_section_confirmed() -> None:
+    """Break caught: an autosave of unchanged content could strand a confirmed section.
+
+    ConfirmApplicantSection keys a confirmation on the canonical hash of the saved
+    content, so the stored row version is historical.  A later save that produces the
+    same canonical content must therefore keep the section current, otherwise the
+    applicant form (which autosaves on every edit) could never reach final submission.
+    """
+    drafts = InMemoryDraftRepository()
+    confirmations = SectionConfirmationService()
+    first = drafts.save(
+        APPLICATION, "identity", {"preferredName": "Same"}, None, "APPLICANT"
+    )
+    confirmations.confirm(APPLICATION, "identity", first)
+    resaved = drafts.save(
+        APPLICATION, "identity", {"preferredName": "Same"}, 1, "APPLICANT"
+    )
+
+    assert resaved.row_version != first.row_version
+    assert confirmations.is_current(APPLICATION, "identity", resaved) is True

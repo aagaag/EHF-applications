@@ -18,6 +18,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from app.documents.keys import Keyring, KeyringError
+from app.documents.malware import MalwareError
 
 
 _FORMAT_VERSION = 1
@@ -79,7 +80,9 @@ class EncryptedObjectStore:
         self._quarantine = root / "q"
         self._keyring = keyring
         self._owner = owner
-        self._plaintext_hashes: set[bytes] = set()
+        # Keyed per application: an identical file inside one dossier is a duplicate,
+        # while two applicants may legitimately submit byte-identical documents.
+        self._plaintext_hashes: set[tuple[UUID, bytes]] = set()
         self._lock = threading.Lock()
         self._ensure_directories()
 
@@ -100,7 +103,7 @@ class EncryptedObjectStore:
             raise DocumentStoreError("An empty document cannot be stored.")
         plaintext_hash = hashlib.sha256(plaintext).digest()
         with self._lock:
-            if plaintext_hash in self._plaintext_hashes:
+            if (binding.application_id, plaintext_hash) in self._plaintext_hashes:
                 raise DuplicatePlaintextError("An identical document is already registered.")
             record = self._encrypt_and_promote(plaintext, plaintext_hash, binding)
             try:
@@ -109,7 +112,7 @@ class EncryptedObjectStore:
             except Exception:
                 self.path_for(record.object_key).unlink(missing_ok=True)
                 raise DocumentStoreError("Document metadata registration failed.") from None
-            self._plaintext_hashes.add(plaintext_hash)
+            self._plaintext_hashes.add((binding.application_id, plaintext_hash))
             return record
 
     def ingest_file(
@@ -128,7 +131,9 @@ class EncryptedObjectStore:
             validator(quarantine)
             scanner.scan(quarantine)
             return self.store_bytes(quarantine.read_bytes(), binding, register=register)
-        except DocumentStoreError:
+        except (DocumentStoreError, MalwareError):
+            # A scanner verdict (detected or unavailable) and a duplicate must keep their
+            # own meaning so the caller can answer with a distinct, actionable outcome.
             raise
         except Exception:
             raise DocumentStoreError("Document ingestion failed.") from None
