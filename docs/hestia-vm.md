@@ -49,7 +49,7 @@ sudo bash infra/hestia/provision-ehf-vm.sh
 Inside the new VM (root):
 
 ```bash
-sudo bash provision-ehf-guest.sh              # SQL Server 2025 + client tooling
+sudo bash provision-ehf-guest.sh              # SQL Server 2025, client tooling and ClamAV
 sudo bash restore-ehf-state.sh <bundle> configuration
 sudo python3 /usr/local/sbin/ehf-deploy \
   --archive /root/ehf-release-r.tar \

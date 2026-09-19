@@ -11,6 +11,7 @@ if ($WhatIf) {
     Write-Output 'WhatIf: would verify the validated immutable release link and commit marker.'
     Write-Output 'WhatIf: would verify EHF systemd hardening, Nginx syntax/site binding, loopback SQL and Uvicorn listeners, and readiness.'
     Write-Output 'WhatIf: would verify invitations and production mail remain disabled.'
+    Write-Output 'WhatIf: would verify the ClamAV daemon socket and a clean probe scan of applicant documents.'
     return
 }
 
@@ -27,6 +28,13 @@ systemctl show ehf.service --property=ProtectSystem --property=ProtectHome --pro
 /usr/bin/curl --fail --silent --show-error --max-time 5 --header 'Host: ehf.isab.science' http://127.0.0.1:8087/health/ready >/dev/null
 /usr/bin/ss -ltn '( sport = :8087 )' | /usr/bin/grep -F '127.0.0.1:8087' >/dev/null
 /usr/bin/ss -ltn '( sport = :1433 )' | /usr/bin/grep -F '127.0.0.1:1433' >/dev/null
+test -x /usr/bin/clamdscan
+systemctl is-active --quiet clamav-daemon.service
+test -S /run/clamav/clamd.ctl
+probe=$(/usr/bin/mktemp)
+printf 'ehf verification probe\n' > "$probe"
+/usr/bin/clamdscan --config-file="$release/infra/ehf-clamav.conf" --fdpass --no-summary "$probe" >/dev/null
+rm -f "$probe"
 /usr/bin/grep -qx 'EHF_INVITATIONS_ENABLED=false' /etc/ehf/ehf.env
 /usr/bin/grep -qx 'EHF_PRODUCTION_MAIL_ENABLED=false' /etc/ehf/ehf.env
 /usr/bin/grep -Eq '^[[:space:]]*server_name[[:space:]]+ehf\.isab\.science;[[:space:]]*$' /etc/nginx/sites-available/ehf

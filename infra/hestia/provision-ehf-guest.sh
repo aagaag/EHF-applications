@@ -80,4 +80,45 @@ done
 [[ $started == yes ]] || fail 'SQL Server did not accept connections after installation'
 SQLCMDPASSWORD="$(cat "$admin_credential")" "$sqlcmd" -S tcp:127.0.0.1,1433 -U sa -C -X -I -h -1 -W \
   -Q "SET NOCOUNT ON; SELECT 'sql=' + CONVERT(varchar(60), SERVERPROPERTY('ProductVersion')) + ' ' + CONVERT(varchar(20), SERVERPROPERTY('Edition'));"
+
+# Applicant documents are scanned with clamdscan against the daemon socket that
+# infra/ehf-clamav.conf names, so the guest has to provide that daemon and socket.
+readonly scanner_socket=/run/clamav/clamd.ctl
+apt-get install -y --no-install-recommends clamav-daemon clamav-freshclam clamdscan
+[[ -x /usr/bin/clamdscan ]] || fail 'clamdscan was not installed where the application expects it'
+
+set_clamd_option() {
+  local key=$1 value=$2 file=/etc/clamav/clamd.conf
+  if grep -qE "^[#[:space:]]*${key}[[:space:]]" "$file"; then
+    sed -i -E "s|^[#[:space:]]*${key}[[:space:]].*|${key} ${value}|" "$file"
+  else
+    printf '%s %s\n' "$key" "$value" >> "$file"
+  fi
+}
+set_clamd_option LocalSocket "$scanner_socket"
+# The portal runs as the unprivileged ehf account, which is not in the clamav group.
+set_clamd_option LocalSocketMode 0666
+
+systemctl enable clamav-daemon clamav-freshclam >/dev/null 2>&1 || true
+systemctl restart clamav-freshclam >/dev/null 2>&1 || true
+systemctl restart clamav-daemon
+socket_ready=no
+for _ in $(seq 1 60); do
+  if [[ -S $scanner_socket ]]; then
+    socket_ready=yes
+    break
+  fi
+  sleep 2
+done
+[[ $socket_ready == yes ]] || fail "the ClamAV daemon did not create $scanner_socket"
+
+# Prove that a clean file scans before the portal is allowed to rely on the daemon.
+probe=$(mktemp)
+printf 'ehf scanner probe\n' > "$probe"
+/usr/bin/clamdscan --version >/dev/null || fail 'clamdscan is not executable'
+/usr/bin/clamdscan --fdpass --no-summary "$probe" >/dev/null ||
+  fail 'clamdscan could not scan a clean probe file through the daemon socket'
+rm -f "$probe"
+
 printf 'provision-ehf-guest: SQL Server 2025 ready; administrator credential at %s\n' "$admin_credential"
+printf 'provision-ehf-guest: ClamAV daemon ready on %s for clamdscan\n' "$scanner_socket"

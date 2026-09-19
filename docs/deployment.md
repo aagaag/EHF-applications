@@ -43,7 +43,8 @@ On a fresh VM, first apply the provisioning assets as described in
 [hestia-vm.md](hestia-vm.md): `infra/hestia/provision-ehf-vm.sh` on the KVM host
 creates the network and the domain, `infra/hestia/provision-ehf-guest.sh`
 installs SQL Server 2025 with the host's administrator credential at
-`/etc/ehf/sql-admin-password`, and `infra/hestia/restore-ehf-state.sh
+`/etc/ehf/sql-admin-password` and the ClamAV daemon with `clamdscan` for
+document scanning, and `infra/hestia/restore-ehf-state.sh
 <migration-bundle> configuration` places the protected configuration.
 
 1. Create the locked service account and configuration directory by running
@@ -85,6 +86,14 @@ installs SQL Server 2025 with the host's administrator credential at
    Python 3.12, Nginx, `curl`, `tar`, and `systemd` are available. The script
    validates the application SQL principal and uses the release virtual
    environment at `/opt/ehf/current/venv/bin/python`.
+5. Confirm that `/usr/bin/clamdscan`, the `clamav-daemon` service and its
+   socket `/run/clamav/clamd.ctl` are present: applicant documents are scanned
+   through that socket with the release's `infra/ehf-clamav.conf`, and without
+   it every upload is refused. `infra/hestia/provision-ehf-guest.sh` installs
+   `clamav-daemon`, `clamav-freshclam` and the separately packaged `clamdscan`
+   (Ubuntu 24.04), configures that socket with `LocalSocketMode 0666` for the
+   unprivileged `ehf` account, and proves a clean probe scan before it
+   finishes. `scripts/verify-ehf.ps1` repeats that probe during verification.
 
 The administrator must not create a public DNS record, alter a Cloudflare
 Tunnel, or enable invitations/mail as part of these prerequisites.

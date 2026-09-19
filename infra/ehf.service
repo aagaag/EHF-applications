@@ -1,6 +1,6 @@
 [Unit]
 Description=EHF fellowship portal
-After=network-online.target
+After=network-online.target clamav-daemon.service
 Wants=network-online.target
 
 [Service]
