@@ -69,8 +69,39 @@ def _section_values(bundle: ApplicantPreviewBundle) -> dict[str, dict[str, Any]]
         draft = bundle.drafts.get(code)
         if isinstance(draft, dict):
             current.update(upgrade_legacy_section(code, draft))
+        if code == "qualifications":
+            current["degrees"] = _with_recovered_phd_conferral_year(
+                current.get("degrees"),
+                baseline.get("phdConferralYear"),
+            )
         result[code] = current
     return result
+
+
+def _with_recovered_phd_conferral_year(
+    values: Any, recovered_year: Any
+) -> list[dict[str, Any]]:
+    """Expose a legacy academic-age-derived year without representing it as a date."""
+    year = _recovered_year(recovered_year)
+    if year is None or not isinstance(values, list):
+        return values if isinstance(values, list) else []
+    rows: list[dict[str, Any]] = []
+    for value in values:
+        row = dict(value) if isinstance(value, dict) else {}
+        if row.get("degreeType") == "PhD" and not row.get("conferralDate"):
+            row["conferralYear"] = year
+        rows.append(row)
+    return rows
+
+
+def _recovered_year(value: Any) -> int | None:
+    if type(value) is int:
+        year = value
+    elif isinstance(value, str) and len(value) == 4 and value.isascii() and value.isdigit():
+        year = int(value)
+    else:
+        return None
+    return year if 1900 <= year <= 2200 else None
 
 
 def _section(
@@ -126,6 +157,10 @@ def _degree_row(row: Any, index: int) -> str:
     item = row if isinstance(row, dict) else {}
     degree_type = _display_value(item.get("degreeType"))
     date = _display_value(item.get("conferralDate"))
+    if date == "Missing":
+        year = item.get("conferralYear")
+        if isinstance(year, int) and 1900 <= year <= 2200:
+            date = f"{year} (year recorded; full date unavailable)"
     return (
         f'<div class="degree-row"><div class="review-field"><label for="preview-degree-{index}-type">Degree</label>'
         f'<input id="preview-degree-{index}-type" type="text" value="{escape(degree_type, quote=True)}" readonly></div>'

@@ -3,10 +3,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 
-from app.applicant.approval import ApplicantApprovalService
-from app.applicant.admin_preview import _citation_counts
+from app.applicant.approval import ApplicantApprovalService, ApplicantPreviewBundle
+from app.applicant.admin_preview import _citation_counts, render_applicant_preview
 from app.config import Settings
 from app.identity import AuthenticatedIdentity
 from app.main import ReadinessChecks, create_app
@@ -30,6 +31,74 @@ def test_preview_omits_openalex_when_no_openalex_observation_exists() -> None:
     )
 
     assert value == "Google Scholar: Not available; Semantic Scholar: 35"
+
+
+def test_preview_shows_a_recovered_phd_conferral_year_without_inventing_a_date() -> None:
+    """Break caught: legacy academic-age evidence was rendered as a missing PhD date."""
+    page = render_applicant_preview(
+        ApplicantPreviewBundle(
+            APPLICATION_ID,
+            "Synthetic Preview Applicant",
+            "IMPORTED",
+            {
+                "applicant": {
+                    "fullName": "Synthetic Preview Applicant",
+                    "degreeCategory": "PHD",
+                    "phdDate": None,
+                    "phdConferralYear": 2019,
+                }
+            },
+            {},
+        )
+    )
+
+    assert 'value="2019 (year recorded; full date unavailable)"' in page
+
+
+@pytest.mark.parametrize("recovered_year", (2019.0, 2019.9, "2019.9"))
+def test_preview_rejects_a_non_year_phd_conferral_value(recovered_year: object) -> None:
+    """Break caught: malformed source values were silently truncated into a year."""
+    page = render_applicant_preview(
+        ApplicantPreviewBundle(
+            APPLICATION_ID,
+            "Synthetic Preview Applicant",
+            "IMPORTED",
+            {
+                "applicant": {
+                    "fullName": "Synthetic Preview Applicant",
+                    "degreeCategory": "PHD",
+                    "phdDate": None,
+                    "phdConferralYear": recovered_year,
+                }
+            },
+            {},
+        )
+    )
+
+    assert 'value="Missing"' in page
+    assert "year recorded; full date unavailable" not in page
+
+
+def test_preview_preserves_an_exact_phd_conferral_date() -> None:
+    """Break caught: a year-only fallback could replace a stored exact conferral date."""
+    page = render_applicant_preview(
+        ApplicantPreviewBundle(
+            APPLICATION_ID,
+            "Synthetic Preview Applicant",
+            "IMPORTED",
+            {
+                "applicant": {
+                    "fullName": "Synthetic Preview Applicant",
+                    "degrees": [{"degreeType": "PhD", "conferralDate": "2020-06-30"}],
+                    "phdConferralYear": 2019,
+                }
+            },
+            {},
+        )
+    )
+
+    assert 'value="2020-06-30"' in page
+    assert "year recorded; full date unavailable" not in page
 
 
 class PreviewApprovalService(ApplicantApprovalService):
