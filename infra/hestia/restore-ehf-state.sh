@@ -53,6 +53,12 @@ WITH REPLACE, RECOVERY, \
 MOVE N'EHFApplications' TO N'/var/opt/mssql/data/EHFApplications.mdf', \
 MOVE N'EHFApplications_log' TO N'/var/opt/mssql/data/EHFApplications_log.ldf', \
 STATS = 25;" >/dev/null
+  # A restored database carries the source instance's application SID, so the login must be
+  # re-mapped before any validator can impersonate the application user (SQL error 15517).
+  if ! sqlsa -d EHFApplications -Q "IF EXISTS (SELECT 1 FROM sys.database_principals AS p WHERE p.name = N'ehf_app' \
+AND NOT EXISTS (SELECT 1 FROM sys.server_principals AS s WHERE s.sid = p.sid)) EXEC(N'ALTER USER [ehf_app] WITH LOGIN = [ehf_app];');" >/dev/null 2>&1; then
+    fail 'the restored database application login could not be re-mapped; deploy the release first so the login exists'
+  fi
   sqlsa -d EHFApplications -h -1 -W -Q "SET NOCOUNT ON;
 SELECT 'migration=' + CONVERT(varchar(10), MAX(MigrationVersion)) FROM dbo.SchemaMigration;
 SELECT 'applications=' + CONVERT(varchar(10), COUNT(*)) FROM dbo.Application;

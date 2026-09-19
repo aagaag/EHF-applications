@@ -1,0 +1,13 @@
+[Unit]
+Description=EHF VM ingress path on the KVM host
+Wants=network-online.target
+After=network-online.target libvirtd.service
+Before=isab-hestia-cloudflared.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/hestia-ehf-network
+
+[Install]
+WantedBy=multi-user.target

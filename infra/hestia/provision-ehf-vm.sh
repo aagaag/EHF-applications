@@ -34,6 +34,8 @@ done
 [[ -f $BASE ]] || fail "cloud image not found: $BASE"
 [[ $(sha256sum "$BASE" | awk '{print $1}') == "$BASE_SHA256" ]] || fail 'cloud image hash mismatch'
 [[ -r $ASSET_DIR/ehf-net.xml && -r $ASSET_DIR/cloud-init.yaml ]] || fail 'missing reviewed assets'
+[[ -r $ASSET_DIR/hestia-ehf-network.sh && -r $ASSET_DIR/hestia-ehf-network.service ]] ||
+  fail 'missing reviewed ingress-path assets'
 
 if virsh net-info "$NETWORK" >/dev/null 2>&1; then
   [[ $(virsh net-uuid "$NETWORK") == "$NETWORK_UUID" ]] || fail 'network UUID collision'
@@ -43,6 +45,15 @@ fi
 virsh net-autostart "$NETWORK" >/dev/null
 virsh net-start "$NETWORK" >/dev/null 2>&1 ||
   [[ $(virsh net-info "$NETWORK" | awk -F ': *' '$1=="Active" {print $2}') == yes ]]
+
+# The tunnel connector runs on this host and reaches the VM through isab-proxy01. libvirt
+# rejects new connections between its own networks, so the ingress path owns one small
+# filter chain (see hestia-ehf-network.sh) and is reinstalled on every provisioning run.
+install -m 0755 -o root -g root "$ASSET_DIR/hestia-ehf-network.sh" /usr/local/sbin/hestia-ehf-network
+install -m 0644 -o root -g root "$ASSET_DIR/hestia-ehf-network.service" \
+  /etc/systemd/system/hestia-ehf-network.service
+/usr/bin/systemctl daemon-reload
+/usr/bin/systemctl enable --now hestia-ehf-network.service >/dev/null
 
 if virsh dominfo "$VM_NAME" >/dev/null 2>&1; then
   [[ $(virsh domuuid "$VM_NAME") == "$VM_UUID" ]] || fail 'VM UUID collision'

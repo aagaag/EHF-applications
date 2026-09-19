@@ -19,12 +19,16 @@ so the whole workload can be moved to another KVM host by copying two disk image
 | SQL Server | 2025 (Developer), loopback `127.0.0.1:1433`, data directory `/var/opt/mssql/data` |
 | Application release | `/opt/ehf/current` → `/opt/ehf/r/<40-hex commit>` |
 | Unit and site | `/etc/systemd/system/ehf.service`, `/etc/nginx/sites-available/ehf` |
+| Host ingress path | `/etc/systemd/system/hestia-ehf-network.service` (chain `ISAB_EHF_FWD`: `192.168.251.2` → `192.168.254.2:80`) |
 | Protected configuration | `/etc/ehf/ehf.env` plus `document-keyring`, `session-pepper`, `otp-pepper`, `turnstile-secret`, `sql-admin-password`, `sql-app-password` |
 | Document store | `/var/lib/ehf/documents`, `/var/lib/ehf/quarantine` (encrypted objects) |
 
 Ingress is unchanged in shape: the Cloudflare tunnel terminates on `isab-proxy01`, whose
 EHF server block proxies to the VM's port 80. The VM itself never listens on the public
-internet and holds no credentials for the edge.
+internet and holds no credentials for the edge. Because libvirt rejects new connections
+between its own networks, the host carries one small filter chain for that single flow,
+installed and reapplied by `infra/hestia/hestia-ehf-network.sh` through
+`hestia-ehf-network.service`.
 
 ## Address and network rationale
 
@@ -47,17 +51,30 @@ Inside the new VM (root):
 ```bash
 sudo bash provision-ehf-guest.sh              # SQL Server 2025 + client tooling
 sudo bash restore-ehf-state.sh <bundle> configuration
-sudo bash restore-ehf-state.sh <bundle> database
 sudo python3 /usr/local/sbin/ehf-deploy \
   --archive /root/ehf-release-r.tar \
   --commit <40-hex> \
   --sql-admin-credential /etc/ehf/sql-admin-password --apply
+sudo systemctl stop ehf.service
+sudo bash restore-ehf-state.sh <bundle> database     # restores the data and re-maps the app login
+sudo /opt/ehf/current/venv/bin/python /opt/ehf/current/infra/bootstrap-ehf-database.py \
+  --admin-credential-file /etc/ehf/sql-admin-password
+sudo systemctl start ehf.service
 sudo bash restore-ehf-state.sh <bundle> documents
 ```
 
-The deployment helper creates the service account, the writable paths, the application
-login, the database objects, the unit and the Nginx site, then activates the immutable
-release and waits for `http://127.0.0.1:8087/health/ready`.
+The order matters. The deployment helper creates the service account, the writable paths,
+the application login, the database objects, the unit and the Nginx site, then activates the
+immutable release and waits for `http://127.0.0.1:8087/health/ready`. It must run against a
+database it created itself: a database restored *before* the helper exists carries the source
+instance's application SID, and the validators (which impersonate the application user) then
+fail with SQL error 15517. `restore-ehf-state.sh database` therefore runs after the first
+deploy, re-maps the login with `ALTER USER [ehf_app] WITH LOGIN = [ehf_app]`, and the
+bootstrap re-runs all twenty-three validators against the restored data.
+
+Two credential-shape rules the helper enforces: the protected credential files must contain
+the password only — no trailing newline — and the SQL administrator credential must be
+`root:root 0600` (the application credential is `root:ehf 0640`).
 
 ## Moving the VM to another host
 

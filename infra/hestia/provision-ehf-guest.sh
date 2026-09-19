@@ -37,13 +37,19 @@ if [[ ! -s $admin_credential ]]; then
   ( umask 077; python3 - <<'PY'
 import secrets
 import string
+import sys
 
 alphabet = string.ascii_letters + string.digits
-print("Aa1._" + "".join(secrets.choice(alphabet) for _ in range(40)))
+sys.stdout.write("Aa1._" + "".join(secrets.choice(alphabet) for _ in range(40)))
 PY
   ) > "$admin_credential"
   chmod 0600 "$admin_credential"
 fi
+# The credential reader rejects any trailing newline, so verify the shape explicitly.
+[[ -f $admin_credential ]] || fail 'the administrator credential file is unavailable'
+[[ $(wc -c < "$admin_credential") -eq 45 ]] || fail 'the administrator credential file has an unexpected length'
+[[ $(tail -c 1 "$admin_credential" | od -An -c | tr -d ' \n') != '\n' ]] ||
+  fail 'the administrator credential file must not end with a newline'
 
 if ! grep -qi 'accepteula' /var/opt/mssql/mssql.conf 2>/dev/null; then
   MSSQL_SA_PASSWORD="$(cat "$admin_credential")" MSSQL_PID=Developer ACCEPT_EULA=Y \
