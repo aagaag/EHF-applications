@@ -223,7 +223,8 @@ DECLARE @Metrics TABLE
     AcademicAgeObservation decimal(8,2), SelfReportedGender nvarchar(100),
     FirstAuthorPaperCount int, LastAuthorPaperCount int, TotalPaperCount int, HIndex int,
     TotalCitations bigint, Orcid nvarchar(200), GoogleScholarCitationCount bigint,
-    IdentityCertainty nvarchar(200)
+    IdentityCertainty nvarchar(200), VerifiedCitationCount bigint,
+    VerifiedCitationSource varchar(40), VerifiedCitationProfileUrl nvarchar(1000)
 );
 EXECUTE AS USER = N'ehf_app';
 INSERT @Previews EXEC dbo.ListApplicantPreviews @ActorGroup=N'EHF-Administrators';

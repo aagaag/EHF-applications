@@ -30,3 +30,8 @@ def test_profile_observations_are_append_only_and_feed_the_internal_metrics_proj
     validator = VALIDATOR.read_text(encoding="utf-8")
     assert "ApplicantCitationProfileObservation" in validator
     assert "Verified citation profile observation" in validator
+
+    synthetic_validator = (
+        ROOT / "database" / "tests" / "019_validate_synthetic_applicant_workspace.sql"
+    ).read_text(encoding="utf-8")
+    assert "VerifiedCitationProfileUrl nvarchar(1000)" in synthetic_validator
