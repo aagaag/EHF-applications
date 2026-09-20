@@ -196,10 +196,11 @@ BEGIN TRY
     ROLLBACK TRANSACTION;
 
     IF @CreatedValidatorUser = 1
+       AND DATABASE_PRINCIPAL_ID(N'EHFPreferenceDmlValidator') IS NOT NULL
     BEGIN
         DROP USER EHFPreferenceDmlValidator;
-        SET @CreatedValidatorUser = 0;
     END;
+    SET @CreatedValidatorUser = 0;
 END TRY
 BEGIN CATCH
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
@@ -211,10 +212,11 @@ BEGIN CATCH
         SET @IsImpersonated = 0;
     END;
     IF @CreatedValidatorUser = 1
+       AND DATABASE_PRINCIPAL_ID(N'EHFPreferenceDmlValidator') IS NOT NULL
     BEGIN
         DROP USER EHFPreferenceDmlValidator;
-        SET @CreatedValidatorUser = 0;
     END;
+    SET @CreatedValidatorUser = 0;
     THROW;
 END CATCH;
 

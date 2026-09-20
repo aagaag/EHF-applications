@@ -1151,6 +1151,7 @@ def test_validator_004_isolates_expected_failures_and_cleans_up_successful_write
     assert re.search(r"BEGIN TRANSACTION;.*?ROLLBACK TRANSACTION;", successful_writes, re.DOTALL)
     assert "COMMIT TRANSACTION" not in validator
     assert "DROP USER EHFPreferenceDmlValidator" in validator
+    assert "DATABASE_PRINCIPAL_ID(N'EHFPreferenceDmlValidator') IS NOT NULL" in validator
 
 
 def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None:
