@@ -73,6 +73,9 @@ def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
         "dbo.ValidateApplicationInvitation",
         "dbo.GetInternalApplicationMetrics",
         "dbo.RecordReportExportAudit",
+        "dbo.ListInternalApplicantDocuments",
+        "dbo.GetInternalApplicantDocument",
+        "dbo.RecordInternalDocumentAccessOutcome",
         "EHFApplicationRuntime",
         "sys.database_permissions",
         "The runtime role has a missing or altered permission row.",
@@ -236,6 +239,9 @@ def test_permission_validator_includes_the_complete_applicant_runtime_surface() 
         "GetApplicantFacingApplication",
         "ValidateApplicantUploadSlot",
         "GetApplicantDocumentSlots",
+        "ListInternalApplicantDocuments",
+        "GetInternalApplicantDocument",
+        "RecordInternalDocumentAccessOutcome",
     ):
         assert f"(N'{procedure}')" in validator
     for table in (

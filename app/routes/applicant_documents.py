@@ -18,6 +18,7 @@ from app.applicant.documents import (
 )
 from app.auth.applicant import ApplicantAuthService, ApplicantSessionContext
 from app.routes.applicant_auth import CSRF_COOKIE, SESSION_COOKIE
+from app.routes.documents import pdf_response
 
 
 MAX_UPLOAD_READ_BYTES = 25 * 1024 * 1024 + 1
@@ -144,7 +145,7 @@ def register_applicant_document_routes(
                 status_code=404,
                 content={"message": "The document slot is unavailable."},
             )
-        return _pdf_response(payload, disposition="inline", filename="document.pdf")
+        return pdf_response(payload, disposition="inline", filename="document.pdf")
 
     @application.get("/api/applicant/documents/{slot_id}/download")
     def download_applicant_document(slot_id: UUID, request: Request) -> Response:
@@ -159,7 +160,7 @@ def register_applicant_document_routes(
                 status_code=404,
                 content={"message": "The document slot is unavailable."},
             )
-        return _pdf_response(payload, disposition="attachment", filename="document.pdf")
+        return pdf_response(payload, disposition="attachment", filename="document.pdf")
 
 
 def _document_package_response(
@@ -180,28 +181,10 @@ def _document_package_response(
             status_code=404,
             content={"message": "The document package is unavailable."},
         )
-    return _pdf_response(
+    return pdf_response(
         payload,
         disposition=disposition,
         filename="application-document-package.pdf",
-    )
-
-
-def _pdf_response(payload: bytes, *, disposition: str, filename: str) -> Response:
-    return Response(
-        payload,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'{disposition}; filename="{filename}"',
-            "Content-Security-Policy": (
-                "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'"
-            ),
-            "Cache-Control": "private, no-store",
-            "Pragma": "no-cache",
-            "Referrer-Policy": "no-referrer",
-            "X-Content-Type-Options": "nosniff",
-            "Cross-Origin-Resource-Policy": "same-origin",
-        },
     )
 
 

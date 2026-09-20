@@ -306,6 +306,7 @@ def create_app(
             application,
             authenticated=authenticated,
             approval=applicant_approval_service,
+            documents=applicant_document_service,
         )
 
     @application.get("/", response_class=RedirectResponse)

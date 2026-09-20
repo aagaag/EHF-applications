@@ -133,6 +133,7 @@ def run_validators(connection) -> None:
         "023_validate_open_citation_sources.sql",
         "024_validate_applicant_citation_profiles.sql",
         "025_validate_publication_review_workflow.sql",
+        "026_validate_internal_document_access.sql",
     ]:
         raise BootstrapError("The EHF validator set is incomplete or unexpected.")
     try:

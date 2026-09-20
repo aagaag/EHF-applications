@@ -14,12 +14,14 @@ from app.applicant.approval import (
     ApplicantApprovalService,
     REVIEWER_GROUPS,
 )
+from app.applicant.documents import ApplicantDocumentService
 from app.applicant.fields import upgrade_legacy_applicant, upgrade_legacy_section
 from app.applicant.admin_preview import render_applicant_preview
 from app.identity import AuthenticatedIdentity
 from app.http import is_same_origin_write
 from app.internal_shell import authorization_pills, help_navigation, primary_navigation
 from app.navigation import INTERNAL_GROUPS
+from app.routes.documents import pdf_response
 
 
 def register_internal_approval_routes(
@@ -27,6 +29,7 @@ def register_internal_approval_routes(
     *,
     authenticated: Callable[[Request], AuthenticatedIdentity],
     approval: ApplicantApprovalService,
+    documents: ApplicantDocumentService | None = None,
 ) -> None:
     @application.get("/api/internal/applicant-previews")
     def applicant_previews(request: Request) -> JSONResponse:
@@ -223,6 +226,74 @@ def register_internal_approval_routes(
             ]
         }))
 
+    @application.get("/api/internal/applicants/{application_id}/documents")
+    def internal_applicant_documents(
+        application_id: UUID, request: Request
+    ) -> JSONResponse:
+        principal = authenticated(request)
+        group = _reviewer_group(principal)
+        if documents is None:
+            raise HTTPException(status_code=404)
+        items = documents.internal_documents(
+            application_id, actor=principal.identity.key, actor_group=group
+        )
+        return JSONResponse(
+            jsonable_encoder(
+                {
+                    "documents": [
+                        {
+                            "slotId": item.slot_id,
+                            "versionId": item.version_id,
+                            "code": item.code,
+                            "label": item.label,
+                            "versionNumber": item.version_number,
+                            "status": item.status,
+                        }
+                        for item in items
+                    ],
+                    "packageAvailable": bool(items),
+                }
+            )
+        )
+
+    @application.get("/api/internal/applicants/{application_id}/documents/package/view")
+    def view_internal_applicant_package(
+        application_id: UUID, request: Request
+    ) -> Response:
+        return _internal_package_response(
+            application_id, request, authenticated, documents, disposition="inline"
+        )
+
+    @application.get("/api/internal/applicants/{application_id}/documents/package/download")
+    def download_internal_applicant_package(
+        application_id: UUID, request: Request
+    ) -> Response:
+        return _internal_package_response(
+            application_id, request, authenticated, documents, disposition="attachment"
+        )
+
+    @application.get(
+        "/api/internal/applicants/{application_id}/documents/{version_id}/view"
+    )
+    def view_internal_applicant_document(
+        application_id: UUID, version_id: UUID, request: Request
+    ) -> Response:
+        return _internal_document_response(
+            application_id, version_id, request, authenticated, documents,
+            purpose="VIEW", disposition="inline",
+        )
+
+    @application.get(
+        "/api/internal/applicants/{application_id}/documents/{version_id}/download"
+    )
+    def download_internal_applicant_document(
+        application_id: UUID, version_id: UUID, request: Request
+    ) -> Response:
+        return _internal_document_response(
+            application_id, version_id, request, authenticated, documents,
+            purpose="DOWNLOAD", disposition="attachment",
+        )
+
     @application.post(
         "/api/internal/applicant-document-submissions/{submission_id}/accept"
     )
@@ -290,3 +361,59 @@ def _administrator_group(principal: AuthenticatedIdentity) -> str:
     if INTERNAL_GROUPS.administrators in principal.groups:
         return INTERNAL_GROUPS.administrators
     raise HTTPException(status_code=404)
+
+
+def _internal_document_response(
+    application_id: UUID,
+    version_id: UUID,
+    request: Request,
+    authenticated: Callable[[Request], AuthenticatedIdentity],
+    documents: ApplicantDocumentService | None,
+    *,
+    purpose: str,
+    disposition: str,
+) -> Response:
+    principal = authenticated(request)
+    group = _reviewer_group(principal)
+    if documents is None:
+        return _internal_document_unavailable()
+    payload = documents.internal_download(
+        application_id,
+        version_id,
+        actor=principal.identity.key,
+        actor_group=group,
+        purpose=purpose,
+    )
+    if payload is None:
+        return _internal_document_unavailable()
+    return pdf_response(payload, disposition=disposition, filename="document.pdf")
+
+
+def _internal_package_response(
+    application_id: UUID,
+    request: Request,
+    authenticated: Callable[[Request], AuthenticatedIdentity],
+    documents: ApplicantDocumentService | None,
+    *,
+    disposition: str,
+) -> Response:
+    principal = authenticated(request)
+    group = _reviewer_group(principal)
+    if documents is None:
+        return _internal_document_unavailable()
+    payload = documents.internal_package(
+        application_id, actor=principal.identity.key, actor_group=group
+    )
+    if payload is None:
+        return _internal_document_unavailable()
+    return pdf_response(
+        payload,
+        disposition=disposition,
+        filename="application-document-package.pdf",
+    )
+
+
+def _internal_document_unavailable() -> JSONResponse:
+    return JSONResponse(
+        status_code=404, content={"message": "The document is unavailable."}
+    )

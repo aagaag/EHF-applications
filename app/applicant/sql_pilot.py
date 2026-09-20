@@ -25,6 +25,7 @@ from app.applicant.access import ApplicantAccessRequest, ApplicantAccessService
 from app.applicant.documents import (
     ApplicantDocumentSlot,
     ApplicantDocumentVersion,
+    InternalDocumentSummary,
     DocumentAlreadySubmitted,
     DocumentScannerUnavailable,
     DocumentUnavailable,
@@ -561,6 +562,93 @@ class SqlApplicantDocumentRepository:
             bytes(row[9]), int(row[10])
         ), binding
 
+    def internal_documents(
+        self, application_id: UUID, *, actor: str, actor_group: str
+    ) -> tuple[InternalDocumentSummary, ...]:
+        _require_internal_document_actor(actor, actor_group)
+        with self._connections() as connection:
+            rows = connection.execute(
+                "EXEC dbo.ListInternalApplicantDocuments "
+                "@ApplicationId=?, @ActorIdentity=?, @ActorGroup=?",
+                application_id,
+                actor.strip(),
+                actor_group,
+            ).fetchall()
+        return tuple(
+            InternalDocumentSummary(
+                UUID(str(row[0])),
+                UUID(str(row[1])),
+                str(row[2]),
+                str(row[3]),
+                int(row[4]),
+                str(row[5]),
+            )
+            for row in rows
+        )
+
+    def internal_download_record(
+        self,
+        application_id: UUID,
+        version_id: UUID,
+        *,
+        actor: str,
+        actor_group: str,
+        purpose: str,
+    ) -> tuple[StoredObjectRecord, ObjectBinding] | None:
+        _require_internal_document_actor(actor, actor_group)
+        if purpose not in {"VIEW", "DOWNLOAD", "PACKAGE"}:
+            raise ValueError("A valid document-access purpose is required.")
+        with self._connections() as connection:
+            row = connection.execute(
+                "EXEC dbo.GetInternalApplicantDocument "
+                "@ApplicationId=?, @DocumentVersionId=?, @ActorIdentity=?, "
+                "@ActorGroup=?, @AccessPurpose=?",
+                application_id,
+                version_id,
+                actor.strip(),
+                actor_group,
+                purpose,
+            ).fetchone()
+            connection.commit()
+        if row is None or UUID(str(row[0])) != application_id:
+            return None
+        binding = ObjectBinding(
+            UUID(str(row[0])), UUID(str(row[1])), UUID(str(row[2])), UUID(str(row[3]))
+        )
+        return StoredObjectRecord(
+            str(row[4]), int(row[5]), int(row[6]), bytes(row[7]), bytes(row[8]),
+            bytes(row[9]), int(row[10])
+        ), binding
+
+    def record_internal_access_outcome(
+        self,
+        application_id: UUID,
+        version_id: UUID,
+        *,
+        actor: str,
+        actor_group: str,
+        purpose: str,
+        outcome: str,
+    ) -> None:
+        _require_internal_document_actor(actor, actor_group)
+        if purpose not in {"VIEW", "DOWNLOAD", "PACKAGE"} or outcome not in {
+            "SUCCEEDED", "FAILED"
+        }:
+            raise ValueError("A valid document-access outcome is required.")
+        with self._connections() as connection:
+            connection.execute(
+                "EXEC dbo.RecordInternalDocumentAccessOutcome "
+                "@ApplicationId=?, @DocumentVersionId=?, @ActorIdentity=?, "
+                "@ActorGroup=?, @AccessPurpose=?, @Outcome=?",
+                application_id,
+                version_id,
+                actor.strip(),
+                actor_group,
+                purpose,
+                outcome,
+            )
+            connection.commit()
+
     def final_documents(self) -> tuple[dict[str, Any], ...]:
         with self._connections() as connection:
             rows = connection.execute(
@@ -748,6 +836,80 @@ class SqlApplicantDocumentService:
             if (payload := self.download(session, slot.slot_id)) is not None
         )
         if not sources:
+            return None
+        try:
+            return build_pdf_package(sources)
+        except PdfPackageError:
+            return None
+
+    def internal_documents(
+        self, application_id: UUID, *, actor: str, actor_group: str
+    ) -> tuple[InternalDocumentSummary, ...]:
+        return self._repository.internal_documents(
+            application_id, actor=actor, actor_group=actor_group
+        )
+
+    def internal_download(
+        self,
+        application_id: UUID,
+        version_id: UUID,
+        *,
+        actor: str,
+        actor_group: str,
+        purpose: str,
+    ) -> bytes | None:
+        item = self._repository.internal_download_record(
+            application_id,
+            version_id,
+            actor=actor,
+            actor_group=actor_group,
+            purpose=purpose,
+        )
+        if item is None:
+            return None
+        try:
+            payload = self._object_store.decrypt_bytes(*item)
+        except DocumentStoreError:
+            self._repository.record_internal_access_outcome(
+                application_id,
+                version_id,
+                actor=actor,
+                actor_group=actor_group,
+                purpose=purpose,
+                outcome="FAILED",
+            )
+            return None
+        self._repository.record_internal_access_outcome(
+            application_id,
+            version_id,
+            actor=actor,
+            actor_group=actor_group,
+            purpose=purpose,
+            outcome="SUCCEEDED",
+        )
+        return payload
+
+    def internal_package(
+        self, application_id: UUID, *, actor: str, actor_group: str
+    ) -> bytes | None:
+        summaries = self.internal_documents(
+            application_id, actor=actor, actor_group=actor_group
+        )
+        sources = tuple(
+            payload
+            for summary in summaries
+            if (
+                payload := self.internal_download(
+                    application_id,
+                    summary.version_id,
+                    actor=actor,
+                    actor_group=actor_group,
+                    purpose="PACKAGE",
+                )
+            )
+            is not None
+        )
+        if len(sources) != len(summaries) or not sources:
             return None
         try:
             return build_pdf_package(sources)
@@ -1114,6 +1276,11 @@ def _sql_time(value: datetime) -> datetime:
 def _sql_error_has(error: pyodbc.Error, *codes: str) -> bool:
     message = " ".join(str(item) for item in error.args)
     return any(code in message for code in codes)
+
+
+def _require_internal_document_actor(actor: str, actor_group: str) -> None:
+    if actor_group not in REVIEWER_GROUPS or not actor.strip():
+        raise PermissionError("Administrator or trustee authorization is required.")
 
 
 def _access_request(row: Any) -> ApplicantAccessRequest:

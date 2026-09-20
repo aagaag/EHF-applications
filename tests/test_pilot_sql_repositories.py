@@ -10,11 +10,13 @@ from app.applicant.sql_pilot import (
     ApplicantSqlSessionScope,
     SqlApplicantApprovalService,
     SqlApplicantDocumentRepository,
+    SqlApplicantDocumentService,
     SqlApplicantFinalizationService,
     SqlSectionConfirmationService,
     SqlSyntheticDraftRepository,
     SqlSyntheticProjectionRepository,
 )
+from app.applicant.documents import InternalDocumentSummary
 from app.applicant.approval import ApplicantApprovalBlocked
 from app.applicant.confirmations import SectionConfirmation, _canonical_hash
 from app.applicant.drafts import (
@@ -28,6 +30,7 @@ from app.applicant.finalize import (
     FinalizationSessionUnavailable,
     REQUIRED_SECTIONS,
 )
+from app.documents.store import ObjectBinding, StoredObjectRecord
 import pyodbc
 
 
@@ -246,6 +249,109 @@ def test_document_slot_lookup_is_session_scoped_and_excludes_other_records() -> 
     assert "GetApplicantDocumentSlots" in sql
     assert parameters == (SESSION_HASH,)
     assert APPLICATION_A not in parameters
+
+
+def test_internal_document_repository_uses_role_checked_procedures_and_maps_bindings() -> None:
+    """Break caught: production could expose internal objects without the SQL authorization boundary."""
+    slot_id = UUID("92000000-0000-4000-8000-000000000011")
+    version_id = UUID("92000000-0000-4000-8000-000000000012")
+    document_id = UUID("92000000-0000-4000-8000-000000000013")
+    object_id = UUID("92000000-0000-4000-8000-000000000014")
+    list_connection = Connection(
+        [(str(slot_id), str(version_id), "CV", "Curriculum vitae", 2, "ACCEPTED")]
+    )
+    download_connection = Connection(
+        [(
+            str(APPLICATION_A), str(document_id), str(version_id), str(object_id),
+            "0" * 32, 1, 1, b"n" * 12, b"p" * 32, b"c" * 32, 123,
+        )]
+    )
+    outcome_connection = Connection([])
+    available = iter((list_connection, download_connection, outcome_connection))
+
+    @contextmanager
+    def connections():
+        yield next(available)
+
+    repository = SqlApplicantDocumentRepository(connections, ApplicantSqlSessionScope())
+
+    listed = repository.internal_documents(
+        APPLICATION_A,
+        actor="cloudflare:reviewer",
+        actor_group="EHF-Trustees",
+    )
+    record = repository.internal_download_record(
+        APPLICATION_A,
+        version_id,
+        actor="cloudflare:reviewer",
+        actor_group="EHF-Trustees",
+        purpose="VIEW",
+    )
+    repository.record_internal_access_outcome(
+        APPLICATION_A,
+        version_id,
+        actor="cloudflare:reviewer",
+        actor_group="EHF-Trustees",
+        purpose="VIEW",
+        outcome="SUCCEEDED",
+    )
+
+    assert listed == (
+        InternalDocumentSummary(slot_id, version_id, "CV", "Curriculum vitae", 2, "ACCEPTED"),
+    )
+    assert record is not None
+    stored, binding = record
+    assert stored.object_key == "0" * 32
+    assert binding == ObjectBinding(APPLICATION_A, document_id, version_id, object_id)
+    assert "ListInternalApplicantDocuments" in list_connection.cursor.calls[0][0]
+    assert list_connection.cursor.calls[0][1] == (
+        APPLICATION_A, "cloudflare:reviewer", "EHF-Trustees"
+    )
+    assert "GetInternalApplicantDocument" in download_connection.cursor.calls[0][0]
+    assert "RecordInternalDocumentAccessOutcome" in outcome_connection.cursor.calls[0][0]
+    assert download_connection.commits == 1
+    assert outcome_connection.commits == 1
+
+
+def test_sql_internal_document_service_records_decryption_outcome() -> None:
+    """Break caught: database-backed viewing could decrypt without a success/failure audit."""
+    version_id = UUID("92000000-0000-4000-8000-000000000022")
+    binding = ObjectBinding(
+        APPLICATION_A,
+        UUID("92000000-0000-4000-8000-000000000023"),
+        version_id,
+        UUID("92000000-0000-4000-8000-000000000024"),
+    )
+    record = StoredObjectRecord("0" * 32, 1, 1, b"n" * 12, b"p" * 32, b"c" * 32, 3)
+
+    class Repository:
+        def __init__(self):
+            self.outcomes = []
+
+        def internal_download_record(self, *args, **kwargs):
+            return record, binding
+
+        def record_internal_access_outcome(self, *args, **kwargs):
+            self.outcomes.append(kwargs["outcome"])
+
+    class Objects:
+        def decrypt_bytes(self, stored, stored_binding):
+            assert stored is record and stored_binding is binding
+            return b"pdf"
+
+    repository = Repository()
+    service = SqlApplicantDocumentService(repository, Objects(), object())  # type: ignore[arg-type]
+
+    payload = service.internal_download(
+        APPLICATION_A,
+        version_id,
+        actor="cloudflare:reviewer",
+        actor_group="EHF-Administrators",
+        purpose="DOWNLOAD",
+    )
+
+    assert payload == b"pdf"
+    assert repository.outcomes == ["SUCCEEDED"]
 
 
 def test_draft_sql_conflict_and_lock_are_translated_to_workflow_exceptions() -> None:

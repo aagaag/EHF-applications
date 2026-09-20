@@ -15,6 +15,12 @@ IF OBJECT_ID(N'dbo.GetInternalApplicationMetrics', N'P') IS NULL
     THROW 51519, 'The internal-metrics procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.RecordReportExportAudit', N'P') IS NULL
     THROW 51520, 'The report-export audit procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.ListInternalApplicantDocuments', N'P') IS NULL
+    THROW 51521, 'The internal document-list procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.GetInternalApplicantDocument', N'P') IS NULL
+    THROW 51522, 'The internal document-read procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.RecordInternalDocumentAccessOutcome', N'P') IS NULL
+    THROW 51523, 'The internal document-audit procedure is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'EHFApplicationRuntime') IS NULL
     THROW 51503, 'The EHF runtime role is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'ehf_app') IS NULL
@@ -27,6 +33,8 @@ INSERT @ApprovedProcedures VALUES
     (N'RuntimeHealth'), (N'SetUserPreference'), (N'GetUserPreference'),
     (N'SetApplicationStatus'), (N'ValidateApplicationInvitation'),
     (N'GetInternalApplicationMetrics'), (N'RecordReportExportAudit'),
+    (N'ListInternalApplicantDocuments'), (N'GetInternalApplicantDocument'),
+    (N'RecordInternalDocumentAccessOutcome'),
     (N'SaveApplicantSectionDraft'), (N'ConfirmApplicantSection'),
     (N'SubmitApplicantFinalConfirmation'), (N'GetApplicantFacingApplication'),
     (N'ValidateApplicantUploadSlot'), (N'GetApplicantDocumentSlots'),
