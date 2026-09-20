@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from io import StringIO
 from pathlib import Path
 
@@ -180,10 +181,11 @@ class _Cursor:
 
 
 class _Connection:
-    def __init__(self):
+    def __init__(self, *, eligible_work_ids: set[str] | None = None):
         self.executed: list[tuple[str, tuple[object, ...]]] = []
         self.commits = 0
         self.rollbacks = 0
+        self.eligible_work_ids = eligible_work_ids or {"work-001"}
 
     def execute(self, statement, *parameters):
         normalized = " ".join(statement.split())
@@ -193,7 +195,16 @@ class _Connection:
         if "FROM dbo.ImportRun" in normalized and "COMPLETED" in normalized:
             return _Cursor([])
         if "ManifestWorkKey" in normalized and "JOIN dbo.Application" in normalized:
-            return _Cursor([("publication-id", "application-id")])
+            work_id = str(parameters[1])
+            return _Cursor(
+                [
+                    (
+                        f"publication-{work_id}",
+                        "application-id",
+                        int(work_id in self.eligible_work_ids),
+                    )
+                ]
+            )
         if "INSERT dbo.ImportRun" in normalized and "OUTPUT" in normalized:
             return _Cursor([("run-id",)])
         if "INSERT dbo.ImportRow" in normalized and "OUTPUT" in normalized:
@@ -260,3 +271,28 @@ def test_incomplete_semantic_snapshot_is_audited_without_activation() -> None:
     statements = "\n".join(statement for statement, _ in connection.executed)
     assert result.not_found_count == 1
     assert "ActivateCitationMetricCutoffRun" not in statements
+
+
+def test_noneligible_not_found_rows_do_not_block_complete_cutoff_activation() -> None:
+    connection = _Connection(eligible_work_ids={"work-001"})
+    observed = load_open_citation_reviews(_snapshot_bytes(), _manifest())[0]
+    missing = replace(
+        observed,
+        final_work_id="work-002",
+        citation_status="NOT_FOUND",
+        citation_count=None,
+        source_identifier="",
+        matched_doi="",
+        matched_title="",
+        matched_authors="",
+        match_method="NO_CONFIDENT_MATCH",
+    )
+
+    result = SqlOpenCitationRepository(connection).apply(
+        (observed, missing), "d" * 64
+    )
+
+    statements = "\n".join(statement for statement, _ in connection.executed)
+    assert result.eligible_count == 1
+    assert result.not_found_count == 1
+    assert "ActivateCitationMetricCutoffRun" in statements

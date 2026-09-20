@@ -612,6 +612,36 @@ def collect_semantic_scholar_rows(
             ),
             None,
         )
+        if doi and match is None:
+            title = work.canonical_metadata.title or raw_citation
+            if title.strip():
+                query_url = _semantic_search_url(title)
+                payload = client.get_json(query_url)
+                if not isinstance(payload, dict) or not isinstance(
+                    payload.get("data"), list
+                ):
+                    raise OpenCitationCollectionError(
+                        "Semantic Scholar returned an unexpected title-search response shape."
+                    )
+                candidates = [
+                    candidate
+                    for candidate in payload["data"]
+                    if isinstance(candidate, dict)
+                ]
+                time.sleep(_REQUEST_INTERVAL_SECONDS)
+                match = next(
+                    (
+                        candidate_match
+                        for candidate in candidates
+                        for candidate_match in (
+                            match_semantic_scholar_candidate(
+                                work, raw_citation, candidate
+                            ),
+                        )
+                        if candidate_match is not None
+                    ),
+                    None,
+                )
         rows.append(
             _row(
                 work,

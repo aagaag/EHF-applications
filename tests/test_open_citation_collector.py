@@ -155,6 +155,37 @@ def test_semantic_scholar_collection_emits_an_observed_row_for_a_doi_work(
     },)
 
 
+def test_semantic_scholar_falls_back_when_the_doi_batch_result_is_absent(
+    monkeypatch,
+) -> None:
+    manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
+
+    class SemanticScholarClient:
+        def post_json(self, _url: str, _payload: dict):
+            return [None]
+
+        def get_json(self, url: str, *, allow_not_found: bool = False):
+            assert not allow_not_found
+            assert parse_qs(urlparse(url).query)["query"] == ["A fixture publication"]
+            return {"data": [{
+                "paperId": "c" * 40,
+                "title": "A fixture publication",
+                "year": 2025,
+                "citationCount": 9,
+                "url": "https://www.semanticscholar.org/paper/" + "c" * 40,
+                "externalIds": {},
+                "authors": [{"name": "Alex Example"}],
+            }]}
+
+    monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
+
+    rows = collect_semantic_scholar_rows(manifest, SemanticScholarClient())
+
+    assert rows[0]["citation_status"] == "OBSERVED"
+    assert rows[0]["citation_count"] == "9"
+    assert rows[0]["match_method"] == "TITLE_EXACT"
+
+
 def test_semantic_scholar_rate_limit_aborts_without_returning_rows() -> None:
     manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
 

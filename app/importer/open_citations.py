@@ -441,28 +441,25 @@ class SqlOpenCitationRepository:
         ).fetchone()
         observed = sum(review.citation_status == "OBSERVED" for review in reviews)
         not_found = len(reviews) - observed
-        if completed is not None:
-            return OpenCitationImportResult(
-                fingerprint,
-                source_code,
-                len(reviews),
-                len(reviews),
-                observed,
-                not_found,
-                str(completed[0]),
-                True,
-            )
-
-        publication_ids: dict[str, tuple[str, str]] = {}
+        completed_run_id = str(completed[0]) if completed is not None else None
+        publication_ids: dict[str, tuple[str, str, bool]] = {}
         for review in reviews:
             if review.final_work_id in publication_ids:
                 continue
             rows = self._connection.execute(
                 "SELECT CONVERT(varchar(36), publication_row.ApplicationPublicationId), "
-                "CONVERT(varchar(36), publication_row.ApplicationId) "
+                "CONVERT(varchar(36), publication_row.ApplicationId), "
+                "CASE WHEN publication_row.ResolutionStatus = 'RESOLVED' "
+                "AND latest_review.ReviewDisposition = 'PUBLISHED' THEN 1 ELSE 0 END "
                 "FROM dbo.ApplicationPublication AS publication_row "
                 "JOIN dbo.Application AS application_row "
                 "ON application_row.ApplicationId = publication_row.ApplicationId "
+                "OUTER APPLY (SELECT TOP (1) review_row.ReviewDisposition "
+                "FROM dbo.ApplicationPublicationReview AS review_row "
+                "WHERE review_row.ApplicationPublicationId = "
+                "publication_row.ApplicationPublicationId "
+                "ORDER BY review_row.RecordedAtUtc DESC, "
+                "review_row.ApplicationPublicationReviewId DESC) AS latest_review "
                 "WHERE application_row.FellowshipCallId = ? "
                 "AND publication_row.ManifestWorkKey = ?",
                 call_id,
@@ -472,7 +469,41 @@ class SqlOpenCitationRepository:
                 raise OpenCitationImportError(
                     "A reviewed work does not resolve to exactly one publication."
                 )
-            publication_ids[review.final_work_id] = (str(rows[0][0]), str(rows[0][1]))
+            publication_ids[review.final_work_id] = (
+                str(rows[0][0]),
+                str(rows[0][1]),
+                bool(rows[0][2]),
+            )
+
+        eligible_reviews = tuple(
+            review
+            for review in reviews
+            if publication_ids[review.final_work_id][2]
+        )
+        eligible_count = len(eligible_reviews)
+        eligible_observed = sum(
+            review.citation_status == "OBSERVED" for review in eligible_reviews
+        )
+        cutoff_is_complete = (
+            eligible_count > 0 and eligible_observed == eligible_count
+        )
+        if completed_run_id is not None:
+            if cutoff_is_complete:
+                self._connection.execute(
+                    "EXEC dbo.ActivateCitationMetricCutoffRun @ImportRunId = ?",
+                    completed_run_id,
+                )
+                self._connection.commit()
+            return OpenCitationImportResult(
+                fingerprint,
+                source_code,
+                len(reviews),
+                eligible_count,
+                observed,
+                not_found,
+                completed_run_id,
+                True,
+            )
 
         run = self._connection.execute(
             "INSERT dbo.ImportRun "
@@ -490,7 +521,9 @@ class SqlOpenCitationRepository:
         self._connection.commit()
         try:
             for row_number, review in enumerate(reviews, start=1):
-                publication_id, application_id = publication_ids[review.final_work_id]
+                publication_id, application_id, _is_eligible = publication_ids[
+                    review.final_work_id
+                ]
                 payload = json.dumps(
                     review.raw,
                     ensure_ascii=False,
@@ -551,7 +584,7 @@ class SqlOpenCitationRepository:
                 "AND RunStatus = 'RUNNING'",
                 run_id,
             )
-            if observed == len(reviews) and not_found == 0:
+            if cutoff_is_complete:
                 self._connection.execute(
                     "EXEC dbo.ActivateCitationMetricCutoffRun @ImportRunId = ?",
                     run_id,
@@ -572,7 +605,7 @@ class SqlOpenCitationRepository:
             fingerprint,
             source_code,
             len(reviews),
-            len(reviews),
+            eligible_count,
             observed,
             not_found,
             run_id,
