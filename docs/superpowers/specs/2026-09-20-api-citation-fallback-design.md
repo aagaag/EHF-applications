@@ -20,12 +20,12 @@ will label the metric `Semantic Scholar` once that snapshot is activated.
 Add an append-only cutoff-run record that stores the EHF call, source code,
 observation timestamp/cutoff, completed import run, eligible-work count and
 the source status. It is activated only after all eligible works have one
-validated observation from the same completed collector/import run. Existing
+`OBSERVED` citation count from the same completed collector/import run. Existing
 OpenAlex observations and the current missing-observation guard remain intact.
 
 `GetInternalApplicationMetrics` reads only the active cutoff run. It sums
 observed counts for its stated source and returns `NULL` rather than zero when
-the active run is absent or incomplete. It never combines OpenAlex, Semantic
+the active run is absent, incomplete, or has an unmatched eligible work. It never combines OpenAlex, Semantic
 Scholar, legacy profile totals, or Google Scholar observations.
 
 ## Collection and matching
@@ -37,7 +37,9 @@ Extend the existing official-client pipeline with a Semantic Scholar collector:
   the existing exact title/year/author match rules.
 - A result is `OBSERVED` only after a confident match; an ordinary unmatched
   result is `NOT_FOUND` with its search URL and evidence. API/network/rate-limit
-  failure aborts the complete run without producing a snapshot to import.
+  failure aborts the complete run without producing a snapshot to import. A
+  snapshot containing `NOT_FOUND` eligible works may be retained for audit but
+  cannot be activated as the comparative metric.
 - The snapshot remains outside Git, is validated before database writes, and
   is imported append-only through the existing privileged path.
 
