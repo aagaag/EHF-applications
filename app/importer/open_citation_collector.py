@@ -29,6 +29,7 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _NON_WORD_RE = re.compile(r"[^a-z0-9]+")
 _MAX_REQUEST_ATTEMPTS = 20
 _REQUEST_INTERVAL_SECONDS = 2.0
+_SEMANTIC_SCHOLAR_FIELDS = "paperId,title,year,citationCount,url,externalIds,authors"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,11 +52,24 @@ class OpenCitationCollectionError(RuntimeError):
 class OfficialCitationApiClient:
     """Small retrying client for official citation APIs."""
 
-    def __init__(self, *, user_agent: str, timeout_seconds: float = 30.0) -> None:
+    def __init__(
+        self,
+        *,
+        user_agent: str,
+        source_code: str = "OPENALEX",
+        timeout_seconds: float = 30.0,
+    ) -> None:
         headers = {"User-Agent": user_agent, "Accept": "application/json"}
-        api_key = os.environ.get("OPENALEX_API_KEY", "").strip()
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        if source_code == "OPENALEX":
+            api_key = os.environ.get("OPENALEX_API_KEY", "").strip()
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+        elif source_code == "SEMANTIC_SCHOLAR":
+            api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+            if api_key:
+                headers["x-api-key"] = api_key
+        else:
+            raise ValueError(f"Unsupported citation source: {source_code}")
         self._client = httpx.Client(
             timeout=timeout_seconds,
             follow_redirects=True,
@@ -378,12 +392,29 @@ def build_openalex_doi_batch_urls(
 
 
 def _semantic_search_url(title: str) -> str:
-    return "https://api.semanticscholar.org/graph/v1/paper/search/bulk?" + urlencode(
+    return "https://api.semanticscholar.org/graph/v1/paper/search?" + urlencode(
         {
             "query": title,
-            "fields": "paperId,title,year,citationCount,url,externalIds,authors",
+            "limit": 5,
+            "fields": _SEMANTIC_SCHOLAR_FIELDS,
         }
     )
+
+
+def build_semantic_scholar_doi_batch_urls(
+    dois: Sequence[str],
+) -> tuple[tuple[tuple[str, ...], str], ...]:
+    """Build Semantic Scholar DOI batch requests at its 500-ID limit."""
+
+    unique_dois = tuple(dict.fromkeys(normalize_doi(doi) for doi in dois))
+    batches: list[tuple[tuple[str, ...], str]] = []
+    for start in range(0, len(unique_dois), 500):
+        batch = unique_dois[start : start + 500]
+        url = "https://api.semanticscholar.org/graph/v1/paper/batch?" + urlencode(
+            {"fields": _SEMANTIC_SCHOLAR_FIELDS}
+        )
+        batches.append((batch, url))
+    return tuple(batches)
 
 
 def _row(
@@ -495,6 +526,104 @@ def collect_open_citation_rows(
         rows.append(_row(work, "OPENALEX", observed_at, reviewer, query_url, match))
         if progress is not None:
             progress(index, total, "OPENALEX")
+    return tuple(rows)
+
+
+def collect_semantic_scholar_rows(
+    manifest: PublicationManifest,
+    client: OfficialCitationApiClient,
+    *,
+    reviewer: str = "EHF Semantic Scholar cutoff collector 2026.7",
+    progress: Callable[[int, int, str], None] | None = None,
+) -> tuple[dict[str, str], ...]:
+    """Collect Semantic Scholar rows, failing closed on API access errors."""
+
+    raw_by_work = _raw_citations(manifest)
+    observed_at = _utc_now()
+    total = len(manifest.works)
+    batch_candidates: dict[str, list[dict[str, Any]]] = {}
+    doi_batches = build_semantic_scholar_doi_batch_urls(
+        tuple(
+            work.canonical_metadata.doi
+            for work in manifest.works
+            if work.canonical_metadata.doi
+        )
+    )
+    for dois, batch_url in doi_batches:
+        payload = client.post_json(batch_url, {"ids": [f"DOI:{doi}" for doi in dois]})
+        if not isinstance(payload, list):
+            raise OpenCitationCollectionError(
+                "Semantic Scholar returned an unexpected DOI batch response shape."
+            )
+        for candidate in payload:
+            if not isinstance(candidate, dict):
+                continue
+            external_ids = candidate.get("externalIds")
+            candidate_doi = ""
+            if isinstance(external_ids, dict):
+                candidate_doi = normalize_doi(str(external_ids.get("DOI") or ""))
+            if candidate_doi:
+                batch_candidates.setdefault(candidate_doi, []).append(candidate)
+        time.sleep(_REQUEST_INTERVAL_SECONDS)
+
+    rows: list[dict[str, str]] = []
+    for index, work in enumerate(manifest.works, start=1):
+        raw_citation = raw_by_work.get(work.final_work_id, "")
+        doi = work.canonical_metadata.doi or ""
+        if doi:
+            query_url = next(
+                url for batch_dois, url in doi_batches if doi in batch_dois
+            )
+            candidates = batch_candidates.get(doi, [])
+        else:
+            title = work.canonical_metadata.title or raw_citation
+            if not title.strip():
+                rows.append(
+                    _row(
+                        work,
+                        "SEMANTIC_SCHOLAR",
+                        observed_at,
+                        reviewer,
+                        "https://api.semanticscholar.org/graph/v1/paper/search",
+                        None,
+                    )
+                )
+                if progress is not None:
+                    progress(index, total, "SEMANTIC_SCHOLAR")
+                continue
+            query_url = _semantic_search_url(title)
+            payload = client.get_json(query_url)
+            if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+                raise OpenCitationCollectionError(
+                    "Semantic Scholar returned an unexpected title-search response shape."
+                )
+            candidates = [
+                candidate for candidate in payload["data"] if isinstance(candidate, dict)
+            ]
+            time.sleep(_REQUEST_INTERVAL_SECONDS)
+        match = next(
+            (
+                candidate_match
+                for candidate in candidates
+                for candidate_match in (
+                    match_semantic_scholar_candidate(work, raw_citation, candidate),
+                )
+                if candidate_match is not None
+            ),
+            None,
+        )
+        rows.append(
+            _row(
+                work,
+                "SEMANTIC_SCHOLAR",
+                observed_at,
+                reviewer,
+                query_url,
+                match,
+            )
+        )
+        if progress is not None:
+            progress(index, total, "SEMANTIC_SCHOLAR")
     return tuple(rows)
 
 

@@ -8,12 +8,14 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from app.importer import collect_open_citations as collector_command
 from app.importer.open_citation_collector import (
     OfficialCitationApiClient,
     OpenCitationCollectionError,
     _openalex_query,
     build_openalex_doi_batch_urls,
     collect_open_citation_rows,
+    collect_semantic_scholar_rows,
     match_openalex_candidate,
     match_semantic_scholar_candidate,
 )
@@ -100,6 +102,170 @@ def test_collection_uses_openalex_for_the_common_cutoff(monkeypatch) -> None:
     assert len(rows) == 1
     assert rows[0]["source_code"] == "OPENALEX"
     assert rows[0]["citation_count"] == "17"
+
+
+def test_semantic_scholar_collection_emits_an_observed_row_for_a_doi_work(
+    monkeypatch,
+) -> None:
+    manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
+
+    class SemanticScholarClient:
+        def post_json(self, url: str, payload: dict):
+            assert url.startswith("https://api.semanticscholar.org/graph/v1/paper/batch?")
+            assert payload == {"ids": ["DOI:10.1000/example"]}
+            return [{
+                "paperId": "a" * 40,
+                "title": "A fixture publication",
+                "year": 2025,
+                "citationCount": 17,
+                "url": "https://www.semanticscholar.org/paper/" + "a" * 40,
+                "externalIds": {"DOI": "10.1000/example"},
+                "authors": [{"name": "Alex Example"}],
+            }]
+
+        def get_json(self, *_args, **_kwargs):
+            raise AssertionError("A DOI match must not use title search.")
+
+    monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
+    monkeypatch.setattr(
+        "app.importer.open_citation_collector._utc_now",
+        lambda: "2026-09-20T10:00:00Z",
+    )
+
+    rows = collect_semantic_scholar_rows(manifest, SemanticScholarClient())
+
+    assert rows == ({
+        "applicant": "Alex Example",
+        "final_work_id": "work-001",
+        "doi": "10.1000/example",
+        "title": "A fixture publication",
+        "year": "2025",
+        "source_code": "SEMANTIC_SCHOLAR",
+        "citation_status": "OBSERVED",
+        "citation_count": "17",
+        "source_identifier": "a" * 40,
+        "result_url": "https://www.semanticscholar.org/paper/" + "a" * 40,
+        "matched_doi": "10.1000/example",
+        "matched_title": "A fixture publication",
+        "matched_authors": "Alex Example",
+        "observed_at_utc": "2026-09-20T10:00:00Z",
+        "reviewer": "EHF Semantic Scholar cutoff collector 2026.7",
+        "match_method": "DOI_EXACT",
+        "annual_citation_counts": "{}",
+    },)
+
+
+def test_semantic_scholar_rate_limit_aborts_without_returning_rows() -> None:
+    manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
+
+    class RateLimitedClient:
+        def post_json(self, *_args, **_kwargs):
+            raise OpenCitationCollectionError(
+                "The official API at api.semanticscholar.org remained unavailable with HTTP 429."
+            )
+
+    with pytest.raises(OpenCitationCollectionError, match=r"api\.semanticscholar\.org.*429"):
+        collect_semantic_scholar_rows(manifest, RateLimitedClient())
+
+
+def test_semantic_scholar_title_search_requires_the_applicant_family_name(
+    monkeypatch,
+) -> None:
+    manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
+    work = replace(
+        manifest.works[0],
+        canonical_metadata=replace(
+            manifest.works[0].canonical_metadata,
+            doi=None,
+            doi_url=None,
+        ),
+    )
+    manifest = replace(manifest, works=(work,))
+
+    class SemanticScholarClient:
+        def get_json(self, url: str, *, allow_not_found: bool = False):
+            assert "/paper/search?" in url
+            assert parse_qs(urlparse(url).query)["query"] == ["A fixture publication"]
+            return {"data": [{
+                "paperId": "b" * 40,
+                "title": "A fixture publication",
+                "year": 2025,
+                "citationCount": 23,
+                "url": "https://www.semanticscholar.org/paper/" + "b" * 40,
+                "externalIds": {},
+                "authors": [{"name": "Different Applicant"}],
+            }]}
+
+        def post_json(self, *_args, **_kwargs):
+            raise AssertionError("A DOI-less work must use a paced title search.")
+
+    monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
+
+    rows = collect_semantic_scholar_rows(manifest, SemanticScholarClient())
+
+    assert rows[0]["citation_status"] == "NOT_FOUND"
+    assert rows[0]["match_method"] == "NO_CONFIDENT_MATCH"
+
+
+def test_semantic_client_uses_its_own_api_key_without_openalex_authorization(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OPENALEX_API_KEY", "openalex-key")
+    monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "semantic-key")
+
+    client = OfficialCitationApiClient(
+        user_agent="fixture",
+        source_code="SEMANTIC_SCHOLAR",
+    )
+    try:
+        assert client._client.headers["x-api-key"] == "semantic-key"
+        assert "Authorization" not in client._client.headers
+    finally:
+        client.close()
+
+
+def test_cli_source_selection_writes_a_semantic_scholar_snapshot(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_bytes(FIXTURE.read_bytes())
+    output_path = tmp_path.parent / "semantic-snapshot.csv"
+    rows = ({
+        "source_code": "SEMANTIC_SCHOLAR",
+        "citation_status": "OBSERVED",
+    },)
+
+    class FakeClient:
+        def __init__(self, *, user_agent: str, source_code: str) -> None:
+            assert source_code == "SEMANTIC_SCHOLAR"
+
+        def close(self) -> None:
+            pass
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(collector_command, "OfficialCitationApiClient", FakeClient)
+    monkeypatch.setattr(
+        collector_command,
+        "collect_semantic_scholar_rows",
+        lambda manifest, client, progress: rows,
+    )
+    monkeypatch.setattr(
+        collector_command,
+        "write_open_citation_snapshot",
+        lambda output, received_rows: captured.update(output=output, rows=received_rows),
+    )
+
+    assert collector_command.main([
+        "--manifest", str(manifest_path),
+        "--output", str(output_path),
+        "--expected-applicants", "1",
+        "--expected-works", "1",
+        "--expected-occurrences", "2",
+        "--expected-citation-statuses", "3",
+        "--source", "SEMANTIC_SCHOLAR",
+    ]) == 0
+    assert captured["rows"] == rows
 
 
 def test_official_client_uses_the_protected_openalex_api_key(monkeypatch) -> None:
