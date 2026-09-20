@@ -31,6 +31,7 @@ BEGIN TRY
     GRANT EXECUTE ON dbo.SetUserPreference
         TO EHFPreferenceDmlValidator;
     SET @CreatedValidatorUser = 1;
+    IF @@TRANCOUNT > 0 COMMIT TRANSACTION;
 
     DECLARE @ProhibitedAuditPayload TABLE
     (
