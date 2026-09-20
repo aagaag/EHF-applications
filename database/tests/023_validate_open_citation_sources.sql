@@ -85,7 +85,13 @@ BEGIN TRY
         OpenAlexCitationCount bigint,
         OpenAlexCitationStatus varchar(40),
         SemanticScholarCitationCount bigint,
-        SemanticScholarCitationStatus varchar(40)
+        SemanticScholarCitationStatus varchar(40),
+        ResolutionStatus varchar(20),
+        ReviewDisposition varchar(32),
+        ReviewReason nvarchar(2000),
+        EvidenceJson nvarchar(max),
+        RawCitation nvarchar(max),
+        SourcePage int
     );
     INSERT @PublicationRows
     EXEC dbo.GetApplicantPreview
