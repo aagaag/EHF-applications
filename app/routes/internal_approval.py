@@ -18,6 +18,7 @@ from app.applicant.fields import upgrade_legacy_applicant, upgrade_legacy_sectio
 from app.applicant.admin_preview import render_applicant_preview
 from app.identity import AuthenticatedIdentity
 from app.http import is_same_origin_write
+from app.internal_shell import authorization_pills, help_navigation, primary_navigation
 from app.navigation import INTERNAL_GROUPS
 
 
@@ -37,7 +38,7 @@ def register_internal_approval_routes(
                     "applicationId": item.application_id,
                     "applicantName": item.applicant_name,
                     "applicationStatus": item.application_status,
-                    "href": f"/internal/applicant-previews/{item.application_id}",
+                    "href": f"/internal/applicants/{item.application_id}",
                 }
                 for item in sorted(
                     approval.previews(group),
@@ -47,6 +48,7 @@ def register_internal_approval_routes(
         }))
 
     @application.get("/internal/applicant-previews/{application_id}")
+    @application.get("/internal/applicants/{application_id}")
     def applicant_preview(application_id: str, request: Request) -> HTMLResponse:
         principal = authenticated(request)
         group = _administrator_group(principal)
@@ -60,7 +62,14 @@ def register_internal_approval_routes(
             )
         except LookupError:
             raise HTTPException(status_code=404) from None
-        return HTMLResponse(render_applicant_preview(bundle))
+        return HTMLResponse(
+            render_applicant_preview(
+                bundle,
+                primary_navigation=primary_navigation(principal),
+                help_navigation=help_navigation(principal),
+                authorization_pills=authorization_pills(principal),
+            )
+        )
 
     @application.get("/api/internal/applicant-submissions")
     def pending_applicant_submissions(request: Request) -> JSONResponse:

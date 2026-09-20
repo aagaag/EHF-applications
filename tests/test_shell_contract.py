@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -17,6 +18,16 @@ LOGO = PUBLIC / "assets" / "ehf-logo.svg"
 EXPECTED_LOGO_SHA256 = "0972369F8843FFF182D231B7A59E120C66E1ABA4AA41878EB920A1A29326CF4B"
 EXPECTED_LOGO_BYTES = 19_346
 FOUNDATION_LOGO_ALT = 'alt="Ernst Hadorn Foundation"'
+
+
+def _primary_navigation_labels(source: str) -> list[str]:
+    navigation = re.search(
+        r'<nav class="app-nav-list" aria-label="(?:Primary navigation|Application sections)">(.*?)</nav>',
+        source,
+        flags=re.DOTALL,
+    )
+    assert navigation is not None
+    return re.findall(r'(?:<a|<button)[^>]*>([^<]+)</(?:a|button)>', navigation.group(1))
 
 
 def preview_client() -> TestClient:
@@ -84,6 +95,18 @@ def test_authorized_navigation_and_help_share_one_filtered_inventory() -> None:
     assert all(entry.key != "applications" for entry in trustee_inventory)
     assert all(entry.key != "operations" for entry in trustee_inventory)
     assert unauthorized_inventory == ()
+
+
+def test_applicant_pages_keep_one_primary_navigation_inventory() -> None:
+    """Break caught: opening the form could replace page navigation with field-section buttons."""
+    expected = ["Application information", "Documents", "Final review"]
+
+    for filename in ("review.html", "documents.html", "final-review.html"):
+        source = (PUBLIC / "applicant" / filename).read_text(encoding="utf-8")
+        assert _primary_navigation_labels(source) == expected
+
+    review = (PUBLIC / "applicant" / "review.html").read_text(encoding="utf-8")
+    assert 'aria-label="Application information sections"' in review
 
 
 def test_internal_authorization_indicator_uses_canonical_group_pills_only() -> None:

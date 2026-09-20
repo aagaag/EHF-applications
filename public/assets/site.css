@@ -64,6 +64,16 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .group-pill-1 { background: #fce7f3; color: #9d174d; }
 .group-pill-2 { background: #dbeafe; color: #1e40af; }
 
+.applicant-detail-tabs,
+.applicant-section-tabs { display: flex; flex-wrap: wrap; gap: .55rem; margin: 1rem 0 1.35rem; }
+.applicant-detail-tabs a,
+.applicant-section-tabs button { display: inline-flex; min-height: 44px; align-items: center; border: 1px solid var(--line); border-radius: .65rem; padding: .65rem .85rem; background: var(--surface); color: var(--text); font: inherit; font-weight: 700; text-decoration: none; }
+.applicant-detail-tabs a:hover,
+.applicant-detail-tabs a:focus-visible,
+.applicant-section-tabs button:hover,
+.applicant-section-tabs button:focus-visible,
+.applicant-section-tabs button[aria-current="step"] { border-color: var(--accent); background: var(--accent-quiet); }
+
 .site-main { width: 94%; margin-inline: 3%; padding-block: clamp(1.5rem, 4vw, 4rem); }
 .site-hero { display: grid; gap: .7rem; max-width: 76rem; }
 .site-hero h1 { margin: 0; font-size: clamp(2.2rem, 5vw, 4.5rem); font-weight: 500; letter-spacing: -.05em; line-height: .98; }

@@ -42,6 +42,7 @@ from app.identity import (
     deny_identity,
 )
 from app.internal_preview import render_internal_preview
+from app.internal_shell import render_internal_page
 from app.metrics import EmptyMetricRepository, MetricRepository, SqlMetricRepository
 from app.navigation import INTERNAL_GROUPS
 from app.preferences import AppearancePreference, Identity, PreferenceRepository, SqlPreferenceRepository
@@ -327,13 +328,15 @@ def create_app(
         return HTMLResponse(render_internal_preview(principal, records=metrics.load(role)))
 
     @application.get("/internal/applicant-review", response_class=HTMLResponse)
+    @application.get("/internal/applicants", response_class=HTMLResponse)
     def internal_applicant_review(request: Request) -> HTMLResponse:
         principal = authenticated(request)
         if not principal.groups & {INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}:
             raise HTTPException(status_code=404)
-        return HTMLResponse(
-            (public_root / "internal" / "applicant-review.html").read_text(encoding="utf-8")
+        template = (public_root / "internal" / "applicant-review.html").read_text(
+            encoding="utf-8"
         )
+        return HTMLResponse(render_internal_page(template, principal))
 
     @application.get("/internal/reports/metrics.xlsx")
     def metrics_workbook(request: Request) -> Response:

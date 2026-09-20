@@ -19,7 +19,13 @@ _SECTIONS = (
 )
 
 
-def render_applicant_preview(bundle: ApplicantPreviewBundle) -> str:
+def render_applicant_preview(
+    bundle: ApplicantPreviewBundle,
+    *,
+    primary_navigation: str | None = None,
+    help_navigation: str | None = None,
+    authorization_pills: str | None = None,
+) -> str:
     values = _section_values(bundle)
     navigation = "".join(
         f'<button class="app-nav-link review-nav-link" type="button" data-section-target="{code}">{escape(title)}</button>'
@@ -38,19 +44,40 @@ def render_applicant_preview(bundle: ApplicantPreviewBundle) -> str:
         )
         for index, (code, title, description) in enumerate(_SECTIONS)
     )
-    administrator_group = escape(INTERNAL_GROUPS.administrators)
+    if primary_navigation is None:
+        from app.identity import AuthenticatedIdentity
+        from app.internal_shell import (
+            authorization_pills as render_authorization_pills,
+            help_navigation as render_help_navigation,
+            primary_navigation as render_primary_navigation,
+        )
+        from app.preferences import Identity
+
+        principal = AuthenticatedIdentity(
+            Identity("preview:administrator", "preview@example.invalid", "Administrator"),
+            frozenset({INTERNAL_GROUPS.administrators}),
+        )
+        primary_navigation = render_primary_navigation(principal)
+        help_navigation = render_help_navigation(principal)
+        authorization_pills = render_authorization_pills(principal)
+    assert help_navigation is not None and authorization_pills is not None
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>EHF Fellowships — applicant viewpoint</title><link rel="stylesheet" href="/assets/site.css"></head>
 <body data-shell><a class="skip-link" href="#main-content">Skip to main content</a>
 <button class="app-nav-toggle" type="button" aria-controls="application-navigation" aria-expanded="false" aria-label="Open application navigation"><span aria-hidden="true">☰</span> Menu</button><div class="app-nav-backdrop" hidden></div>
 <aside class="app-nav" id="application-navigation" aria-label="Application navigation" data-open="false" inert>
-<div class="app-nav-top"><a class="app-nav-home" href="/internal/applicant-review"><img src="/assets/ehf-logo.svg" alt="Ernst Hadorn Foundation"><span class="app-nav-title">EHF Fellowships</span></a><span class="app-nav-domain">ehf.isab.science</span><span class="app-nav-purpose">Inspect an existing application as the applicant would see it.</span></div>
-<div class="app-nav-scroll"><nav class="app-nav-list" aria-label="Application sections"><a class="app-nav-link" href="/internal/applicant-review#viewpoints">Back to applicant review</a>{navigation}</nav></div>
-<nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation"><span class="app-nav-heading">Settings</span><a class="app-nav-link" href="#appearance">Appearance</a><a class="app-nav-link" href="#help">Help</a><div class="app-nav-authorizations"><strong>Authorizations:</strong><span class="app-nav-authorization-pills"><span class="app-nav-authorization-pill group-pill-1">{administrator_group}</span></span></div></nav></aside>
+<div class="app-nav-top"><a class="app-nav-home" href="/internal/"><img src="/assets/ehf-logo.svg" alt="Ernst Hadorn Foundation"><span class="app-nav-title">EHF Fellowships</span></a><span class="app-nav-domain">ehf.isab.science</span><span class="app-nav-purpose">Review fellowship applications in one secure workspace.</span></div>
+<div class="app-nav-scroll"><nav class="app-nav-list" aria-label="Primary navigation">{primary_navigation}</nav></div>
+<nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation"><span class="app-nav-heading">Settings</span><a class="app-nav-link" href="#appearance">Appearance</a><button class="app-nav-disclosure" type="button" data-disclosure aria-expanded="false" aria-controls="help-links">Help</button><div class="app-nav-submenu" id="help-links" hidden>{help_navigation}</div>{authorization_pills}</nav></aside>
 <main class="site-main applicant-review-main" id="main-content" tabindex="-1">
 <header class="site-hero"><h1>{escape(bundle.applicant_name)}</h1><p>Application status: {escape(bundle.application_status)}</p></header>
 <div class="preview-notice" role="status"><strong>Read-only administrator preview</strong><span>This displays the saved application through the applicant form. It does not sign you in as the applicant and nothing on this page can change the record.</span></div>
-{sections}
+<nav class="applicant-detail-tabs" aria-label="Applicant details"><a href="#summary">Summary</a><a href="#applicant-information">Applicant information</a><a href="#documents">Documents</a><a href="#access-identity">Access &amp; identity</a><a href="#internal-audit">Internal audit</a></nav>
+<section id="summary" class="section-heading"><h2>Summary</h2><p><a href="/internal/applicants">Back to applicants</a>. Use the sections below to inspect this record without entering the applicant session.</p></section>
+<section id="applicant-information" aria-labelledby="applicant-information-heading"><div class="section-heading"><h2 id="applicant-information-heading">Applicant information</h2><p>Saved form values and independently reviewed publication evidence.</p></div><nav class="applicant-section-tabs" aria-label="Application information sections">{navigation}</nav>{sections}</section>
+<section id="documents" class="section-heading"><h2>Documents</h2><p>Approved submitted documents and the complete document package will appear here.</p><div data-internal-documents data-application-id="{bundle.application_id}"></div></section>
+<section id="access-identity" class="section-heading"><h2>Access &amp; identity</h2><p>Identity provisioning and access decisions remain in the review queue.</p></section>
+<section id="internal-audit" class="section-heading"><h2>Internal audit</h2><p>Opening this applicant workspace is recorded in the append-only audit log.</p></section>
 <section id="help" class="section-heading"><h2>Help</h2><p>Use the section controls to inspect the complete saved form. Applicant edits, document uploads, confirmations, and final submission remain available only through the applicant's own Entra-scoped session.</p></section>
 <section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance</h2><p>Choose the display that is most comfortable for you. Your preference is stored securely for your administrator identity.</p></div>{_appearance_controls()}</section>
 </main><script src="/assets/theme.js"></script><script src="/assets/shell.js"></script><script src="/assets/applicant-preview.js"></script></body></html>"""

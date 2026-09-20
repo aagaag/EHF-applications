@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from uuid import UUID
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -242,7 +243,7 @@ def test_administrator_can_open_every_existing_application_in_the_read_only_appl
                 "applicationId": str(APPLICATION_ID),
                 "applicantName": "Synthetic Preview Applicant",
                 "applicationStatus": "IMPORTED",
-                "href": f"/internal/applicant-previews/{APPLICATION_ID}",
+                "href": f"/internal/applicants/{APPLICATION_ID}",
             }
         ]
     }
@@ -275,6 +276,35 @@ def test_administrator_can_open_every_existing_application_in_the_read_only_appl
     assert "Save changes" not in page.text
     assert "Confirm this information" not in page.text
     assert "readonly" in page.text
+
+
+def test_internal_surfaces_keep_the_same_primary_navigation_while_details_use_local_tabs() -> None:
+    """Break caught: opening an applicant could replace global navigation with form sections."""
+    with TestClient(_app(INTERNAL_GROUPS.administrators), base_url="https://localhost") as client:
+        overview = client.get("/internal/")
+        applicants = client.get("/internal/applicants")
+        detail = client.get(f"/internal/applicants/{APPLICATION_ID}")
+
+    def labels(source: str) -> list[str]:
+        match = re.search(
+            r'<nav class="app-nav-list" aria-label="Primary navigation">(.*?)</nav>',
+            source,
+            flags=re.DOTALL,
+        )
+        assert match is not None
+        return re.findall(r'<a[^>]*>([^<]+)</a>', match.group(1))
+
+    expected = ["Overview", "Applicants", "Review queue", "Reports", "Operations"]
+    assert labels(overview.text) == expected
+    assert labels(applicants.text) == expected
+    assert labels(detail.text) == expected
+    assert 'aria-label="Applicant details"' in detail.text
+    assert "Summary" in detail.text
+    assert "Applicant information" in detail.text
+    assert "Documents" in detail.text
+    assert "Access &amp; identity" in detail.text
+    assert "Internal audit" in detail.text
+    assert 'aria-label="Application sections"' not in detail.text
 
 
 def test_administrator_applicant_previews_are_sorted_by_name_with_deterministic_ties() -> None:
