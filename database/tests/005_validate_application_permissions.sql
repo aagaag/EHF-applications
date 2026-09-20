@@ -13,6 +13,8 @@ IF OBJECT_ID(N'dbo.ValidateApplicationInvitation', N'P') IS NULL
     THROW 51518, 'The invitation-validation procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.GetInternalApplicationMetrics', N'P') IS NULL
     THROW 51519, 'The internal-metrics procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.GetInternalApplicantMetricDetail', N'P') IS NULL
+    THROW 51524, 'The internal applicant-metric detail procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.RecordReportExportAudit', N'P') IS NULL
     THROW 51520, 'The report-export audit procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.ListInternalApplicantDocuments', N'P') IS NULL
@@ -32,7 +34,8 @@ DECLARE @ApprovedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
 INSERT @ApprovedProcedures VALUES
     (N'RuntimeHealth'), (N'SetUserPreference'), (N'GetUserPreference'),
     (N'SetApplicationStatus'), (N'ValidateApplicationInvitation'),
-    (N'GetInternalApplicationMetrics'), (N'RecordReportExportAudit'),
+    (N'GetInternalApplicationMetrics'), (N'GetInternalApplicantMetricDetail'),
+    (N'RecordReportExportAudit'),
     (N'ListInternalApplicantDocuments'), (N'GetInternalApplicantDocument'),
     (N'RecordInternalDocumentAccessOutcome'),
     (N'SaveApplicantSectionDraft'), (N'ConfirmApplicantSection'),

@@ -86,6 +86,7 @@ MIGRATIONS = {
     "025_publication_review_workflow.sql": (25, "publication_review_workflow"),
     "026_internal_document_access.sql": (26, "internal_document_access"),
     "027_internal_document_audit_payload.sql": (27, "internal_document_audit_payload"),
+    "028_openalex_work_cutoff_metrics.sql": (28, "openalex_work_cutoff_metrics"),
 }
 COMMANDS = (
     "inspect-production",
@@ -137,6 +138,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "025_validate_publication_review_workflow.sql",
         "026_validate_internal_document_access.sql",
         "027_validate_internal_document_audit_payload.sql",
+        "028_validate_openalex_work_cutoff_metrics.sql",
     }
 )
 

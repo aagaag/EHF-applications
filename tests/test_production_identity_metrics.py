@@ -7,6 +7,7 @@ from starlette.requests import Request
 
 from app.identity import CloudflareAccessIdentityResolver
 from app.metrics import SqlMetricRepository
+from uuid import UUID
 
 
 def _request() -> Request:
@@ -127,7 +128,7 @@ class _Connection:
         assert role == "EHF-Trustees"
         return SimpleNamespace(
             fetchall=lambda: [
-                ("Example Applicant", "PhD", 31, 4.5, None, 2, 0, 7, 5, 101, None, 110, "reviewed", 125, "OPENALEX", "https://openalex.org/A123", 6)
+                ("Example Applicant", "PhD", 31, 4.5, None, 2, 0, 7, 5, 101, None, 110, "reviewed", 125, "OPENALEX", None, 6, "a7000000-0000-4000-8000-000000000001", "EHF-2026-001")
             ]
         )
 
@@ -142,3 +143,54 @@ def test_sql_metric_repository_maps_role_scoped_projection() -> None:
     assert records[0].verified_citations == 125
     assert records[0].verified_citation_source == "OPENALEX"
     assert records[0].validated_published_papers == 6
+    assert records[0].application_number == "EHF-2026-001"
+
+
+class _DetailCursor:
+    def __init__(self) -> None:
+        self._set = 0
+
+    def fetchone(self):
+        return ("EHF-2026-001", "Example Applicant", 31, 4.5)
+
+    def nextset(self):
+        self._set += 1
+        return True
+
+    def fetchall(self):
+        return [
+            (
+                "A paper",
+                "Journal",
+                2024,
+                "10.1000/example",
+                "https://journal.example/paper",
+                "https://openalex.org/W123",
+                9,
+                '{"counts_by_year":{"2024":4,"2025":5}}',
+            )
+        ]
+
+
+class _DetailConnection:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, statement: str, application_id: UUID, role: str):
+        assert "GetInternalApplicantMetricDetail" in statement
+        assert application_id == UUID("a7000000-0000-4000-8000-000000000001")
+        assert role == "EHF-Trustees"
+        return _DetailCursor()
+
+
+def test_sql_metric_repository_maps_annual_citation_detail() -> None:
+    detail = SqlMetricRepository(lambda: _DetailConnection()).load_detail(
+        UUID("a7000000-0000-4000-8000-000000000001"), "EHF-Trustees"
+    )
+
+    assert detail.application_number == "EHF-2026-001"
+    assert detail.publications[0].doi == "10.1000/example"
+    assert detail.publications[0].citations_by_year == ((2024, 4), (2025, 5))

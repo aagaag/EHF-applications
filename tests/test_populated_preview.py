@@ -20,6 +20,8 @@ def _administrator() -> AuthenticatedIdentity:
 def test_overview_starts_with_three_reports_and_uses_compact_combined_metrics() -> None:
     records = (
         PreviewApplicantMetric(
+            application_id="a7000000-0000-4000-8000-000000000001",
+            application_number="EHF-2026-001",
             applicant="Applicant One",
             degree="PhD",
             age=36,
@@ -29,7 +31,6 @@ def test_overview_starts_with_three_reports_and_uses_compact_combined_metrics() 
             last_author_papers=0,
             total_papers=18,
             h_index=12,
-            total_citations=743,
             orcid="0000-0002-1825-0097",
             google_scholar_citations=710,
             identity_certainty="High",
@@ -53,11 +54,14 @@ def test_overview_starts_with_three_reports_and_uses_compact_combined_metrics() 
     assert html.count('class="report-data-row"') == len(records)
     assert html.count('data-report-row tabindex="0"') == len(records)
     assert 'data-report-modal aria-labelledby="report-details-title"' in html
+    assert 'data-application-id="a7000000-0000-4000-8000-000000000001"' in html
+    assert 'data-report-details-url="/api/internal/applicants/a7000000-0000-4000-8000-000000000001/metrics-detail"' in html
+    assert '<div class="report-details-content" data-report-details>' in html
     assert html.count('<strong class="missing-value">Missing</strong>') == 1
-    assert html.count('data-report-sort-direction="ascending"') == 11
-    assert html.count('data-report-sort-direction="descending"') == 11
+    assert html.count('data-report-sort-direction="ascending"') == 9
+    assert html.count('data-report-sort-direction="descending"') == 9
     assert 'aria-label="Sort Applicant ascending"' in html
-    assert 'aria-label="Sort GS identity certainty descending"' in html
+    assert 'aria-label="Sort OpenAlex citations (20 Sep 2026) descending"' in html
     assert 'data-report-filter' in html
     assert '<option value="completed">Completed applications</option>' in html
     assert '<option value="missing">Applications where anything is missing</option>' in html
@@ -68,10 +72,9 @@ def test_overview_starts_with_three_reports_and_uses_compact_combined_metrics() 
     assert "Citations by academic age" in html
     assert "Academic age versus anagraphic age" in html
     assert "First / last author papers" in html
-    assert "Verified / total citations" in html
+    assert "OpenAlex citations (20 Sep 2026)" in html
     assert "2 / 0" in html
-    assert "656 / 743" in html
-    assert ">OpenAlex</a>" in html
+    assert ">656<" in html
     assert "Citation source" not in html
     assert "ORCID" not in html
     assert "No applicant records" not in html
@@ -82,7 +85,6 @@ def test_reports_name_the_verified_profile_source_without_overwriting_the_self_r
         applicant="Profile Source",
         age=36,
         academic_age=8.5,
-        total_citations=640,
         verified_citations=710,
         verified_citation_source="OpenAlex",
         verified_citation_profile_url="https://openalex.org/A123",
@@ -90,11 +92,10 @@ def test_reports_name_the_verified_profile_source_without_overwriting_the_self_r
 
     html = render_internal_preview(_administrator(), simulation=True, records=(record,))
 
-    assert "Verified / total citations" in html
+    assert "OpenAlex citations (20 Sep 2026)" in html
     assert "Citation source" not in html
-    assert "710 / 640" in html
-    assert ">OpenAlex</a>" in html
-    assert "Source-attributed profile totals take precedence" in html
+    assert ">710<" in html
+    assert "OpenAlex citations are calculated" in html
 
 
 def test_empty_preview_remains_honest() -> None:
@@ -114,7 +115,7 @@ def test_citation_plots_color_every_applicant_and_label_top_15_surnames() -> Non
             applicant=f"Given Surname{index:02d}",
             age=30 + index,
             academic_age=3 + index,
-            total_citations=index,
+            verified_citations=index,
         )
         for index in range(18)
     )
@@ -145,10 +146,10 @@ def test_report_plots_render_linear_value_axes_and_a_citation_scaled_age_bubble_
     """Break caught: charts could omit value scales or disguise a bubble plot as categories."""
     records = (
         PreviewApplicantMetric(
-            applicant="First Author", age=30, academic_age=4, total_citations=25
+            applicant="First Author", age=30, academic_age=4, verified_citations=25
         ),
         PreviewApplicantMetric(
-            applicant="Second Author", age=40, academic_age=14, total_citations=100
+            applicant="Second Author", age=40, academic_age=14, verified_citations=100
         ),
     )
 
@@ -175,12 +176,12 @@ def test_age_comparison_callouts_rank_only_records_that_can_be_plotted() -> None
     """Break caught: excluded high-citation records could consume bubble-chart labels."""
     records = tuple(
         PreviewApplicantMetric(
-            applicant=f"Excluded Author{index}", age=30 + index, total_citations=1000 + index
+            applicant=f"Excluded Author{index}", age=30 + index, verified_citations=1000 + index
         )
         for index in range(15)
     ) + (
         PreviewApplicantMetric(
-            applicant="Visible Author", age=46, academic_age=12, total_citations=10
+            applicant="Visible Author", age=46, academic_age=12, verified_citations=10
         ),
     )
 

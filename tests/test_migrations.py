@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_publication_preview() ->
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 24
-    assert sorted(connection.records) == list(range(1, 28))
+    assert applied == 25
+    assert sorted(connection.records) == list(range(1, 29))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_twenty_seven_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 28))
-    assert applied == 27
+    assert [migration.version for migration in migrations] == list(range(1, 29))
+    assert applied == 28
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -311,14 +311,15 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     """Break caught: a later metrics filter could remove the authoritative academic-age derivation."""
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
-    assert [migration.path.name for migration in migrations[-7:]] == [
+    assert [migration.path.name for migration in migrations[-8:]] == [
         "021_application_publications.sql",
         "022_applicant_publication_preview.sql",
         "023_open_citation_sources.sql",
         "024_applicant_citation_profiles.sql",
         "025_publication_review_workflow.sql",
-        "026_internal_document_access.sql",
-        "027_internal_document_audit_payload.sql",
+            "026_internal_document_access.sql",
+            "027_internal_document_audit_payload.sql",
+            "028_openalex_work_cutoff_metrics.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -503,7 +504,8 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "024_applicant_citation_profiles.sql",
         "025_publication_review_workflow.sql",
         "026_internal_document_access.sql",
-        "027_internal_document_audit_payload.sql",
+            "027_internal_document_audit_payload.sql",
+            "028_openalex_work_cutoff_metrics.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -532,7 +534,8 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "024_validate_applicant_citation_profiles.sql",
         "025_validate_publication_review_workflow.sql",
         "026_validate_internal_document_access.sql",
-        "027_validate_internal_document_audit_payload.sql",
+            "027_validate_internal_document_audit_payload.sql",
+            "028_validate_openalex_work_cutoff_metrics.sql",
     ]
 
 

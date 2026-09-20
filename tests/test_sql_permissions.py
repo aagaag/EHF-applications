@@ -72,6 +72,7 @@ def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
         "dbo.SetApplicationStatus",
         "dbo.ValidateApplicationInvitation",
         "dbo.GetInternalApplicationMetrics",
+        "dbo.GetInternalApplicantMetricDetail",
         "dbo.RecordReportExportAudit",
         "dbo.ListInternalApplicantDocuments",
         "dbo.GetInternalApplicantDocument",

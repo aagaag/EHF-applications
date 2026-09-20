@@ -82,11 +82,11 @@ def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_ov
                     "nodes => nodes.map(node => node.getBoundingClientRect().top)"
                 )
                 assert max(top_edges) - min(top_edges) < 1
-                assert page.locator(".report-header [role='columnheader']").count() == 11
+                assert page.locator(".report-header [role='columnheader']").count() == 9
                 header_columns = page.locator(".report-header").evaluate(
                     "node => getComputedStyle(node).gridTemplateColumns.split(' ').length"
                 )
-                assert header_columns == 11
+                assert header_columns == 9
 
             if viewport[0] <= 720:
                 assert page.evaluate("matchMedia('(max-width: 720px)').matches")
@@ -194,8 +194,8 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             modal = page.locator("[data-report-modal]")
             assert modal.get_attribute("open") == ""
             assert modal.get_by_role("heading", name="Applicant One").count() == 1
-            assert modal.locator("dt").count() == 11
-            assert modal.locator("dd").count() == 11
+            assert modal.locator("dt").count() == 9
+            assert modal.locator("dd").count() == 9
             assert modal.locator("dd", has_text="Missing").count() == 1
             assert modal.locator("dd", has_text="0000-0002-1825-0097").count() == 0
 
@@ -250,7 +250,7 @@ def test_report_field_triangles_sort_text_and_numbers_with_missing_values_last()
             def applicant_order() -> list[str]:
                 return page.locator("[data-report-row] [role='cell']:first-child").all_inner_texts()
 
-            assert page.locator("[data-report-sort]").count() == 22
+            assert page.locator("[data-report-sort]").count() == 18
             assert page.get_by_role("button", name="Sort Applicant ascending").is_visible()
 
             page.get_by_role("button", name="Sort Applicant ascending").click()
@@ -375,7 +375,7 @@ def test_citation_plot_callouts_remain_distinct_accessible_and_responsive() -> N
             applicant=f"Given Exceptionally-Long-Hyphenated-Surname{index:02d}",
             age=40,
             academic_age=8,
-            total_citations=index,
+                verified_citations=index,
         )
         for index in range(18)
     )

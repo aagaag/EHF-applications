@@ -232,7 +232,7 @@ def _publication_records(records: tuple[Any, ...]) -> str:
     return (
         '<fieldset class="repeatable-field review-field-wide publication-records-field">'
         '<legend>Publication records</legend>'
-        '<p class="field-help publication-record-help">Double-click a paper to open it in Google Scholar. The complete row is also keyboard accessible.</p>'
+        '<p class="field-help publication-record-help">Double-click a paper to open its DOI record. The complete row is also keyboard accessible.</p>'
         f'<div class="publication-records"><div class="publication-records-header" aria-hidden="true">{headings}</div>{rows}</div>'
         '</fieldset>'
     )
@@ -246,7 +246,7 @@ def _publication_record(record: Any) -> str:
     title = _publication_metadata_display(getattr(record, "title", None), absent_metadata)
     citation = _scientific_citation(record)
     citation_count = _citation_counts(record)
-    scholar_url = str(getattr(record, "google_scholar_url", ""))
+    publication_url = str(getattr(record, "publication_url", "") or "")
     review = _publication_review(record)
     fields = "".join(
         _publication_record_field(field_label, value)
@@ -260,12 +260,12 @@ def _publication_record(record: Any) -> str:
         )
     )
     interactive = ""
-    if scholar_url:
-        label = f"Open {title} in Google Scholar"
+    if publication_url:
+        label = f"Open {title} publication"
         interactive = (
-            f'data-google-scholar-url="{escape(scholar_url, quote=True)}" '
+            f'data-publication-url="{escape(publication_url, quote=True)}" '
             f'role="link" tabindex="0" aria-label="{escape(label, quote=True)}" '
-            'title="Double-click to open this paper in Google Scholar"'
+            'title="Double-click to open this publication"'
         )
     return (
         '<div class="publication-record" data-publication-record '
@@ -342,23 +342,11 @@ def _scholar_citation_count(record: Any) -> str:
 
 
 def _citation_counts(record: Any) -> str:
-    if hasattr(record, "openalex_citation_status") or hasattr(
-        record, "semantic_scholar_citation_status"
-    ):
-        openalex_count = getattr(record, "openalex_citation_count", None)
-        openalex_status = getattr(record, "openalex_citation_status", None)
-        semantic_scholar = _citation_source_value(
-            getattr(record, "semantic_scholar_citation_count", None),
-            getattr(record, "semantic_scholar_citation_status", None),
-        )
-        google_scholar = _scholar_citation_count(record)
-        parts = [f"Google Scholar: {google_scholar}"]
-        if openalex_count is not None or openalex_status is not None:
-            openalex = _citation_source_value(openalex_count, openalex_status)
-            parts.append(f"OpenAlex: {openalex}")
-        parts.append(f"Semantic Scholar: {semantic_scholar}")
-        return "; ".join(parts)
-    return f"Google Scholar: {_scholar_citation_count(record)}"
+    openalex = _citation_source_value(
+        getattr(record, "openalex_citation_count", None),
+        getattr(record, "openalex_citation_status", None),
+    )
+    return f"OpenAlex: {openalex}"
 
 
 def _citation_source_value(count: Any, status: Any) -> str:

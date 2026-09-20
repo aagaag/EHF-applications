@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -42,6 +43,7 @@ from app.identity import (
     deny_identity,
 )
 from app.internal_preview import render_internal_preview
+from app.applicant_detail import render_applicant_detail
 from app.internal_shell import render_internal_page
 from app.metrics import EmptyMetricRepository, MetricRepository, SqlMetricRepository
 from app.navigation import INTERNAL_GROUPS
@@ -327,6 +329,27 @@ def create_app(
             else INTERNAL_GROUPS.trustees
         )
         return HTMLResponse(render_internal_preview(principal, records=metrics.load(role)))
+
+    @application.get(
+        "/api/internal/applicants/{application_id}/metrics-detail",
+        response_class=HTMLResponse,
+    )
+    def internal_applicant_metric_detail(
+        application_id: UUID, request: Request
+    ) -> HTMLResponse:
+        principal = authenticated(request)
+        if not principal.groups & {INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}:
+            raise HTTPException(status_code=404)
+        role = (
+            INTERNAL_GROUPS.administrators
+            if INTERNAL_GROUPS.administrators in principal.groups
+            else INTERNAL_GROUPS.trustees
+        )
+        try:
+            detail = metrics.load_detail(application_id, role)
+        except LookupError:
+            raise HTTPException(status_code=404) from None
+        return HTMLResponse(render_applicant_detail(detail))
 
     @application.get("/internal/applicant-review", response_class=HTMLResponse)
     @application.get("/internal/applicants", response_class=HTMLResponse)

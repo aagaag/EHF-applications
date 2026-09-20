@@ -73,11 +73,11 @@
   const reportDetails = reportModal?.querySelector("[data-report-details]");
   const reportTitle = reportModal?.querySelector("[data-report-details-title]");
   let activeReportRow = null;
-  const openReportDetails = (row) => {
-    if (!reportModal || !reportDetails || !reportTitle) return;
+  const fallbackReportDetails = (row) => {
     const cells = [...row.querySelectorAll('[role="cell"]')];
-    reportTitle.textContent = cells[0]?.textContent.trim() || "Application details";
-    reportDetails.replaceChildren(...cells.map((cell) => {
+    const list = document.createElement("dl");
+    list.className = "report-details-list";
+    list.append(...cells.map((cell) => {
       const item = document.createElement("div");
       item.className = "report-details-item";
       const term = document.createElement("dt");
@@ -88,8 +88,41 @@
       item.append(term, description);
       return item;
     }));
+    reportDetails.replaceChildren(list);
+  };
+  const openReportDetails = async (row) => {
+    if (!reportModal || !reportDetails || !reportTitle) return;
+    const cells = [...row.querySelectorAll('[role="cell"]')];
+    reportTitle.textContent = cells[0]?.textContent.trim() || "Application details";
     activeReportRow = row;
     reportModal.showModal();
+    const url = row.dataset.reportDetailsUrl;
+    if (!url) {
+      fallbackReportDetails(row);
+      return;
+    }
+    reportDetails.innerHTML = '<p role="status">Loading complete publication history…</p>';
+    try {
+      const response = await fetch(url, { credentials: "same-origin" });
+      if (!response.ok) throw new Error("Applicant detail unavailable");
+      reportDetails.innerHTML = await response.text();
+      reportDetails.querySelectorAll("[data-publication-row]").forEach((publication) => {
+        const openPublication = () => {
+          const target = publication.dataset.publicationUrl;
+          if (target) window.open(target, "_blank", "noopener,noreferrer");
+        };
+        publication.addEventListener("dblclick", () => {
+          openPublication();
+        });
+        publication.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          openPublication();
+        });
+      });
+    } catch (_error) {
+      reportDetails.innerHTML = '<p class="report-detail-error" role="alert">The complete applicant detail could not be loaded. Please try again.</p>';
+    }
   };
   document.querySelectorAll("[data-report-row]").forEach((row) => {
     row.addEventListener("dblclick", () => openReportDetails(row));

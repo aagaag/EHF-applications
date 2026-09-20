@@ -19,7 +19,7 @@ from app.preferences import Identity
 APPLICATION_ID = UUID("a7000000-0000-4000-8000-000000000001")
 
 
-def test_preview_omits_openalex_when_no_openalex_observation_exists() -> None:
+def test_preview_uses_only_openalex_when_no_observation_exists() -> None:
     value = _citation_counts(
         SimpleNamespace(
             citation_count=None,
@@ -31,7 +31,7 @@ def test_preview_omits_openalex_when_no_openalex_observation_exists() -> None:
         )
     )
 
-    assert value == "Google Scholar: Not available; Semantic Scholar: 35"
+    assert value == "OpenAlex: Not available"
 
 
 def test_preview_shows_a_recovered_phd_conferral_year_without_inventing_a_date() -> None:
@@ -183,9 +183,7 @@ class PreviewApprovalService(ApplicantApprovalService):
                     openalex_citation_status="OBSERVED",
                     semantic_scholar_citation_count=35,
                     semantic_scholar_citation_status="OBSERVED",
-                    google_scholar_url=(
-                        "https://scholar.google.com/scholar?q=10.1000%2Fexample"
-                    ),
+                    publication_url="https://doi.org/10.1000/example",
                 ),
                 SimpleNamespace(
                     application_publication_id=UUID(
@@ -203,9 +201,7 @@ class PreviewApprovalService(ApplicantApprovalService):
                     openalex_citation_status="NOT_FOUND",
                     semantic_scholar_citation_count=None,
                     semantic_scholar_citation_status="NOT_FOUND",
-                    google_scholar_url=(
-                        "https://scholar.google.com/scholar?q=Awaiting+review"
-                    ),
+                    publication_url=None,
                 ),
             ),
         )
@@ -281,18 +277,14 @@ def test_administrator_can_open_every_existing_application_in_the_read_only_appl
     assert "A &lt;Synthetic&gt; Publication" in page.text
     assert "Journal of Synthetic Results. 2025;12:101-109." in page.text
     assert "Citations by source" in page.text
-    assert "Google Scholar: 37" in page.text
     assert "OpenAlex: 39" in page.text
-    assert "Semantic Scholar: 35" in page.text
+    assert "Google Scholar:" not in page.text
+    assert "Semantic Scholar:" not in page.text
     assert "OpenAlex: Not found" in page.text
-    assert "Semantic Scholar: Not found" in page.text
+    assert 'data-publication-url="https://doi.org/10.1000/example"' in page.text
     assert 'data-publication-record' in page.text
     assert 'role="link"' in page.text
     assert 'tabindex="0"' in page.text
-    assert (
-        'data-google-scholar-url="https://scholar.google.com/scholar?q=10.1000%2Fexample"'
-        in page.text
-    )
     assert "Save changes" not in page.text
     assert "Confirm this information" not in page.text
     assert "readonly" in page.text

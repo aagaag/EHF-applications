@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
 import pyodbc
@@ -1088,9 +1087,7 @@ class SqlApplicantApprovalService:
                 None if row[6] is None else int(row[6]),
                 None if row[7] is None else int(row[7]),
                 None if row[8] is None else str(row[8]),
-                "https://scholar.google.com/scholar?" + urlencode(
-                    {"q": str(row[9] or row[2] or row[0])}
-                ),
+                None if row[9] is None else "https://doi.org/" + str(row[9]),
                 None if row[10] is None else int(row[10]),
                 None if row[11] is None else str(row[11]),
                 None if row[12] is None else int(row[12]),

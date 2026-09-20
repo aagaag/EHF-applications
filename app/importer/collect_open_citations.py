@@ -1,4 +1,4 @@
-"""Collect a private reviewed Semantic Scholar citation snapshot."""
+"""Collect a private reviewed OpenAlex citation snapshot."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from app.importer.publications import (
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Collect citation counts from the official Semantic Scholar API."
+        description="Collect citation counts from the official OpenAlex API."
     )
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
@@ -70,9 +70,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (OSError, PublicationImportError, OpenCitationCollectionError, ValueError) as error:
         print(f"EHF_OPEN_CITATION_COLLECTION_ERROR: {error}")
         return 2
-    semantic = sum(row["citation_status"] == "OBSERVED" and row["source_code"] == "SEMANTIC_SCHOLAR" for row in rows)
+    openalex = sum(row["citation_status"] == "OBSERVED" and row["source_code"] == "OPENALEX" for row in rows)
     print(f"Snapshot rows: {len(rows)}")
-    print(f"Semantic Scholar observed: {semantic}")
+    print(f"OpenAlex observed: {openalex}")
     print(f"Output: {output}")
     return 0
 

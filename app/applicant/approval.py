@@ -78,7 +78,7 @@ class ApplicantPublicationPreview:
     publication_year: int | None
     citation_count: int | None
     citation_status: str | None
-    google_scholar_url: str
+    publication_url: str | None
     openalex_citation_count: int | None = None
     openalex_citation_status: str | None = None
     semantic_scholar_citation_count: int | None = None

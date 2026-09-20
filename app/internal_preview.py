@@ -38,6 +38,8 @@ class PreviewApplicantMetric:
     verified_citation_source: str | None = None
     verified_citation_profile_url: str | None = None
     validated_published_papers: int | None = None
+    application_id: str | None = None
+    application_number: str | None = None
 
 def render_internal_preview(
     principal: AuthenticatedIdentity,
@@ -103,7 +105,7 @@ def _sections(
 def _report_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
     return (
         '<section id="reports" aria-labelledby="reports-heading"><div class="section-heading">'
-        '<h2 id="reports-heading">Reports</h2><p>Source citation counts plotted against the age observations in the 2026 register. Source-attributed profile totals take precedence; applicant-reported and historic Google Scholar values remain visible for comparison.</p><p class="report-interaction-hint">Use the triangles beside any field title to sort ascending or descending. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
+        '<h2 id="reports-heading">Reports</h2><p>OpenAlex citations are calculated from each applicant’s verified published works at the 20 September 2026 cutoff. Unmatched works are excluded and retained for audit.</p><p class="report-interaction-hint">Use the triangles beside any field title to sort ascending or descending. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
         '<div class="report-grid">'
         f'{_scatterplot(records, "Citations by anagraphic age", "age", "Anagraphic age")}'
         f'{_scatterplot(records, "Citations by academic age", "academic_age", "Academic age")}'
@@ -125,8 +127,7 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
         ("Academic age (years)", "number"), ("Gender", "text"),
         ("First / last author papers", "number"),
         ("Total papers", "number"), ("h-index", "number"),
-        ("Verified / total citations", "number"),
-        ("Google Scholar citations", "number"), ("GS identity certainty", "text"),
+        ("OpenAlex citations (20 Sep 2026)", "number"),
     )
     labels = tuple(label for label, _kind in headers)
     header = "".join(
@@ -147,8 +148,7 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
         '<div class="report-details-panel"><div class="report-details-header">'
         '<h3 id="report-details-title" data-report-details-title>Application details</h3>'
         '<button type="button" class="report-details-close" data-report-modal-close aria-label="Close details">×</button>'
-        '</div><p>All source observations for this application.</p>'
-        '<dl class="report-details-list" data-report-details></dl></div></dialog>'
+        '</div><div class="report-details-content" data-report-details></div></div></dialog>'
     )
 
 
@@ -182,13 +182,7 @@ def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str
         ),
         (record.total_papers, _display_markup(_number(record.total_papers)), None),
         (record.h_index, _display_markup(_number(record.h_index)), None),
-        (
-            (record.verified_citations, record.total_citations, record.verified_citation_source),
-            _citation_summary_markup(record),
-            _number(record.verified_citations),
-        ),
-        (record.google_scholar_citations, _display_markup(_number(record.google_scholar_citations)), None),
-        (record.identity_certainty, _display_markup(record.identity_certainty), None),
+        (record.verified_citations, _display_markup(_number(record.verified_citations)), None),
     )
     cells = "".join(
         _report_cell(label, markup, sort_value=sort_value)
@@ -196,8 +190,15 @@ def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str
     )
     status_values = tuple(raw for raw, _markup, _sort_value in values)
     status = "missing" if any(value in (None, "") or (isinstance(value, tuple) and any(part in (None, "") for part in value)) for value in status_values) else "completed"
+    detail_attributes = ""
+    if record.application_id:
+        application_id = escape(record.application_id, quote=True)
+        detail_attributes = (
+            f' data-application-id="{application_id}"'
+            f' data-report-details-url="/api/internal/applicants/{application_id}/metrics-detail"'
+        )
     return (
-        f'<div class="report-data-row" role="row" data-report-row tabindex="0" data-report-status="{status}" '
+        f'<div class="report-data-row" role="row" data-report-row tabindex="0" data-report-status="{status}"{detail_attributes} '
         f'aria-label="Open full details for {escape(record.applicant)}">{cells}</div>'
     )
 
@@ -213,24 +214,6 @@ def _report_cell(label: str, markup: str, *, sort_value: str | None) -> str:
 
 def _combined_metric_markup(first: int | None, last: int | None) -> str:
     return f"{_display_markup(_number(first))} / {_display_markup(_number(last))}"
-
-
-def _citation_summary_markup(record: PreviewApplicantMetric) -> str:
-    return (
-        f"{_display_markup(_number(record.verified_citations))} / "
-        f"{_display_markup(_number(record.total_citations))} "
-        f"({_profile_source_markup(record)})"
-    )
-
-
-def _profile_source_markup(record: PreviewApplicantMetric) -> str:
-    source = record.verified_citation_source
-    profile_url = record.verified_citation_profile_url
-    if source in (None, ""):
-        return _display_markup(None)
-    if profile_url and profile_url.startswith("https://"):
-        return f'<a href="{escape(profile_url, quote=True)}" target="_blank" rel="noopener noreferrer">{escape(source)}</a>'
-    return escape(source)
 
 
 def _scatterplot(

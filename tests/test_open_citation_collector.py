@@ -23,27 +23,22 @@ FIXTURE = ROOT / "tests" / "fixtures" / "import" / "publications-minimal.json"
 FIXTURE_COUNTS = ManifestCounts(1, 1, 2, 3)
 
 
-def test_collection_uses_semantic_scholar_without_calling_openalex(monkeypatch) -> None:
+def test_collection_uses_openalex_for_the_common_cutoff(monkeypatch) -> None:
     manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
 
-    class SemanticOnlyClient:
+    class OpenAlexClient:
         def get_json(self, url: str, *, allow_not_found: bool = False):
-            if "api.openalex.org" in url:
-                raise AssertionError("OpenAlex must be optional and unqueried")
-            raise AssertionError("a DOI-bearing work must use the batch endpoint")
-
-        def post_json(self, url: str, payload: dict):
-            assert "api.semanticscholar.org" in url
-            assert payload == {"ids": ["DOI:10.1000/example"]}
-            return [{
-                "paperId": "0123456789abcdef0123456789abcdef01234567",
-                "title": "A fixture publication",
-                "year": 2025,
-                "citationCount": 17,
-                "url": "https://www.semanticscholar.org/paper/0123456789abcdef0123456789abcdef01234567",
-                "externalIds": {"DOI": "10.1000/example"},
-                "authors": [{"name": "Alex Example"}],
-            }]
+            assert "api.openalex.org" in url
+            return {
+                "results": [{
+                    "id": "https://openalex.org/W123",
+                    "title": "A fixture publication",
+                    "publication_year": 2025, "cited_by_count": 17,
+                    "doi": "https://doi.org/10.1000/example",
+                    "authorships": [{"author": {"display_name": "Alex Example"}}],
+                    "counts_by_year": [{"year": 2025, "cited_by_count": 17}],
+                }],
+            }
 
     monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
     monkeypatch.setattr(
@@ -51,10 +46,10 @@ def test_collection_uses_semantic_scholar_without_calling_openalex(monkeypatch) 
         lambda: "2026-08-23T15:00:00Z",
     )
 
-    rows = collect_open_citation_rows(manifest, SemanticOnlyClient())
+    rows = collect_open_citation_rows(manifest, OpenAlexClient())
 
     assert len(rows) == 1
-    assert rows[0]["source_code"] == "SEMANTIC_SCHOLAR"
+    assert rows[0]["source_code"] == "OPENALEX"
     assert rows[0]["citation_count"] == "17"
 
 
@@ -159,7 +154,7 @@ def test_openalex_doi_requests_are_batched_at_the_documented_limit() -> None:
     assert all("select=id%2Cdoi%2Ctitle%2Cpublication_year%2Ccited_by_count%2Cauthorships" in url for _dois, url in batches)
 
 
-def test_semantic_scholar_batches_doi_requests_at_the_documented_limit(
+def test_openalex_doi_requests_use_a_batched_lookup_and_one_cutoff_timestamp(
     monkeypatch,
 ) -> None:
     manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
@@ -171,22 +166,22 @@ def test_semantic_scholar_batches_doi_requests_at_the_documented_limit(
 
         def get_json(self, url: str, *, allow_not_found: bool = False):
             self.urls.append(url)
-            raise AssertionError("a DOI-bearing work must not use a GET request")
+            assert "api.openalex.org" in url
+            assert "filter=doi%3A10.1000%2Fexample" in url or "/works/https%3A%2F%2Fdoi.org%2F10.1000%2Fexample" in url
+            return {
+                "results": [{
+                    "id": "https://openalex.org/W123",
+                    "title": "A fixture publication",
+                    "publication_year": 2025,
+                    "cited_by_count": 17,
+                    "doi": "https://doi.org/10.1000/example",
+                    "authorships": [{"author": {"display_name": "Alex Example"}}],
+                    "counts_by_year": [{"year": 2025, "cited_by_count": 17}],
+                }],
+            }
 
         def post_json(self, url: str, payload: dict):
-            self.urls.append(url)
-            self.payloads.append(payload)
-            return {
-                "unexpected": "shape"
-            } if not payload.get("ids") else [{
-                "paperId": "paper-1",
-                "title": "A fixture publication",
-                "year": 2025,
-                "citationCount": 17,
-                "url": "https://www.semanticscholar.org/paper/paper-1",
-                "externalIds": {"DOI": "10.1000/example"},
-                "authors": [{"name": "Alex Example"}],
-            }]
+            raise AssertionError("OpenAlex collection must not use POST requests")
 
     client = FakeClient()
     monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
@@ -199,14 +194,52 @@ def test_semantic_scholar_batches_doi_requests_at_the_documented_limit(
     rows = collect_open_citation_rows(manifest, client)
 
     assert [row["citation_count"] for row in rows] == ["17"]
+    assert rows[0]["annual_citation_counts"] == '{"2025":17}'
     assert [row["observed_at_utc"] for row in rows] == [
         "2026-08-23T15:00:00Z",
     ]
-    assert any("/paper/batch?" in url for url in client.urls)
-    assert client.payloads == [{"ids": ["DOI:10.1000/example"]}]
+    assert len(client.urls) == 1
+    assert client.payloads == []
 
 
-def test_semantic_scholar_queries_raw_citation_when_metadata_is_unresolved(
+def test_openalex_fetches_full_history_when_ten_year_counts_are_incomplete(
+    monkeypatch,
+) -> None:
+    manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.urls: list[str] = []
+
+        def get_json(self, url: str, *, allow_not_found: bool = False):
+            self.urls.append(url)
+            if "group_by=publication_year" in url:
+                return {
+                    "meta": {"count": 19},
+                    "group_by": [
+                        {"key": "2010", "count": 3},
+                        {"key": "2025", "count": 16},
+                    ],
+                }
+            return {
+                "results": [{
+                    "id": "https://openalex.org/W123",
+                    "title": "A fixture publication",
+                    "publication_year": 2010,
+                    "cited_by_count": 19,
+                    "doi": "https://doi.org/10.1000/example",
+                    "authorships": [{"author": {"display_name": "Alex Example"}}],
+                    "counts_by_year": [{"year": 2025, "cited_by_count": 16}],
+                }],
+            }
+
+    monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
+    rows = collect_open_citation_rows(manifest, FakeClient())
+
+    assert rows[0]["annual_citation_counts"] == '{"2010":3,"2025":16}'
+
+
+def test_openalex_queries_raw_citation_when_metadata_is_unresolved(
     monkeypatch,
 ) -> None:
     manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
@@ -233,12 +266,10 @@ def test_semantic_scholar_queries_raw_citation_when_metadata_is_unresolved(
     rows = collect_open_citation_rows(manifest, client)
 
     assert rows[0]["citation_status"] == "NOT_FOUND"
-    semantic_urls = [
-        url for url in client.urls if "api.semanticscholar.org" in url
-    ]
-    assert len(semantic_urls) == 1
-    assert "paper/search/bulk?" in semantic_urls[0]
-    assert "fixture+publication" in semantic_urls[0]
+    openalex_urls = [url for url in client.urls if "api.openalex.org" in url]
+    assert len(openalex_urls) == 1
+    assert "works?search=" in openalex_urls[0]
+    assert "fixture+publication" in openalex_urls[0]
 
 
 def _work():
@@ -270,6 +301,32 @@ def test_openalex_match_prefers_exact_doi_and_preserves_source_count() -> None:
     assert match.match_method == "DOI_EXACT"
     assert match.citation_count == 19
     assert match.matched_doi == "10.1000/example"
+    assert match.annual_citation_counts == {}
+
+
+def test_openalex_match_preserves_valid_annual_counts_and_discards_invalid_entries() -> None:
+    work, raw = _work()
+    match = match_openalex_candidate(
+        work,
+        raw,
+        {
+            "id": "https://openalex.org/W123",
+            "doi": "https://doi.org/10.1000/example",
+            "title": "A fixture publication",
+            "publication_year": 2025,
+            "cited_by_count": 19,
+            "authorships": [{"author": {"display_name": "Alex Example"}}],
+            "counts_by_year": [
+                {"year": 2024, "cited_by_count": 3},
+                {"year": 2025, "cited_by_count": 16},
+                {"year": 2026, "cited_by_count": -1},
+                {"year": "2023", "cited_by_count": 99},
+            ],
+        },
+    )
+
+    assert match is not None
+    assert match.annual_citation_counts == {"2024": 3, "2025": 16}
 
 
 def test_title_and_raw_citation_matching_rejects_ranked_but_unrelated_results() -> None:

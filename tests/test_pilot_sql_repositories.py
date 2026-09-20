@@ -579,9 +579,7 @@ def test_administrator_preview_repository_lists_and_loads_saved_applicant_form()
     assert publication.review_reason == "Verified against the DOI landing page."
     assert publication.source_citation == "A fixture publication."
     assert publication.source_page == 3
-    assert publication.google_scholar_url == (
-        "https://scholar.google.com/scholar?q=10.1000%2Fexample"
-    )
+    assert publication.publication_url == "https://doi.org/10.1000/example"
     assert detail_connection.cursor.calls[0][1] == (
         APPLICATION_A,
         "cloudflare:administrator",

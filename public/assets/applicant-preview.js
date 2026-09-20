@@ -17,7 +17,7 @@
     showSection(control.dataset.sectionTarget);
   });
   const openPublicationRecord = (record) => {
-    const url = record?.dataset.googleScholarUrl;
+    const url = record?.dataset.publicationUrl;
     if (!url) return;
     window.open(url, "_blank", "noopener,noreferrer");
   };

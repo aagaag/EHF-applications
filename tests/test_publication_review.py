@@ -47,7 +47,7 @@ def test_unresolved_preview_uses_review_status_and_evidence_not_missing_placehol
         openalex_citation_status="NOT_APPLICABLE",
         semantic_scholar_citation_count=None,
         semantic_scholar_citation_status="NOT_APPLICABLE",
-        google_scholar_url="",
+        publication_url=None,
         resolution_status="UNRESOLVED",
         review_disposition="UNDER_PREPARATION",
         review_reason="Applicant marked this item as under preparation.",

@@ -144,25 +144,25 @@ def test_applicant_admin_preview_is_read_only_accessible_and_responsive() -> Non
             ).to_be_visible()
             expect(
                 page.get_by_text(
-                    "Google Scholar: 37; OpenAlex: 39; Semantic Scholar: 35",
+                    "OpenAlex: 39",
                     exact=True,
                 )
             ).to_be_visible()
 
             page.evaluate(
-                "window.__openedScholar = null; window.__scholarOpenCount = 0; "
-                "window.open = (url) => { window.__openedScholar = url; "
-                "window.__scholarOpenCount += 1; }; void 0;"
+                "window.__openedPublication = null; window.__publicationOpenCount = 0; "
+                "window.open = (url) => { window.__openedPublication = url; "
+                "window.__publicationOpenCount += 1; }; void 0;"
             )
             row.dblclick()
-            assert page.evaluate("window.__openedScholar") == (
-                "https://scholar.google.com/scholar?q=10.1000%2Fexample"
+            assert page.evaluate("window.__openedPublication") == (
+                "https://doi.org/10.1000/example"
             )
-            scholar_open_count = page.evaluate("window.__scholarOpenCount")
-            assert scholar_open_count == 1, scholar_open_count
+            publication_open_count = page.evaluate("window.__publicationOpenCount")
+            assert publication_open_count == 1, publication_open_count
             row.press("Enter")
             row.press("Space")
-            assert page.evaluate("window.__scholarOpenCount") == 3
+            assert page.evaluate("window.__publicationOpenCount") == 3
 
             page.set_viewport_size({"width": 1440, "height": 900})
             desktop_tops = row.locator("[data-publication-field]").evaluate_all(

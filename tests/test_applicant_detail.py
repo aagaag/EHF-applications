@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+from app.applicant_detail import ApplicantDetail, Publication, render_applicant_detail
+
+
+def test_render_detail_shows_identity_charts_and_newest_first_links() -> None:
+    detail = ApplicantDetail(
+        application_number="EHF-2026-007",
+        name="Ada <Researcher>",
+        age=37,
+        academic_age=11,
+        publications=(
+            Publication(
+                title="Older work",
+                journal="Journal A",
+                year=2022,
+                doi="10.1000/older",
+                repository_url="https://repo.example/older",
+                citation_count=3,
+                citations_by_year=((2022, 1), (2024, 2)),
+            ),
+            Publication(
+                title="Newer work",
+                journal="Journal B",
+                year=2024,
+                journal_url="https://journals.example/newer",
+                source_url="https://source.example/newer",
+                citation_count=7,
+                citations_by_year=((2024, 4), (2025, 3)),
+            ),
+        ),
+    )
+
+    html = render_applicant_detail(detail, current_year=2026)
+
+    assert "EHF-2026-007" in html
+    assert "Ada &lt;Researcher&gt;" in html
+    assert "Age: 37" in html and "Academic age: 11" in html
+    assert 'aria-label="Papers by year, 2022 through 2026"' in html
+    assert 'aria-label="Citations by year, 2022 through 2026"' in html
+    assert 'aria-label="2024: 6"' in html
+    assert 'aria-label="2025: 3"' in html
+    assert html.index("Newer work") < html.index("Older work")
+    assert 'data-publication-url="https://doi.org/10.1000/older"' in html
+    assert 'data-publication-url="https://journals.example/newer"' in html
+    assert 'href="https://source.example/newer"' not in html
+    assert 'data-publication-row' in html and 'data-double-clickable="true"' in html
+
+
+def test_render_detail_escapes_text_and_rejects_unsafe_links() -> None:
+    detail = ApplicantDetail(
+        application_number='"><script>alert(1)</script>',
+        name="Name & Co",
+        publications=(
+            Publication(
+                title="<b>Unsafe</b>",
+                journal="J & J",
+                year=2025,
+                doi="javascript:alert(1)",
+                source_url="javascript:alert(2)",
+            ),
+        ),
+    )
+
+    html = render_applicant_detail(detail, current_year=2025)
+
+    assert "<script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "&lt;b&gt;Unsafe&lt;/b&gt;" in html
+    assert "javascript:" not in html.lower()
+    assert 'aria-label="Papers by year, 2025 through 2025"' in html

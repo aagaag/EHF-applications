@@ -30,7 +30,7 @@ def _records() -> tuple[PreviewApplicantMetric, ...]:
             last_author_papers=2,
             total_papers=18,
             h_index=12,
-            total_citations=640,
+            verified_citations=640,
             orcid="0000-0002-1825-0097",
             google_scholar_citations=710,
             identity_certainty="High",
@@ -106,7 +106,7 @@ def test_workbook_charts_use_distinct_shared_colors_and_top_15_surname_labels() 
             applicant=f"Given Surname{index:02d}",
             age=30 + index,
             academic_age=3 + index,
-            total_citations=index,
+            verified_citations=index,
         )
         for index in range(18)
     )
@@ -156,7 +156,7 @@ def test_workbook_charts_use_distinct_shared_colors_and_top_15_surname_labels() 
         assert all(series.dLbls.dLblPos == "r" for series in labelled)
         assert chart.x_axis.scaling.max >= max(ages) + (max(ages) - min(ages)) * 0.2
         assert chart.y_axis.scaling.max > max(
-            record.total_citations for record in records
+            record.verified_citations for record in records
         )
 
     assert colors_by_chart[1] == colors_by_chart[0]

@@ -26,8 +26,8 @@ from app.importer.publications import (
 from app.importer.run import ImportMode
 
 
-OPEN_CITATION_IMPORTER_VERSION = "2026.4-open-citations"
-OPEN_CITATION_SOURCES = ("SEMANTIC_SCHOLAR",)
+OPEN_CITATION_IMPORTER_VERSION = "2026.6-openalex-cutoff"
+OPEN_CITATION_SOURCES = ("OPENALEX", "SEMANTIC_SCHOLAR")
 OPEN_CITATION_FIELDS = (
     "applicant",
     "final_work_id",
@@ -45,7 +45,9 @@ OPEN_CITATION_FIELDS = (
     "observed_at_utc",
     "reviewer",
     "match_method",
+    "annual_citation_counts",
 )
+LEGACY_OPEN_CITATION_FIELDS = OPEN_CITATION_FIELDS[:-1]
 _RESULT_HOSTS = {
     "OPENALEX": {"openalex.org", "api.openalex.org", "www.openalex.org"},
     "SEMANTIC_SCHOLAR": {
@@ -84,6 +86,7 @@ class OpenCitationReview:
     observed_at_utc: str
     reviewer: str
     match_method: str
+    annual_citation_counts: dict[str, int]
     raw: dict[str, str]
 
 
@@ -208,7 +211,8 @@ def load_open_citation_reviews(
             "The open citation snapshot is not valid UTF-8 CSV."
         ) from error
     reader = csv.DictReader(StringIO(text, newline=""))
-    if tuple(reader.fieldnames or ()) != OPEN_CITATION_FIELDS:
+    fields = tuple(reader.fieldnames or ())
+    if fields not in (OPEN_CITATION_FIELDS, LEGACY_OPEN_CITATION_FIELDS):
         raise OpenCitationImportError("The open citation snapshot has an unexpected schema.")
     work_by_id = {work.final_work_id: work for work in manifest.works}
     raw_by_work: dict[str, list[str]] = {}
@@ -288,6 +292,38 @@ def load_open_citation_reviews(
         if status == "OBSERVED" and match_method == "NO_CONFIDENT_MATCH":
             raise OpenCitationImportError("OBSERVED reviews require a positive match_method.")
         result_url = _result_url(row["result_url"], source)
+        annual_raw = row.get("annual_citation_counts", "")
+        if not annual_raw:
+            annual_counts: dict[str, int] = {}
+        else:
+            try:
+                parsed_annual = json.loads(annual_raw)
+            except json.JSONDecodeError as error:
+                raise OpenCitationImportError(
+                    "annual_citation_counts must be a JSON object."
+                ) from error
+            if not isinstance(parsed_annual, dict):
+                raise OpenCitationImportError(
+                    "annual_citation_counts must be a JSON object."
+                )
+            annual_counts = {}
+            for year_key, year_count in parsed_annual.items():
+                if (
+                    not isinstance(year_key, str)
+                    or not year_key.isdigit()
+                    or not 1900 <= int(year_key) <= 2200
+                    or isinstance(year_count, bool)
+                    or not isinstance(year_count, int)
+                    or year_count < 0
+                ):
+                    raise OpenCitationImportError(
+                        "annual_citation_counts contains an invalid year or count."
+                    )
+                annual_counts[year_key] = year_count
+        if source == "OPENALEX" and status == "OBSERVED" and not annual_raw:
+            raise OpenCitationImportError(
+                "OpenAlex OBSERVED reviews require annual_citation_counts."
+            )
         _validated_match_evidence(
             source=source,
             status=status,
@@ -315,17 +351,13 @@ def load_open_citation_reviews(
                 _utc_timestamp(row["observed_at_utc"]),
                 _safe_text(row["reviewer"], "reviewer", 255),
                 match_method,
+                annual_counts,
                 dict(row),
             )
         )
-    expected = {
-        (work_id, source)
-        for work_id in work_by_id
-        for source in OPEN_CITATION_SOURCES
-    }
-    if seen != expected:
+    if {work_id for work_id, _source in seen} != set(work_by_id):
         raise OpenCitationImportError(
-            "The snapshot must contain Semantic Scholar for every manifest work."
+            "The snapshot must contain OpenAlex for every manifest work."
         )
     return tuple(reviews)
 
@@ -462,6 +494,7 @@ class SqlOpenCitationRepository:
                         "result_url": review.result_url,
                         "reviewer": review.reviewer,
                         "source_identifier": review.source_identifier or None,
+                        "counts_by_year": review.annual_citation_counts,
                     },
                     ensure_ascii=False,
                     sort_keys=True,
