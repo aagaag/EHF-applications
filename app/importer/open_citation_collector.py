@@ -451,6 +451,20 @@ def collect_open_citation_rows(
     for index, work in enumerate(manifest.works, start=1):
         raw_citation = raw_by_work.get(work.final_work_id, "")
         doi = work.canonical_metadata.doi or ""
+        if not doi:
+            rows.append(
+                _row(
+                    work,
+                    "OPENALEX",
+                    observed_at,
+                    reviewer,
+                    "https://api.openalex.org/works",
+                    None,
+                )
+            )
+            if progress is not None:
+                progress(index, total, "OPENALEX")
+            continue
         batch_match = batch_matches.get(doi) if doi else None
         query_url = batch_match[0] if batch_match else _openalex_query(work, raw_citation)
         candidate = batch_match[1] if batch_match else None

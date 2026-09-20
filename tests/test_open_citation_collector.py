@@ -45,6 +45,33 @@ def test_openalex_fallback_search_removes_query_syntax_and_bounds_length() -> No
     assert len(query) <= 300
 
 
+def test_openalex_skips_ineligible_doi_less_works(monkeypatch) -> None:
+    manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
+    work = replace(
+        manifest.works[0],
+        canonical_metadata=replace(
+            manifest.works[0].canonical_metadata,
+            doi=None,
+            doi_url=None,
+        ),
+    )
+    manifest = replace(manifest, works=(work,))
+
+    class NoRequestClient:
+        def get_json(self, *_args, **_kwargs):
+            raise AssertionError("DOI-less works are outside the agreed metric eligibility.")
+
+    monkeypatch.setattr(
+        "app.importer.open_citation_collector._utc_now",
+        lambda: "2026-09-20T10:00:00Z",
+    )
+
+    rows = collect_open_citation_rows(manifest, NoRequestClient())
+
+    assert rows[0]["citation_status"] == "NOT_FOUND"
+    assert rows[0]["citation_count"] == ""
+
+
 def test_collection_uses_openalex_for_the_common_cutoff(monkeypatch) -> None:
     manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
 
@@ -271,7 +298,7 @@ def test_openalex_fetches_full_history_when_ten_year_counts_are_incomplete(
     assert rows[0]["annual_citation_counts"] == '{"2010":3,"2025":16}'
 
 
-def test_openalex_queries_raw_citation_when_metadata_is_unresolved(
+def test_openalex_does_not_spend_search_credits_on_unresolved_metadata(
     monkeypatch,
 ) -> None:
     manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
@@ -299,9 +326,8 @@ def test_openalex_queries_raw_citation_when_metadata_is_unresolved(
 
     assert rows[0]["citation_status"] == "NOT_FOUND"
     openalex_urls = [url for url in client.urls if "api.openalex.org" in url]
-    assert len(openalex_urls) == 1
-    assert "works?search=" in openalex_urls[0]
-    assert "fixture+publication" in openalex_urls[0]
+    assert openalex_urls == []
+    assert rows[0]["result_url"] == "https://api.openalex.org/works"
 
 
 def _work():
