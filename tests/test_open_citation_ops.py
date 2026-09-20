@@ -35,14 +35,17 @@ def test_collector_and_import_cli_are_separate_and_apply_is_root_mediated() -> N
     assert "--sql-admin-credential-file" in cli
 
 
-def test_collection_wrapper_runs_unprivileged_on_the_ehf_vm_and_cleans_private_staging() -> None:
+def test_collection_wrapper_sources_the_root_only_openalex_key_and_cleans_private_staging() -> None:
     assert COLLECT_SCRIPT.exists()
     source = COLLECT_SCRIPT.read_text(encoding="utf-8")
     assert "ehf-hestia" in source
     assert "chmod 700" in source and "chmod 600" in source
     assert "/opt/ehf/current/venv/bin/python" in source
     assert "-m app.importer.collect_open_citations" in source
-    assert "sudo" not in source.lower()
+    assert "/etc/ehf/openalex-api-key" in source
+    assert ". /etc/ehf/openalex-api-key" in source
+    assert "sudo -n /bin/sh -s" in source
+    assert "chown aag:aag" in source
     assert "finally" in source and "rm -rf -- '$RemoteTransfer'" in source
     assert "must remain outside the repository" in source
     assert "GetRelativePath" not in source
