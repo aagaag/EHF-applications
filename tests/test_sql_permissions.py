@@ -284,6 +284,7 @@ def test_permission_validator_recognizes_exact_synthetic_runtime_boundary() -> N
         "DECLARE @RequiredDmlDenies", 1
     )[0]
     assert "(N'ApplicantSyntheticWorkspace')" in protected_tables
+    assert "(N'ApplicationPublicationReview')" in protected_tables
 
 
 def test_real_login_probe_covers_applicant_tables_and_finalization_executor() -> None:
