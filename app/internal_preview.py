@@ -37,6 +37,7 @@ class PreviewApplicantMetric:
     verified_citations: int | None = None
     verified_citation_source: str | None = None
     verified_citation_profile_url: str | None = None
+    validated_published_papers: int | None = None
 
 def render_internal_preview(
     principal: AuthenticatedIdentity,

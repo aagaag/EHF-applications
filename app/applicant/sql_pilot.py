@@ -911,6 +911,12 @@ class SqlApplicantApprovalService:
                 None if row[11] is None else str(row[11]),
                 None if row[12] is None else int(row[12]),
                 None if row[13] is None else str(row[13]),
+                None if row[14] is None else str(row[14]),
+                None if row[15] is None else str(row[15]),
+                None if row[16] is None else str(row[16]),
+                None if row[17] is None else str(row[17]),
+                None if row[18] is None else str(row[18]),
+                None if row[19] is None else int(row[19]),
             )
             for row in publication_rows
         )

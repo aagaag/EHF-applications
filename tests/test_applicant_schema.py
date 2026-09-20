@@ -241,8 +241,10 @@ def test_isolated_database_harness_applies_and_validates_release_twenty_two() ->
             "023_validate_open_citation_sources.sql",
             "024_applicant_citation_profiles.sql",
             "024_validate_applicant_citation_profiles.sql",
+            "025_publication_review_workflow.sql",
+            "025_validate_publication_review_workflow.sql",
         ):
             assert name in script
-    assert "Applied 24 migration\\(s\\)\\." in script
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 24" in contract
-    assert "WHERE MigrationCount = 24 AND CurrentVersion = 24" in contract
+    assert "Applied 25 migration\\(s\\)\\." in script
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 25" in contract
+    assert "WHERE MigrationCount = 25 AND CurrentVersion = 25" in contract

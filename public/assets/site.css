@@ -174,7 +174,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .publication-summary { display: grid; min-width: 0; gap: .25rem; overflow-wrap: anywhere; }
 .publication-summary span { color: var(--muted); }
 .publication-records { width: 100%; min-width: 0; margin-top: 1rem; border: 1px solid var(--line); border-radius: 1rem; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
-.publication-records-header, .publication-record { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr) minmax(0, 2fr) minmax(0, 1.25fr) minmax(0, .75fr); }
+.publication-records-header, .publication-record { display: grid; min-width: 0; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr) minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, .8fr); }
 .publication-records-header { background: var(--nav-background); color: var(--nav-text); font-size: .74rem; font-weight: 800; }
 .publication-records-header > span, .publication-record-field { min-width: 0; padding: .7rem .6rem; overflow-wrap: anywhere; }
 .publication-record { border-top: 1px solid var(--line); color: var(--text); cursor: pointer; text-align: left; }

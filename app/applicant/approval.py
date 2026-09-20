@@ -83,6 +83,12 @@ class ApplicantPublicationPreview:
     openalex_citation_status: str | None = None
     semantic_scholar_citation_count: int | None = None
     semantic_scholar_citation_status: str | None = None
+    resolution_status: str | None = None
+    review_disposition: str | None = None
+    review_reason: str | None = None
+    review_evidence: str | None = None
+    source_citation: str | None = None
+    source_page: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -401,6 +401,12 @@ def test_administrator_preview_repository_lists_and_loads_saved_applicant_form()
                     "OBSERVED",
                     35,
                     "OBSERVED",
+                    "RESOLVED",
+                    "PUBLISHED",
+                    "Verified against the DOI landing page.",
+                    '{"doi":"10.1000/example","source":"Crossref"}',
+                    "A fixture publication.",
+                    3,
                 )
             ],
         ]
@@ -429,6 +435,11 @@ def test_administrator_preview_repository_lists_and_loads_saved_applicant_form()
     assert publication.openalex_citation_status == "OBSERVED"
     assert publication.semantic_scholar_citation_count == 35
     assert publication.semantic_scholar_citation_status == "OBSERVED"
+    assert publication.resolution_status == "RESOLVED"
+    assert publication.review_disposition == "PUBLISHED"
+    assert publication.review_reason == "Verified against the DOI landing page."
+    assert publication.source_citation == "A fixture publication."
+    assert publication.source_page == 3
     assert publication.google_scholar_url == (
         "https://scholar.google.com/scholar?q=10.1000%2Fexample"
     )

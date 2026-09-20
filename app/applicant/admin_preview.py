@@ -186,6 +186,7 @@ def _publication_records(records: tuple[Any, ...]) -> str:
             "Authors",
             "Title",
             "Journal, volume and pages",
+            "Resolution and review",
             "Citations by source",
         )
     )
@@ -199,13 +200,15 @@ def _publication_records(records: tuple[Any, ...]) -> str:
 
 
 def _publication_record(record: Any) -> str:
-    authors = _optional_display(getattr(record, "authors_text", None))
+    resolved = getattr(record, "resolution_status", None) == "RESOLVED"
+    absent_metadata = "Not resolved" if not resolved else "Not recorded"
+    authors = _publication_metadata_display(getattr(record, "authors_text", None), absent_metadata)
     first_author = _first_author(authors)
-    title = _optional_display(getattr(record, "title", None))
+    title = _publication_metadata_display(getattr(record, "title", None), absent_metadata)
     citation = _scientific_citation(record)
     citation_count = _citation_counts(record)
     scholar_url = str(getattr(record, "google_scholar_url", ""))
-    label = f"Open {title} in Google Scholar"
+    review = _publication_review(record)
     fields = "".join(
         _publication_record_field(field_label, value)
         for field_label, value in (
@@ -213,14 +216,21 @@ def _publication_record(record: Any) -> str:
             ("Authors", authors),
             ("Title", title),
             ("Journal, volume and pages", citation),
+            ("Resolution and review", review),
             ("Citations by source", citation_count),
         )
     )
+    interactive = ""
+    if scholar_url:
+        label = f"Open {title} in Google Scholar"
+        interactive = (
+            f'data-google-scholar-url="{escape(scholar_url, quote=True)}" '
+            f'role="link" tabindex="0" aria-label="{escape(label, quote=True)}" '
+            'title="Double-click to open this paper in Google Scholar"'
+        )
     return (
         '<div class="publication-record" data-publication-record '
-        f'data-google-scholar-url="{escape(scholar_url, quote=True)}" '
-        f'role="link" tabindex="0" aria-label="{escape(label, quote=True)}" '
-        'title="Double-click to open this paper in Google Scholar">'
+        f"{interactive}>"
         f"{fields}</div>"
     )
 
@@ -239,8 +249,14 @@ def _optional_display(value: Any) -> str:
     return str(value).strip()
 
 
+def _publication_metadata_display(value: Any, absent: str) -> str:
+    if value is None or not str(value).strip():
+        return absent
+    return str(value).strip()
+
+
 def _first_author(authors: str) -> str:
-    if authors == "Missing":
+    if authors in {"Missing", "Not resolved", "Not recorded"}:
         return authors
     return authors.split(";", 1)[0].strip() or "Missing"
 
@@ -257,7 +273,24 @@ def _scientific_citation(record: Any) -> str:
     if pages:
         locus += (":" if locus else "") + pages
     parts = [part for part in (journal, locus) if part]
-    return ". ".join(parts) + ("." if parts else "Missing")
+    if parts:
+        return ". ".join(parts) + "."
+    return "Not resolved" if getattr(record, "resolution_status", None) != "RESOLVED" else "Not recorded"
+
+
+def _publication_review(record: Any) -> str:
+    resolution = str(getattr(record, "resolution_status", None) or "UNRESOLVED")
+    disposition = str(getattr(record, "review_disposition", None) or "PENDING_REVIEW")
+    summary = f"{resolution.replace('_', ' ')} · {disposition.replace('_', ' ')}"
+    reason = _optional_value(getattr(record, "review_reason", None))
+    evidence = _optional_value(getattr(record, "review_evidence", None))
+    source = _optional_value(getattr(record, "source_citation", None))
+    page = getattr(record, "source_page", None)
+    detail_parts = [part for part in (reason, evidence) if part]
+    if source:
+        locator = f"Dossier page {page}: " if page is not None else "Source record: "
+        detail_parts.append(locator + source)
+    return summary + (" — " + " ".join(detail_parts) if detail_parts else "")
 
 
 def _scholar_citation_count(record: Any) -> str:

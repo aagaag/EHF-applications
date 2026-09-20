@@ -45,6 +45,7 @@ class SqlMetricRepository:
                 verified_citations=_integer(row[13]),
                 verified_citation_source=_text(row[14]),
                 verified_citation_profile_url=_text(row[15]),
+                validated_published_papers=_integer(row[16]),
             )
             for row in rows
         )
