@@ -65,16 +65,22 @@ $RemoteHelper = "/tmp/ehf-$PID.py"
 $RemoteTest = "/tmp/ehf-$PID-test.py"
 $LocalHelper = Join-Path $PSScriptRoot '..\infra\install-ehf.py'
 $LocalTest = Join-Path $PSScriptRoot '..\infra\test-install-ehf.py'
+$NormalizedHelper = Join-Path $TempRoot 'ehf-deploy.py'
 
 try {
     New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
+    [IO.File]::WriteAllText(
+        $NormalizedHelper,
+        [IO.File]::ReadAllText($LocalHelper).Replace("`r`n", "`n"),
+        [Text.UTF8Encoding]::new($false)
+    )
     git -c core.autocrlf=false archive --format=tar --output=$Archive $Head
     if ($LASTEXITCODE -ne 0) {
         throw 'The exact tested release archive could not be created.'
     }
     & scp.exe -- $Archive "${Target}:${RemoteArchive}"
     if ($LASTEXITCODE -ne 0) { throw 'The release archive could not be staged on the EHF VM.' }
-    & scp.exe -- $LocalHelper "${Target}:${RemoteHelper}"
+    & scp.exe -- $NormalizedHelper "${Target}:${RemoteHelper}"
     if ($LASTEXITCODE -ne 0) { throw 'The reviewed deployment helper could not be staged on the EHF VM.' }
     & scp.exe -- $LocalTest "${Target}:${RemoteTest}"
     if ($LASTEXITCODE -ne 0) { throw 'The Linux installer safety test could not be staged on the EHF VM.' }

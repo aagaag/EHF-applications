@@ -161,6 +161,14 @@ def test_deploy_and_verify_scripts_parse_without_executing_a_live_deployment() -
         assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
+def test_deploy_normalizes_the_linux_helper_shebang_before_copying_it() -> None:
+    """Break caught: CRLF could make Linux reject the helper's python3 shebang."""
+    source = DEPLOY.read_text(encoding="utf-8")
+
+    assert 'Replace("`r`n", "`n")' in source
+    assert "ehf-deploy.py" in source
+
+
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell deployment contracts run on the Windows controller")
 def test_verify_whatif_never_invokes_ssh_and_names_its_read_only_checks() -> None:
     """Break caught: verification preview could contact the EHF VM despite being requested as a dry run."""
