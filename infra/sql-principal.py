@@ -144,6 +144,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "028_validate_openalex_work_cutoff_metrics.sql",
         "029_validate_openalex_missing_observation_guard.sql",
         "030_validate_applicant_detail_author_roles.sql",
+        "031_validate_citation_metric_cutoff_runs.sql",
     }
 )
 
