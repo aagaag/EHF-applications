@@ -13,9 +13,10 @@ from app.main import ReadinessChecks, create_app
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "public"
-LOGO = PUBLIC / "assets" / "isab-logo.svg"
-EXPECTED_LOGO_SHA256 = "D70B7722957A3ACCD8D4E16BB6BFCD8E48A153DE82C3C496CC34EE183645CC0E"
-EXPECTED_LOGO_BYTES = 19_932
+LOGO = PUBLIC / "assets" / "ehf-logo.svg"
+EXPECTED_LOGO_SHA256 = "0972369F8843FFF182D231B7A59E120C66E1ABA4AA41878EB920A1A29326CF4B"
+EXPECTED_LOGO_BYTES = 19_346
+FOUNDATION_LOGO_ALT = 'alt="Ernst Hadorn Foundation"'
 
 
 def preview_client() -> TestClient:
@@ -27,8 +28,8 @@ def preview_client() -> TestClient:
 
 
 def test_task_six_public_assets_exist_and_preserve_the_official_logo() -> None:
-    """Break caught: a substitute, altered, or absent ISAB logo would break the shared shell."""
-    assert LOGO.is_file(), "Task 6 must copy the approved ISAB logo byte-for-byte"
+    """Break caught: a substitute, altered, or absent Foundation logo would break the shared shell."""
+    assert LOGO.is_file(), "the approved Ernst Hadorn Foundation logo must ship byte-for-byte"
     assert LOGO.stat().st_size == EXPECTED_LOGO_BYTES
     assert hashlib.sha256(LOGO.read_bytes()).hexdigest().upper() == EXPECTED_LOGO_SHA256
     for relative_path in (
@@ -114,3 +115,28 @@ def test_shell_uses_no_browser_persistence_and_has_required_accessible_structure
     assert "@media (max-width: 720px)" in stylesheet
     assert "width: 94%" in stylesheet
     assert "margin-inline: 3%" in stylesheet
+
+
+def test_navigation_top_carries_the_ernst_hadorn_foundation_logo() -> None:
+    """Break caught: the navigation could still present the ISAB mark instead of the Foundation logo."""
+    sources = {
+        path: path.read_text(encoding="utf-8")
+        for path in (
+            *(PUBLIC / "applicant").glob("*.html"),
+            *(PUBLIC / "internal").glob("*.html"),
+            ROOT / "app" / "internal_preview.py",
+            ROOT / "app" / "applicant" / "admin_preview.py",
+        )
+    }
+    assert sources, "the shell pages must exist to be checked"
+    for path, source in sources.items():
+        assert "isab-logo.svg" not in source, path
+        assert "ehf-logo.svg" in source, path
+
+    applicant = preview_client().get("/applicant/").text
+    assert "assets/ehf-logo.svg" in applicant
+    assert FOUNDATION_LOGO_ALT in applicant
+
+    internal = preview_client().get("/__preview/internal/administrator/").text
+    assert "/assets/ehf-logo.svg" in internal
+    assert FOUNDATION_LOGO_ALT in internal

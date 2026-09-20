@@ -45,7 +45,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .app-nav { position: fixed; inset: 0 auto 0 0; z-index: 90; display: flex; width: var(--nav-width); min-width: 0; flex-direction: column; border-right: 1px solid var(--nav-border); background: var(--nav-background); color: var(--nav-text); }
 .app-nav-top { display: grid; justify-items: center; gap: 6px; padding: 14px 18px; border-bottom: 1px solid var(--nav-border); text-align: center; }
 .app-nav-home { display: grid; justify-items: center; gap: 7px; color: #fff; text-decoration: none; }
-.app-nav-home img { width: 68px; height: auto; }
+.app-nav-home img { width: 100%; max-width: 176px; height: auto; }
 .app-nav-title { max-width: 170px; font-size: .84rem; font-weight: 800; line-height: 1.2; }
 .app-nav-domain, .app-nav-purpose { color: var(--nav-muted); font-size: .7rem; line-height: 1.35; overflow-wrap: anywhere; }
 .app-nav-domain { font-weight: 700; }
