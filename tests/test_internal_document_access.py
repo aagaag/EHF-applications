@@ -231,3 +231,19 @@ def test_internal_document_sql_release_is_procedure_only_scoped_and_audited() ->
     assert "INTERNAL_DOCUMENT_ACCESS_FAILED" in migration
     assert "EXECUTE AS USER = N'ehf_app'" in validator
     assert "PASS 026 internal document access" in validator
+
+
+def test_document_access_audit_purpose_is_allowlisted_by_a_followup_release() -> None:
+    """Break caught: a clean database could reject document-access audit payloads."""
+    migration = (
+        ROOT / "database" / "migrations" / "027_internal_document_audit_payload.sql"
+    ).read_text(encoding="utf-8")
+    validator = (
+        ROOT / "database" / "tests" / "027_validate_internal_document_audit_payload.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "ALTER FUNCTION dbo.IsAuditPayloadKeyProhibited" in migration
+    assert "N''purpose''" in migration
+    assert "IsAuditPayloadKeyProhibited(N'purpose')" in validator
+    assert "IsAuditPayloadKeyProhibited(N'email')" in validator
+    assert "PASS 027 internal document audit payload" in validator
