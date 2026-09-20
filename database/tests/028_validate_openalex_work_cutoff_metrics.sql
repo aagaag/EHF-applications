@@ -1,4 +1,17 @@
-IF OBJECT_DEFINITION(OBJECT_ID(N'dbo.GetInternalApplicationMetrics', N'P')) NOT LIKE N'%OPENALEX_WORK_CUTOFF%'
+DECLARE @MetricsDefinition nvarchar(max) =
+    OBJECT_DEFINITION(OBJECT_ID(N'dbo.GetInternalApplicationMetrics', N'P'));
+
+IF @MetricsDefinition IS NULL
+   OR
+   (
+       @MetricsDefinition NOT LIKE N'%OPENALEX_WORK_CUTOFF%'
+       AND
+       (
+           OBJECT_ID(N'dbo.CitationMetricCutoffRun', N'U') IS NULL
+           OR @MetricsDefinition NOT LIKE N'%CitationMetricCutoffRun%'
+           OR @MetricsDefinition NOT LIKE N'%PublicationCitationObservation%'
+       )
+   )
     THROW 52910, 'Internal metrics do not use the OpenAlex work-level cutoff.', 1;
 IF OBJECT_DEFINITION(OBJECT_ID(N'dbo.GetInternalApplicationMetrics', N'P')) LIKE N'%ApplicantCitationProfileObservation%'
     THROW 52911, 'Internal metrics still use mixed applicant profile sources.', 1;

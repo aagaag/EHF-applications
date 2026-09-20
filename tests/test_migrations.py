@@ -1254,6 +1254,17 @@ def test_citation_cutoff_migration_requires_a_complete_single_source_import_run(
     assert "mixed" in validator.casefold()
 
 
+def test_openalex_cutoff_validator_accepts_the_audited_active_cutoff_contract() -> None:
+    """Break caught: release 28 validation could reject the stricter release 31 metric path."""
+    validator = (
+        VALIDATION_DIRECTORY / "028_validate_openalex_work_cutoff_metrics.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "OPENALEX_WORK_CUTOFF" in validator
+    assert "CitationMetricCutoffRun" in validator
+    assert "PublicationCitationObservation" in validator
+
+
 def test_synthetic_validator_captures_the_current_metric_result_shape() -> None:
     """Break caught: migration 019's runtime probe could lag the metrics procedure shape."""
     validator = (
