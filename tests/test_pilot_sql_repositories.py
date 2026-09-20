@@ -354,6 +354,39 @@ def test_sql_internal_document_service_records_decryption_outcome() -> None:
     assert repository.outcomes == ["SUCCEEDED"]
 
 
+def test_sql_internal_document_service_records_denied_lookup_as_failed() -> None:
+    """Break caught: SQL denials could leave a REQUESTED audit without its outcome."""
+    version_id = UUID("92000000-0000-4000-8000-000000000025")
+
+    class Repository:
+        def __init__(self):
+            self.outcomes = []
+
+        def internal_download_record(self, *args, **kwargs):
+            return None
+
+        def record_internal_access_outcome(self, *args, **kwargs):
+            self.outcomes.append(kwargs["outcome"])
+
+    class Objects:
+        def decrypt_bytes(self, *_args):
+            raise AssertionError("a denied record must never be decrypted")
+
+    repository = Repository()
+    service = SqlApplicantDocumentService(repository, Objects(), object())  # type: ignore[arg-type]
+
+    payload = service.internal_download(
+        APPLICATION_A,
+        version_id,
+        actor="cloudflare:reviewer",
+        actor_group="EHF-Administrators",
+        purpose="VIEW",
+    )
+
+    assert payload is None
+    assert repository.outcomes == ["FAILED"]
+
+
 def test_draft_sql_conflict_and_lock_are_translated_to_workflow_exceptions() -> None:
     scope = ApplicantSqlSessionScope()
     scope.bind(SESSION_HASH)

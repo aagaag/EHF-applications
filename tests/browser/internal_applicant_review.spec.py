@@ -228,3 +228,68 @@ def test_applicant_list_filters_persist_in_url_and_detail_back_link() -> None:
             assert "%2Finternal%2Fapplicants%3Fq%3DAda%26status%3DSUBMITTED" in ada_href
         finally:
             browser.close()
+
+
+def test_review_dialog_keeps_entered_values_and_exposes_submission_errors() -> None:
+    """A failed review action must remain recoverable inside the open dialog."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import expect, sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.set_content(
+                """
+                <main>
+                  <div data-access-queue></div>
+                  <div data-change-queue></div>
+                  <div data-document-queue>
+                    <button type="button" data-action="document-reject" data-value="submission-1">Reject document</button>
+                  </div>
+                  <p data-review-status role="status" aria-live="polite"></p>
+                  <dialog aria-labelledby="review-dialog-title" data-review-dialog>
+                    <form data-review-dialog-form>
+                      <h2 id="review-dialog-title" data-review-dialog-title>Review action</h2>
+                      <div data-review-dialog-fields></div>
+                      <button type="submit" data-review-dialog-submit>Continue</button>
+                    </form>
+                  </dialog>
+                </main>
+                """
+            )
+            page.route(
+                "**/api/internal/applicant-access-requests",
+                lambda route: route.fulfill(json={"requests": []}),
+            )
+            page.route(
+                "**/api/internal/applicant-submissions",
+                lambda route: route.fulfill(json={"submissions": []}),
+            )
+            page.route(
+                "**/api/internal/applicant-document-submissions",
+                lambda route: route.fulfill(json={"submissions": []}),
+            )
+            page.route(
+                "**/api/internal/applicant-document-submissions/submission-1/reject",
+                lambda route: route.fulfill(status=500),
+            )
+            page.add_script_tag(
+                path=str(ROOT / "public" / "assets" / "internal-applicant-review.js")
+            )
+
+            page.get_by_role("button", name="Reject document").click()
+            dialog = page.get_by_role("dialog", name="Reject submitted document")
+            expect(dialog.locator("[data-review-dialog-error]")).to_be_hidden()
+            reason = dialog.get_by_label("Reason for rejection")
+            reason.fill("The uploaded file is unreadable.")
+            dialog.get_by_role("button", name="Reject document").click()
+
+            expect(dialog).to_be_visible()
+            expect(dialog.get_by_role("alert")).to_have_text(
+                "The review decision could not be recorded. Please check the entered values and try again."
+            )
+            expect(reason).to_have_value("The uploaded file is unreadable.")
+            expect(dialog.get_by_role("button", name="Reject document")).to_be_enabled()
+        finally:
+            browser.close()

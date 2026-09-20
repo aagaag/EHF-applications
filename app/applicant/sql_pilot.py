@@ -866,6 +866,14 @@ class SqlApplicantDocumentService:
             purpose=purpose,
         )
         if item is None:
+            self._repository.record_internal_access_outcome(
+                application_id,
+                version_id,
+                actor=actor,
+                actor_group=actor_group,
+                purpose=purpose,
+                outcome="FAILED",
+            )
             return None
         try:
             payload = self._object_store.decrypt_bytes(*item)

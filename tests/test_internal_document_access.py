@@ -219,6 +219,13 @@ def test_internal_document_sql_release_is_procedure_only_scoped_and_audited() ->
         "FROM dbo.Recommendation AS recommendation_row",
     ):
         assert exclusion in migration
+    assert "submission_row.SubmissionStatus = ''ACCEPTED''" in migration
+    assert "pending_submission.SubmissionStatus = ''PENDING''" in migration
+    assert "EXEC dbo.RegisterApplicantDocumentSubmission" in validator
+    assert "@DocumentVersionId=@PendingVersionId" in validator
+    assert "SubmissionStatus='PENDING'" in validator
+    assert "EXEC dbo.ReviewApplicantDocumentSubmission" in validator
+    assert "Classification='UNREVIEWED'" in validator
     assert "INTERNAL_DOCUMENT_ACCESS_REQUESTED" in migration
     assert "INTERNAL_DOCUMENT_ACCESS_SUCCEEDED" in migration
     assert "INTERNAL_DOCUMENT_ACCESS_FAILED" in migration

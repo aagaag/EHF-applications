@@ -14,6 +14,18 @@
   const reviewDialogTitle = document.querySelector("[data-review-dialog-title]");
   const reviewDialogFields = document.querySelector("[data-review-dialog-fields]");
   const reviewDialogSubmit = document.querySelector("[data-review-dialog-submit]");
+  const reviewDialogError = () => {
+    if (!reviewDialogForm) return null;
+    let error = reviewDialogForm.querySelector("[data-review-dialog-error]");
+    if (!error) {
+      error = document.createElement("p");
+      error.dataset.reviewDialogError = "";
+      error.setAttribute("role", "alert");
+      error.setAttribute("aria-live", "assertive");
+      reviewDialogForm.prepend(error);
+    }
+    return error;
+  };
   let canReturnForCorrection = false;
   let previewItems = [];
   let dialogAction = null;
@@ -118,6 +130,8 @@
   const openReviewDialog = (action, value) => {
     if (!reviewDialog || !reviewDialogFields || !reviewDialogTitle || !reviewDialogSubmit) return;
     dialogAction = { action, value };
+    const error = reviewDialogError();
+    if (error) error.textContent = "";
     reviewDialogFields.replaceChildren();
     if (action === "access-provision") {
       reviewDialogTitle.textContent = "Bind approved Entra identity";
@@ -155,7 +169,11 @@
       if (dialogAction.action === "document-reject") response = await fetch(`/api/internal/applicant-document-submissions/${dialogAction.value}/reject`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: String(values.reason).trim() }) });
       if (!response?.ok) throw new Error();
       reviewDialog.close(); dialogAction = null; show("Review decision recorded."); await load();
-    } catch (_error) { show("The review decision could not be recorded. Please check the entered values and try again."); }
+    } catch (_error) {
+      const error = reviewDialogError();
+      if (error) error.textContent = "The review decision could not be recorded. Please check the entered values and try again.";
+      else show("The review decision could not be recorded. Please check the entered values and try again.");
+    }
     finally { reviewDialogSubmit.disabled = false; }
   });
   previewSearch?.addEventListener("input", updatePreviewFilters);

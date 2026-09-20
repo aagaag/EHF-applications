@@ -28,7 +28,17 @@ BEGIN
       AND slot_row.ApplicantVisible = 1
       AND slot_row.SlotCode NOT LIKE ''%RECOMMEND%''
       AND document_row.DocumentType <> ''RECOMMENDATION_LETTER''
-      AND version_row.Classification = ''APPLICANT_VISIBLE''
+      AND
+      (
+          version_row.Classification = ''APPLICANT_VISIBLE''
+          OR EXISTS
+              (SELECT 1
+               FROM dbo.ApplicantDocumentSubmission AS submission_row
+               WHERE submission_row.ApplicationId = @ApplicationId
+                 AND submission_row.DocumentSlotId = slot_row.DocumentSlotId
+                 AND submission_row.DocumentVersionId = version_row.DocumentVersionId
+                 AND submission_row.SubmissionStatus = ''ACCEPTED'')
+      )
       AND object_row.ScanResult = ''CLEAN''
       AND NOT EXISTS
           (SELECT 1 FROM dbo.Recommendation AS recommendation_row
@@ -41,11 +51,10 @@ BEGIN
           OR EXISTS
               (SELECT 1
                FROM dbo.ApplicantDocumentSubmission AS submission_row
-               JOIN dbo.ApplicantDocumentReviewDecision AS decision_row
-                 ON decision_row.ApplicantDocumentSubmissionId =
-                    submission_row.ApplicantDocumentSubmissionId
-                AND decision_row.ReviewDecision = ''ACCEPTED''
-               WHERE submission_row.DocumentVersionId = version_row.DocumentVersionId)
+               WHERE submission_row.ApplicationId = @ApplicationId
+                 AND submission_row.DocumentSlotId = slot_row.DocumentSlotId
+                 AND submission_row.DocumentVersionId = version_row.DocumentVersionId
+                 AND submission_row.SubmissionStatus = ''ACCEPTED'')
       )
     ORDER BY slot_row.SlotCode, slot_row.DocumentSlotId;
 END;
@@ -92,7 +101,17 @@ BEGIN
       AND slot_row.ApplicantVisible = 1
       AND slot_row.SlotCode NOT LIKE ''%RECOMMEND%''
       AND document_row.DocumentType <> ''RECOMMENDATION_LETTER''
-      AND version_row.Classification = ''APPLICANT_VISIBLE''
+      AND
+      (
+          version_row.Classification = ''APPLICANT_VISIBLE''
+          OR EXISTS
+              (SELECT 1
+               FROM dbo.ApplicantDocumentSubmission AS submission_row
+               WHERE submission_row.ApplicationId = @ApplicationId
+                 AND submission_row.DocumentSlotId = slot_row.DocumentSlotId
+                 AND submission_row.DocumentVersionId = version_row.DocumentVersionId
+                 AND submission_row.SubmissionStatus IN (''PENDING'', ''ACCEPTED''))
+      )
       AND object_row.ScanResult = ''CLEAN''
       AND NOT EXISTS
           (SELECT 1 FROM dbo.Recommendation AS recommendation_row
@@ -108,12 +127,11 @@ BEGIN
                OR EXISTS
                    (SELECT 1
                     FROM dbo.ApplicantDocumentSubmission AS accepted_submission
-                    JOIN dbo.ApplicantDocumentReviewDecision AS accepted_decision
-                      ON accepted_decision.ApplicantDocumentSubmissionId =
-                         accepted_submission.ApplicantDocumentSubmissionId
-                     AND accepted_decision.ReviewDecision = ''ACCEPTED''
-                    WHERE accepted_submission.DocumentVersionId =
-                          version_row.DocumentVersionId)
+                    WHERE accepted_submission.ApplicationId = @ApplicationId
+                      AND accepted_submission.DocumentSlotId = slot_row.DocumentSlotId
+                      AND accepted_submission.DocumentVersionId =
+                          version_row.DocumentVersionId
+                      AND accepted_submission.SubmissionStatus = ''ACCEPTED'')
            ))
           OR EXISTS
               (SELECT 1

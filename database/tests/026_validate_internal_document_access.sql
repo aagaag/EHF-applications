@@ -91,6 +91,90 @@ BEGIN TRY
                             'INTERNAL_DOCUMENT_ACCESS_SUCCEEDED')) <> 2
         THROW 54193, 'The internal document access audit trail is incomplete.', 1;
 
+    DECLARE @InvitationId uniqueidentifier=NEWID(), @SessionId uniqueidentifier=NEWID(),
+            @PendingObjectId uniqueidentifier=NEWID(), @PendingVersionId uniqueidentifier=NEWID(),
+            @SubmissionId uniqueidentifier, @SlotRowVersion binary(8),
+            @DeniedVersionId uniqueidentifier=NEWID(),
+            @SessionToken binary(32)=HASHBYTES('SHA2_256',N'026 session');
+    INSERT dbo.ApplicantInvitation
+        (ApplicantInvitationId,ApplicationId,InvitationTokenSha256,ExpiresAtUtc,CreatedByIdentity)
+    VALUES
+        (@InvitationId,@ApplicationId,HASHBYTES('SHA2_256',N'026 invitation'),
+         DATEADD(hour,2,SYSUTCDATETIME()),N'validator');
+    INSERT dbo.ApplicantSession
+        (ApplicantSessionId,ApplicantInvitationId,ApplicationId,SessionTokenSha256,
+         CsrfTokenSha256,CreatedAtUtc,LastSeenAtUtc,IdleExpiresAtUtc,AbsoluteExpiresAtUtc)
+    VALUES
+        (@SessionId,@InvitationId,@ApplicationId,@SessionToken,
+         HASHBYTES('SHA2_256',N'026 csrf'),SYSUTCDATETIME(),SYSUTCDATETIME(),
+         DATEADD(minute,30,SYSUTCDATETIME()),DATEADD(hour,2,SYSUTCDATETIME()));
+    UPDATE dbo.DocumentSlot
+    SET ApplicantUploadMode='REPLACEMENT',UploadReason=N'Validator replacement',
+        OpenedByIdentity=N'validator',OpenedAtUtc=SYSUTCDATETIME()
+    WHERE DocumentSlotId=@SlotId;
+    SELECT @SlotRowVersion=RowVersion FROM dbo.DocumentSlot WHERE DocumentSlotId=@SlotId;
+
+    EXEC dbo.RegisterApplicantDocumentSubmission
+        @SessionTokenSha256=@SessionToken,@DocumentSlotId=@SlotId,
+        @ExpectedRowVersion=@SlotRowVersion,@DocumentId=@DocumentId,
+        @DocumentVersionId=@PendingVersionId,@StoredObjectId=@PendingObjectId,
+        @ObjectKey='4567890abcdef1234567890abcdef123',@KeyVersion=1,@EnvelopeVersion=1,
+        @AesGcmNonce=0x02030405060708090A0B0C0D,
+        @PlaintextSha256=0x0202020202020202020202020202020202020202020202020202020202020202,
+        @CiphertextSha256=0x0303030303030303030303030303030303030303030303030303030303030303,
+        @ByteSize=124,@MediaType='application/pdf',@PageCount=1,
+        @ScanEngine='validator',@ScanSignature=N'clean',
+        @ScannedAtUtc='2026-09-20T00:00:00',@SubmittedDisplayName=N'pending.pdf';
+    SELECT @SubmissionId=ApplicantDocumentSubmissionId
+    FROM dbo.ApplicantDocumentSubmission
+    WHERE DocumentVersionId=@PendingVersionId AND SubmissionStatus='PENDING';
+    IF @SubmissionId IS NULL
+        THROW 54194, 'The pending applicant upload was not registered.', 1;
+
+    DELETE FROM @Opened;
+    INSERT @Opened EXEC dbo.GetInternalApplicantDocument
+        @ApplicationId=@ApplicationId,@DocumentVersionId=@PendingVersionId,
+        @ActorIdentity=N'cloudflare:trustee',@ActorGroup=N'EHF-Trustees',
+        @AccessPurpose='VIEW';
+    IF NOT EXISTS (SELECT 1 FROM @Opened WHERE DocumentVersionId=@PendingVersionId)
+        THROW 54195, 'The pending applicant upload could not be opened.', 1;
+    EXEC dbo.RecordInternalDocumentAccessOutcome
+        @ApplicationId=@ApplicationId,@DocumentVersionId=@PendingVersionId,
+        @ActorIdentity=N'cloudflare:trustee',@ActorGroup=N'EHF-Trustees',
+        @AccessPurpose='VIEW',@Outcome='SUCCEEDED';
+
+    EXEC dbo.ReviewApplicantDocumentSubmission
+        @ApplicantDocumentSubmissionId=@SubmissionId,@Decision='ACCEPTED',
+        @ReviewedByIdentity=N'cloudflare:trustee',@ReviewerGroup='EHF-Trustees';
+    IF NOT EXISTS
+        (SELECT 1 FROM dbo.DocumentVersion
+         WHERE DocumentVersionId=@PendingVersionId AND Classification='UNREVIEWED')
+        THROW 54196, 'Acceptance unexpectedly changed applicant-upload classification.', 1;
+    DELETE FROM @Listed;
+    INSERT @Listed EXEC dbo.ListInternalApplicantDocuments
+        @ApplicationId=@ApplicationId,@ActorIdentity=N'cloudflare:trustee',
+        @ActorGroup=N'EHF-Trustees';
+    IF NOT EXISTS
+        (SELECT 1 FROM @Listed WHERE DocumentSlotId=@SlotId AND DocumentVersionId=@PendingVersionId)
+        THROW 54197, 'The accepted applicant upload was not listed.', 1;
+
+    DELETE FROM @Opened;
+    INSERT @Opened EXEC dbo.GetInternalApplicantDocument
+        @ApplicationId=@ApplicationId,@DocumentVersionId=@DeniedVersionId,
+        @ActorIdentity=N'cloudflare:trustee',@ActorGroup=N'EHF-Trustees',
+        @AccessPurpose='VIEW';
+    IF EXISTS (SELECT 1 FROM @Opened)
+        THROW 54198, 'An unknown document version was returned.', 1;
+    EXEC dbo.RecordInternalDocumentAccessOutcome
+        @ApplicationId=@ApplicationId,@DocumentVersionId=@DeniedVersionId,
+        @ActorIdentity=N'cloudflare:trustee',@ActorGroup=N'EHF-Trustees',
+        @AccessPurpose='VIEW',@Outcome='FAILED';
+    IF (SELECT COUNT(*) FROM dbo.AuditEvent
+        WHERE ApplicationId=@ApplicationId AND EntityId=@DeniedVersionId
+          AND EventType IN ('INTERNAL_DOCUMENT_ACCESS_REQUESTED',
+                            'INTERNAL_DOCUMENT_ACCESS_FAILED')) <> 2
+        THROW 54199, 'The denied document access audit trail is incomplete.', 1;
+
     EXECUTE AS USER = N'ehf_app';
     EXEC dbo.ListInternalApplicantDocuments
         @ApplicationId=@ApplicationId,@ActorIdentity=N'cloudflare:runtime-validator',

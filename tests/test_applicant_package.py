@@ -4,13 +4,24 @@ import io
 
 import pytest
 from pypdf import PdfReader, PdfWriter
+from pypdf.generic import DecodedStreamObject, NameObject
 
 from app.documents.package import PdfPackageError, build_pdf_package
 
 
-def _source_pdf(title: str, *, javascript: bool = False, attachment: bool = False) -> bytes:
+def _source_pdf(
+    title: str,
+    *,
+    javascript: bool = False,
+    attachment: bool = False,
+    page_metadata: bool = False,
+) -> bytes:
     writer = PdfWriter()
-    writer.add_blank_page(width=72, height=72)
+    page = writer.add_blank_page(width=72, height=72)
+    if page_metadata:
+        metadata = DecodedStreamObject()
+        metadata.set_data(b"CONFIDENTIAL_METADATA_SENTINEL")
+        page[NameObject("/Metadata")] = writer._add_object(metadata)
     writer.add_metadata({"/Title": title, "/Author": "Applicant source metadata"})
     if javascript:
         writer.add_js("app.alert('source action')")
@@ -25,7 +36,9 @@ def test_package_rebuilds_allowlisted_pages_without_source_metadata_or_actions()
     """Break caught: a combined dossier could preserve names, attachments, or active actions."""
     payload = build_pdf_package(
         (
-            _source_pdf("private-cv-filename", javascript=True),
+            _source_pdf(
+                "private-cv-filename", javascript=True, page_metadata=True
+            ),
             _source_pdf("private-plan-filename", attachment=True),
         )
     )
@@ -38,6 +51,8 @@ def test_package_rebuilds_allowlisted_pages_without_source_metadata_or_actions()
     assert "private-plan-filename" not in repr(reader.metadata)
     assert "/Names" not in reader.trailer["/Root"]
     assert "/OpenAction" not in reader.trailer["/Root"]
+    assert b"CONFIDENTIAL_METADATA_SENTINEL" not in payload
+    assert all("/Metadata" not in page for page in reader.pages)
 
 
 @pytest.mark.parametrize("sources", ((), (b"not a pdf",)))
