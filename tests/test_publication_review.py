@@ -93,5 +93,9 @@ def test_existing_synthetic_metrics_validator_accepts_validated_count_column() -
     synthetic_validator = (
         ROOT / "database" / "tests" / "019_validate_synthetic_applicant_workspace.sql"
     ).read_text(encoding="utf-8")
+    metrics_validator = (
+        ROOT / "database" / "tests" / "020_validate_synthetic_metrics_academic_age.sql"
+    ).read_text(encoding="utf-8")
 
     assert "ValidatedPublishedPaperCount int" in synthetic_validator
+    assert "REPLACE(@MetricsDefinition, N' ', N'')" in metrics_validator
