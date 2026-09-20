@@ -26,7 +26,7 @@ from app.importer.publications import (
 from app.importer.run import ImportMode
 
 
-OPEN_CITATION_IMPORTER_VERSION = "2026.6-openalex-cutoff"
+OPEN_CITATION_IMPORTER_VERSION = "2026.7-source-cutoff"
 OPEN_CITATION_SOURCES = ("OPENALEX", "SEMANTIC_SCHOLAR")
 OPEN_CITATION_FIELDS = (
     "applicant",
@@ -93,7 +93,9 @@ class OpenCitationReview:
 @dataclass(frozen=True, slots=True)
 class OpenCitationImportResult:
     fingerprint: str
+    source_code: str
     review_count: int
+    eligible_count: int
     observed_count: int
     not_found_count: int
     run_id: str | None
@@ -221,12 +223,18 @@ def load_open_citation_reviews(
             occurrence.normalized_raw_citation
         )
     seen: set[tuple[str, str]] = set()
+    source_codes: set[str] = set()
     reviews: list[OpenCitationReview] = []
     for row_number, row in enumerate(reader, start=2):
         if None in row or any(value is None for value in row.values()):
             raise OpenCitationImportError(f"Snapshot row {row_number} is malformed.")
         work_id = _safe_text(row["final_work_id"], "final_work_id", 80)
         source = row["source_code"]
+        source_codes.add(source)
+        if len(source_codes) > 1:
+            raise OpenCitationImportError(
+                "The snapshot must contain exactly one source for every manifest work."
+            )
         key = (work_id, source)
         if work_id not in work_by_id or source not in OPEN_CITATION_SOURCES or key in seen:
             raise OpenCitationImportError(
@@ -357,7 +365,7 @@ def load_open_citation_reviews(
         )
     if {work_id for work_id, _source in seen} != set(work_by_id):
         raise OpenCitationImportError(
-            "The snapshot must contain OpenAlex for every manifest work."
+            "The snapshot must contain exactly one source for every manifest work."
         )
     return tuple(reviews)
 
@@ -378,12 +386,23 @@ def run_open_citation_import(
 ) -> OpenCitationImportResult:
     manifest = load_publication_manifest(manifest_bytes, expected=expected)
     reviews = load_open_citation_reviews(snapshot_bytes, manifest)
+    source_codes = {review.source_code for review in reviews}
+    if len(source_codes) != 1:
+        raise OpenCitationImportError("The snapshot must contain exactly one source.")
+    source_code = next(iter(source_codes))
     fingerprint = open_citation_fingerprint(snapshot_bytes)
     observed = sum(review.citation_status == "OBSERVED" for review in reviews)
     not_found = len(reviews) - observed
     if mode == ImportMode.PLAN_ONLY:
         return OpenCitationImportResult(
-            fingerprint, len(reviews), observed, not_found, None, False
+            fingerprint,
+            source_code,
+            len(reviews),
+            len(reviews),
+            observed,
+            not_found,
+            None,
+            False,
         )
     if mode != ImportMode.APPLY:
         raise OpenCitationImportError("The open citation import mode is invalid.")
@@ -399,6 +418,10 @@ class SqlOpenCitationRepository:
     def apply(
         self, reviews: Sequence[OpenCitationReview], fingerprint: str
     ) -> OpenCitationImportResult:
+        source_codes = {review.source_code for review in reviews}
+        if len(source_codes) != 1:
+            raise OpenCitationImportError("The snapshot must contain exactly one source.")
+        source_code = next(iter(source_codes))
         calls = self._connection.execute(
             "SELECT CONVERT(varchar(36), FellowshipCallId) "
             "FROM dbo.FellowshipCall WHERE CallCode = N'EHF-2026'"
@@ -420,7 +443,14 @@ class SqlOpenCitationRepository:
         not_found = len(reviews) - observed
         if completed is not None:
             return OpenCitationImportResult(
-                fingerprint, len(reviews), observed, not_found, str(completed[0]), True
+                fingerprint,
+                source_code,
+                len(reviews),
+                len(reviews),
+                observed,
+                not_found,
+                str(completed[0]),
+                True,
             )
 
         publication_ids: dict[str, tuple[str, str]] = {}
@@ -521,6 +551,11 @@ class SqlOpenCitationRepository:
                 "AND RunStatus = 'RUNNING'",
                 run_id,
             )
+            if observed == len(reviews) and not_found == 0:
+                self._connection.execute(
+                    "EXEC dbo.ActivateCitationMetricCutoffRun @ImportRunId = ?",
+                    run_id,
+                )
             self._connection.commit()
         except Exception as error:
             self._connection.rollback()
@@ -534,5 +569,12 @@ class SqlOpenCitationRepository:
                 raise
             raise OpenCitationImportError("The open citation import failed.") from error
         return OpenCitationImportResult(
-            fingerprint, len(reviews), observed, not_found, run_id, False
+            fingerprint,
+            source_code,
+            len(reviews),
+            len(reviews),
+            observed,
+            not_found,
+            run_id,
+            False,
         )

@@ -81,8 +81,3 @@ def test_import_wrapper_protects_private_snapshot_and_verifier_requires_openalex
     ):
         assert obsolete_requirement not in verifier
 
-
-def test_collection_cli_reports_openalex_only() -> None:
-    collector = COLLECTOR.read_text(encoding="utf-8")
-    assert "OpenAlex observed:" in collector
-    assert "Semantic Scholar observed:" not in collector

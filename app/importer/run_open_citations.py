@@ -19,7 +19,7 @@ from app.importer.run_publications import _validate_publication_credential
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Plan or apply Semantic Scholar citation counts."
+        description="Plan or apply a complete official citation-source snapshot."
     )
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--snapshot", required=True, type=Path)
@@ -75,6 +75,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if connection is not None:
             connection.close()
     print(f"Mode: {mode.value}")
+    print(f"Source: {result.source_code}")
+    print(f"Eligible works: {result.eligible_count}")
     print(f"Source observations: {result.review_count}")
     print(f"Observed counts: {result.observed_count}")
     print(f"Not found: {result.not_found_count}")
