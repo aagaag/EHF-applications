@@ -290,7 +290,7 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_twenty_seven_migrations() -> None:
+def test_fresh_repository_run_applies_all_twenty_eight_migrations() -> None:
     """Break caught: a new database could omit the synthetic-session boundary."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -843,7 +843,7 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "026_validate_internal_document_access.sql" in script
     assert "027_internal_document_audit_payload.sql" in script
     assert "027_validate_internal_document_audit_payload.sql" in script
-    assert "Applied 27 migration\\(s\\)\\." in script
+    assert "Applied 28 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1207,14 +1207,14 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_twenty_seven() -> None:
+def test_database_contract_validator_reports_version_twenty_eight() -> None:
     """Break caught: post-upgrade validation could still require the old schema tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 27" in validator
-    assert "WHERE MigrationCount = 27 AND CurrentVersion = 27" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 28" in validator
+    assert "WHERE MigrationCount = 28 AND CurrentVersion = 28" in validator
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")

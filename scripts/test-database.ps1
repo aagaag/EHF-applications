@@ -165,8 +165,8 @@ try {
     $createdDatabase = $true
 
     $firstRun = @(Invoke-MigrationRunner)
-    if (($firstRun -join "`n") -notmatch 'Applied 27 migration\(s\)\.') {
-        throw 'The first migration run did not apply exactly twenty-seven migrations.'
+    if (($firstRun -join "`n") -notmatch 'Applied 28 migration\(s\)\.') {
+        throw 'The first migration run did not apply exactly twenty-eight migrations.'
     }
     $firstRun | Write-Output
 
