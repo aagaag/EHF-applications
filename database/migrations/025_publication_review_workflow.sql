@@ -151,9 +151,8 @@ BEGIN
     VALUES
         (@ApplicationId, ''PUBLICATION_REVIEW_RECORDED'', LTRIM(RTRIM(@ReviewerIdentity)),
          ''ApplicationPublicationReview'', @ReviewId,
-         (SELECT @ApplicationPublicationId AS publicationId,
-                 @ReviewDisposition AS disposition,
-                 @ResolutionStatus AS resolutionStatus
+         (SELECT @ReviewDisposition AS outcome,
+                 @ResolutionStatus AS status
           FOR JSON PATH, WITHOUT_ARRAY_WRAPPER));
 END;
 ');

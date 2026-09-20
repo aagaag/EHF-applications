@@ -82,4 +82,7 @@ def test_publication_review_migration_is_append_only_and_controls_promotions() -
     assert "PW0105" in source and "PW0106" in source
     assert "PW0108" in source and "PW0121" in source
     assert "ValidatedPublishedPaperCount" in source
+    assert "@ReviewDisposition AS outcome" in source
+    assert "@ResolutionStatus AS status" in source
+    assert "@ApplicationPublicationId AS publicationId" not in source
     assert "PASS 025 publication review workflow" in validator
