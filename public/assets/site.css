@@ -208,6 +208,22 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .document-slot-card { min-width: 0; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); padding: 1rem; overflow-wrap: anywhere; }
 .document-upload-form { display: grid; min-width: 0; gap: .7rem; }
 .document-upload-form input { max-width: 100%; min-height: 44px; }
+.document-package { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.document-package h3 { margin: 0 0 .35rem; }
+.document-actions a, .document-package a, .internal-document-list a { display: inline-flex; align-items: center; text-decoration: none; }
+.internal-document-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; margin-top: 1rem; }
+.internal-document-package { grid-column: 1 / -1; }
+.applicant-list-filter { display: grid; grid-template-columns: minmax(12rem, 2fr) minmax(10rem, 1fr); gap: .4rem 1rem; margin-top: 1rem; border: 1px solid var(--line); border-radius: 1rem; padding: 1rem; background: var(--surface); }
+.applicant-list-filter label { display: grid; gap: .35rem; font-weight: 800; }
+.applicant-list-filter input, .applicant-list-filter select { min-width: 0; min-height: 44px; border: 1px solid var(--line); border-radius: .6rem; padding: .6rem .7rem; background: var(--surface); color: var(--text); font: inherit; }
+.review-dialog { width: min(38rem, 94vw); border: 1px solid var(--line); border-radius: 1rem; padding: 0; background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.review-dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.review-dialog-form, .review-dialog-fields { display: grid; gap: 1rem; }
+.review-dialog-form { padding: 1.1rem; }
+.review-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.review-dialog-header h2 { margin: 0; }
+.review-dialog-fields label { display: grid; gap: .35rem; font-weight: 800; }
+.review-dialog-fields input, .review-dialog-fields select, .review-dialog-fields textarea { width: 100%; min-width: 0; box-sizing: border-box; min-height: 44px; border: 1px solid var(--line); border-radius: .6rem; padding: .65rem; background: var(--surface); color: var(--text); font: inherit; }
 
 @media (max-width: 720px) {
   .review-fields { grid-template-columns: minmax(0, 1fr); }
@@ -215,6 +231,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .degree-row, .doi-lookup-row, .publication-preview, .publication-row { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
   .remove-row-action { min-width: 0; }
   .review-actions { align-items: stretch; flex-direction: column; }
+  .applicant-list-filter { grid-template-columns: minmax(0, 1fr); }
   .confirm-action { margin-inline-start: 0; margin-top: .5rem; }
   .publication-records-header { display: none; }
   .publication-record { grid-template-columns: minmax(0, 1fr); gap: .35rem; padding: .7rem; }
@@ -227,6 +244,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .publication-records-header > span, .publication-record-field { padding: .65rem .5rem; }
 }
 @media (min-width: 721px) and (max-width: 900px) {
+  .review-fields-employment { grid-template-columns: minmax(0, 1fr); }
   .degree-row, .doi-lookup-row, .publication-preview, .publication-row { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
   .remove-row-action { min-width: 0; }
 }

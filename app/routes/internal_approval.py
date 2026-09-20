@@ -71,6 +71,7 @@ def register_internal_approval_routes(
                 primary_navigation=primary_navigation(principal),
                 help_navigation=help_navigation(principal),
                 authorization_pills=authorization_pills(principal),
+                back_href=request.query_params.get("return"),
             )
         )
 

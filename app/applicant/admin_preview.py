@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from html import escape
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.applicant.approval import ApplicantPreviewBundle
 from app.applicant.fields import FIELD_INVENTORY, FieldDefinition, upgrade_legacy_applicant, upgrade_legacy_section
@@ -25,6 +26,7 @@ def render_applicant_preview(
     primary_navigation: str | None = None,
     help_navigation: str | None = None,
     authorization_pills: str | None = None,
+    back_href: str | None = None,
 ) -> str:
     values = _section_values(bundle)
     navigation = "".join(
@@ -61,6 +63,7 @@ def render_applicant_preview(
         help_navigation = render_help_navigation(principal)
         authorization_pills = render_authorization_pills(principal)
     assert help_navigation is not None and authorization_pills is not None
+    safe_back_href = _safe_back_href(back_href)
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>EHF Fellowships — applicant viewpoint</title><link rel="stylesheet" href="/assets/site.css"></head>
 <body data-shell><a class="skip-link" href="#main-content">Skip to main content</a>
@@ -73,14 +76,23 @@ def render_applicant_preview(
 <header class="site-hero"><h1>{escape(bundle.applicant_name)}</h1><p>Application status: {escape(bundle.application_status)}</p></header>
 <div class="preview-notice" role="status"><strong>Read-only administrator preview</strong><span>This displays the saved application through the applicant form. It does not sign you in as the applicant and nothing on this page can change the record.</span></div>
 <nav class="applicant-detail-tabs" aria-label="Applicant details"><a href="#summary">Summary</a><a href="#applicant-information">Applicant information</a><a href="#documents">Documents</a><a href="#access-identity">Access &amp; identity</a><a href="#internal-audit">Internal audit</a></nav>
-<section id="summary" class="section-heading"><h2>Summary</h2><p><a href="/internal/applicants">Back to applicants</a>. Use the sections below to inspect this record without entering the applicant session.</p></section>
+<section id="summary" class="section-heading"><h2>Summary</h2><p><a href="{escape(safe_back_href, quote=True)}">Back to applicants</a>. Use the sections below to inspect this record without entering the applicant session.</p></section>
 <section id="applicant-information" aria-labelledby="applicant-information-heading"><div class="section-heading"><h2 id="applicant-information-heading">Applicant information</h2><p>Saved form values and independently reviewed publication evidence.</p></div><nav class="applicant-section-tabs" aria-label="Application information sections">{navigation}</nav>{sections}</section>
-<section id="documents" class="section-heading"><h2>Documents</h2><p>Approved submitted documents and the complete document package will appear here.</p><div data-internal-documents data-application-id="{bundle.application_id}"></div></section>
+<section id="documents" class="section-heading"><h2>Documents</h2><p>Study each original approved submission or open one freshly rebuilt PDF package containing all approved applicant-visible documents.</p><div class="internal-document-list" data-internal-documents data-application-id="{bundle.application_id}"><p role="status">Loading submitted documents…</p></div></section>
 <section id="access-identity" class="section-heading"><h2>Access &amp; identity</h2><p>Identity provisioning and access decisions remain in the review queue.</p></section>
 <section id="internal-audit" class="section-heading"><h2>Internal audit</h2><p>Opening this applicant workspace is recorded in the append-only audit log.</p></section>
 <section id="help" class="section-heading"><h2>Help</h2><p>Use the section controls to inspect the complete saved form. Applicant edits, document uploads, confirmations, and final submission remain available only through the applicant's own Entra-scoped session.</p></section>
 <section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance</h2><p>Choose the display that is most comfortable for you. Your preference is stored securely for your administrator identity.</p></div>{_appearance_controls()}</section>
 </main><script src="/assets/theme.js"></script><script src="/assets/shell.js"></script><script src="/assets/applicant-preview.js"></script></body></html>"""
+
+
+def _safe_back_href(value: str | None) -> str:
+    if not value or len(value) > 2048:
+        return "/internal/applicants"
+    parsed = urlsplit(value)
+    if parsed.scheme or parsed.netloc or parsed.fragment or parsed.path != "/internal/applicants":
+        return "/internal/applicants"
+    return value
 
 
 def _section_values(bundle: ApplicantPreviewBundle) -> dict[str, dict[str, Any]]:

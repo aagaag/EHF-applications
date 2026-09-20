@@ -63,6 +63,7 @@ def test_applicant_admin_preview_is_read_only_accessible_and_responsive() -> Non
         '<script src="/assets/applicant-preview.js"></script>',
     ):
         html = html.replace(hosted_asset, "")
+    html = html.replace("<head>", '<head><base href="https://localhost/">', 1)
 
     with sync_playwright() as playwright:
         try:
@@ -71,6 +72,24 @@ def test_applicant_admin_preview_is_read_only_accessible_and_responsive() -> Non
             pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
         try:
             page = browser.new_page()
+            page.route(
+                "**/api/internal/applicants/a7000000-0000-4000-8000-000000000001/documents",
+                lambda route: route.fulfill(
+                    json={
+                        "documents": [
+                            {
+                                "slotId": "a8000000-0000-4000-8000-000000000001",
+                                "versionId": "a9000000-0000-4000-8000-000000000001",
+                                "code": "CV",
+                                "label": "Curriculum vitae",
+                                "versionNumber": 2,
+                                "status": "ACCEPTED",
+                            }
+                        ],
+                        "packageAvailable": True,
+                    }
+                ),
+            )
             page.set_content(html, wait_until="domcontentloaded")
             page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
             page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
@@ -95,6 +114,15 @@ def test_applicant_admin_preview_is_read_only_accessible_and_responsive() -> Non
             )
             assert page.locator("input:not([readonly]), textarea:not([readonly])").count() == 0
             assert page.get_by_role("button", name="Save changes").count() == 0
+            expect(page.get_by_role("link", name="View original Curriculum vitae")).to_have_attribute(
+                "href",
+                "/api/internal/applicants/a7000000-0000-4000-8000-000000000001/documents/a9000000-0000-4000-8000-000000000001/view",
+            )
+            expect(page.get_by_role("link", name="View complete application PDF")).to_have_attribute(
+                "href",
+                "/api/internal/applicants/a7000000-0000-4000-8000-000000000001/documents/package/view",
+            )
+            expect(page.get_by_role("link", name="Download complete application PDF")).to_be_visible()
 
             page.get_by_role("button", name="Qualifications and academic age").click()
             expect(

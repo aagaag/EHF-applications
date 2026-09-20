@@ -102,6 +102,26 @@ def test_preview_preserves_an_exact_phd_conferral_date() -> None:
     assert "year recorded; full date unavailable" not in page
 
 
+def test_preview_uses_a_validated_return_link_for_filtered_applicant_lists() -> None:
+    bundle = ApplicantPreviewBundle(
+        APPLICATION_ID,
+        "Synthetic Preview Applicant",
+        "IMPORTED",
+        {"applicant": {"fullName": "Synthetic Preview Applicant"}},
+        {},
+    )
+
+    preserved = render_applicant_preview(
+        bundle, back_href="/internal/applicants?q=Synthetic&status=IMPORTED"
+    )
+    unsafe = render_applicant_preview(
+        bundle, back_href="https://attacker.example/collect"
+    )
+
+    assert 'href="/internal/applicants?q=Synthetic&amp;status=IMPORTED"' in preserved
+    assert 'href="/internal/applicants">Back to applicants</a>' in unsafe
+
+
 class PreviewApprovalService(ApplicantApprovalService):
     def previews(self, actor_group: str):  # type: ignore[no-untyped-def]
         if actor_group != INTERNAL_GROUPS.administrators:

@@ -29,7 +29,21 @@ def test_internal_approval_renders_degree_and_publication_lists_readably() -> No
             )
             page.route(
                 "**/api/internal/applicant-document-submissions",
-                lambda route: route.fulfill(json={"submissions": []}),
+                lambda route: route.fulfill(
+                    json={
+                        "submissions": [
+                            {
+                                "submissionId": "submission-1",
+                                "applicationId": "a7000000-0000-4000-8000-000000000001",
+                                "slotId": "a8000000-0000-4000-8000-000000000001",
+                                "versionId": "a9000000-0000-4000-8000-000000000001",
+                                "displayName": "Curriculum vitae",
+                                "submittedAtUtc": "2026-08-18T10:00:00Z",
+                                "status": "PENDING",
+                            }
+                        ]
+                    }
+                ),
             )
             page.route(
                 "**/api/internal/applicant-previews",
@@ -40,7 +54,7 @@ def test_internal_approval_renders_degree_and_publication_lists_readably() -> No
                                 "applicationId": "a7000000-0000-4000-8000-000000000001",
                                 "applicantName": "Synthetic Preview Applicant",
                                 "applicationStatus": "IMPORTED",
-                                "href": "/internal/applicant-previews/a7000000-0000-4000-8000-000000000001",
+                                "href": "/internal/applicants/a7000000-0000-4000-8000-000000000001",
                             }
                         ]
                     }
@@ -95,8 +109,14 @@ def test_internal_approval_renders_degree_and_publication_lists_readably() -> No
             preview = page.get_by_role("link", name="Synthetic Preview Applicant")
             expect(preview).to_be_visible()
             assert preview.get_attribute("href") == (
-                "/internal/applicant-previews/a7000000-0000-4000-8000-000000000001"
+                "/internal/applicants/a7000000-0000-4000-8000-000000000001"
             )
+            submitted_pdf = page.get_by_role("link", name="View submitted PDF")
+            expect(submitted_pdf).to_have_attribute(
+                "href",
+                "/api/internal/applicants/a7000000-0000-4000-8000-000000000001/documents/a9000000-0000-4000-8000-000000000001/view",
+            )
+            expect(submitted_pdf).to_have_attribute("target", "_blank")
 
             page.get_by_role("button", name="Inspect changes").click()
 
@@ -112,11 +132,14 @@ def test_internal_approval_renders_degree_and_publication_lists_readably() -> No
                     route.fulfill(json={"status": "REJECTED"}),
                 )[-1],
             )
-            answers = iter(
-                ["employment", "Please answer the clarified employment question."]
-            )
-            page.on("dialog", lambda dialog: dialog.accept(next(answers)))
             page.get_by_role("button", name="Return one section for correction").click()
+            review_dialog = page.get_by_role("dialog", name="Return section for correction")
+            expect(review_dialog).to_be_visible()
+            review_dialog.get_by_label("Application section").select_option("employment")
+            review_dialog.get_by_label("Correction requested").fill(
+                "Please answer the clarified employment question."
+            )
+            review_dialog.get_by_role("button", name="Return for correction").click()
 
             expect(page.get_by_text("Review decision recorded.")).to_be_visible()
             assert returned == [
@@ -125,5 +148,83 @@ def test_internal_approval_renders_degree_and_publication_lists_readably() -> No
                     "reason": "Please answer the clarified employment question.",
                 }
             ]
+        finally:
+            browser.close()
+
+
+def test_applicant_list_filters_persist_in_url_and_detail_back_link() -> None:
+    """Break caught: reviewers lost their list context after opening an applicant."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import expect, sync_playwright
+
+    html = (ROOT / "public" / "internal" / "applicant-review.html").read_text(
+        encoding="utf-8"
+    )
+    for script in (
+        '<script src="/assets/theme.js"></script>',
+        '<script src="/assets/shell.js"></script>',
+        '<script src="/assets/internal-applicant-review.js"></script>',
+    ):
+        html = html.replace(script, "")
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.route(
+                "https://localhost/internal/applicants*",
+                lambda route: route.fulfill(body=html, content_type="text/html"),
+            )
+            for endpoint, payload in (
+                ("applicant-access-requests", {"requests": []}),
+                (
+                    "applicant-submissions",
+                    {"capabilities": {"returnForCorrection": True}, "submissions": []},
+                ),
+                ("applicant-document-submissions", {"submissions": []}),
+            ):
+                page.route(
+                    f"**/api/internal/{endpoint}",
+                    lambda route, _request, response=payload: route.fulfill(json=response),
+                )
+            page.route(
+                "**/api/internal/applicant-previews",
+                lambda route: route.fulfill(
+                    json={
+                        "applications": [
+                            {
+                                "applicationId": "a7000000-0000-4000-8000-000000000001",
+                                "applicantName": "Ada Applicant",
+                                "applicationStatus": "SUBMITTED",
+                                "href": "/internal/applicants/a7000000-0000-4000-8000-000000000001",
+                            },
+                            {
+                                "applicationId": "b7000000-0000-4000-8000-000000000001",
+                                "applicantName": "Ben Applicant",
+                                "applicationStatus": "IMPORTED",
+                                "href": "/internal/applicants/b7000000-0000-4000-8000-000000000001",
+                            },
+                        ]
+                    }
+                ),
+            )
+            page.goto("https://localhost/internal/applicants")
+            page.add_script_tag(
+                path=str(ROOT / "public" / "assets" / "internal-applicant-review.js")
+            )
+
+            page.get_by_label("Search applicants").fill("Ada")
+            page.get_by_label("Application status").select_option("SUBMITTED")
+
+            expect(page.get_by_role("link", name="Ada Applicant")).to_be_visible()
+            expect(page.get_by_role("link", name="Ben Applicant")).to_be_hidden()
+            assert "q=Ada" in page.url
+            assert "status=SUBMITTED" in page.url
+            ada_href = page.get_by_role("link", name="Ada Applicant").get_attribute("href")
+            assert ada_href is not None
+            assert ada_href.startswith(
+                "/internal/applicants/a7000000-0000-4000-8000-000000000001?return="
+            )
+            assert "%2Finternal%2Fapplicants%3Fq%3DAda%26status%3DSUBMITTED" in ada_href
         finally:
             browser.close()

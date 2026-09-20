@@ -17,11 +17,20 @@
     status.textContent = slot.status;
     card.append(title, status);
     if (slot.downloadAvailable) {
+      const actions = document.createElement("div");
+      actions.className = "review-actions document-actions";
+      const view = document.createElement("a");
+      view.className = "primary-action";
+      view.href = `/api/applicant/documents/${slot.slotId}/view`;
+      view.target = "_blank";
+      view.rel = "noopener";
+      view.textContent = `View ${slot.label}`;
       const download = document.createElement("a");
       download.className = "secondary-action document-download";
       download.href = `/api/applicant/documents/${slot.slotId}/download`;
       download.textContent = `Download ${slot.label}`;
-      card.append(download);
+      actions.append(view, download);
+      card.append(actions);
     }
     if (slot.uploadMode === "MISSING" || slot.uploadMode === "REPLACEMENT") {
       const form = document.createElement("form");
@@ -77,6 +86,10 @@
       if (!response.ok) throw new Error();
       const body = await response.json();
       container.replaceChildren(...body.slots.map(renderSlot));
+      const documentPackage = document.querySelector("[data-document-package]");
+      if (documentPackage) {
+        documentPackage.hidden = !body.slots.some((slot) => slot.downloadAvailable);
+      }
     } catch (_error) {
       markSessionUnverified();
       document.querySelectorAll("[data-document-operations]").forEach((section) => { section.hidden = true; });
