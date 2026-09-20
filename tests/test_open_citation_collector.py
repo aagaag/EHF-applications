@@ -410,7 +410,7 @@ def test_openalex_doi_requests_are_batched_at_the_documented_limit() -> None:
     assert all("select=id%2Cdoi%2Ctitle%2Cpublication_year%2Ccited_by_count%2Cauthorships" in url for _dois, url in batches)
 
 
-def test_openalex_doi_requests_use_a_batched_lookup_and_one_cutoff_timestamp(
+def test_openalex_doi_requests_use_free_singleton_lookups_and_one_cutoff_timestamp(
     monkeypatch,
 ) -> None:
     manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
@@ -423,7 +423,8 @@ def test_openalex_doi_requests_use_a_batched_lookup_and_one_cutoff_timestamp(
         def get_json(self, url: str, *, allow_not_found: bool = False):
             self.urls.append(url)
             assert "api.openalex.org" in url
-            assert "filter=doi%3A10.1000%2Fexample" in url or "/works/https%3A%2F%2Fdoi.org%2F10.1000%2Fexample" in url
+            assert "/works/https%3A%2F%2Fdoi.org%2F10.1000%2Fexample" in url
+            assert "filter=doi%3A" not in url
             return {
                 "results": [{
                     "id": "https://openalex.org/W123",
@@ -489,10 +490,44 @@ def test_openalex_fetches_full_history_when_ten_year_counts_are_incomplete(
                 }],
             }
 
+    monkeypatch.setenv("OPENALEX_API_KEY", "fixture-key")
     monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
     rows = collect_open_citation_rows(manifest, FakeClient())
 
     assert rows[0]["annual_citation_counts"] == '{"2010":3,"2025":16}'
+
+
+def test_keyless_openalex_collection_preserves_total_without_paid_history_query(
+    monkeypatch,
+) -> None:
+    manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.urls: list[str] = []
+
+        def get_json(self, url: str, *, allow_not_found: bool = False):
+            self.urls.append(url)
+            return {
+                "id": "https://openalex.org/W123",
+                "title": "A fixture publication",
+                "publication_year": 2010,
+                "cited_by_count": 19,
+                "doi": "https://doi.org/10.1000/example",
+                "authorships": [{"author": {"display_name": "Alex Example"}}],
+                "counts_by_year": [{"year": 2025, "cited_by_count": 16}],
+            }
+
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
+    client = FakeClient()
+
+    rows = collect_open_citation_rows(manifest, client)
+
+    assert rows[0]["citation_count"] == "19"
+    assert rows[0]["annual_citation_counts"] == "{}"
+    assert len(client.urls) == 1
+    assert "group_by=publication_year" not in client.urls[0]
 
 
 def test_openalex_does_not_spend_search_credits_on_unresolved_metadata(

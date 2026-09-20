@@ -462,23 +462,6 @@ def collect_open_citation_rows(
     total = len(manifest.works)
     rows: list[dict[str, str]] = []
     observed_at = _utc_now()
-    batch_matches: dict[str, tuple[str, dict[str, Any]]] = {}
-    doi_batches = build_openalex_doi_batch_urls(
-        tuple(work.canonical_metadata.doi for work in manifest.works if work.canonical_metadata.doi)
-    )
-    for _dois, batch_url in doi_batches:
-        payload = client.get_json(batch_url)
-        if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
-            raise OpenCitationCollectionError(
-                "OpenAlex returned an unexpected DOI batch response shape."
-            )
-        for candidate in payload["results"]:
-            if not isinstance(candidate, dict):
-                continue
-            candidate_doi = normalize_doi(str(candidate.get("doi") or ""))
-            if candidate_doi:
-                batch_matches[candidate_doi] = (batch_url, candidate)
-        time.sleep(_REQUEST_INTERVAL_SECONDS)
     for index, work in enumerate(manifest.works, start=1):
         raw_citation = raw_by_work.get(work.final_work_id, "")
         doi = work.canonical_metadata.doi or ""
@@ -496,33 +479,43 @@ def collect_open_citation_rows(
             if progress is not None:
                 progress(index, total, "OPENALEX")
             continue
-        batch_match = batch_matches.get(doi) if doi else None
-        query_url = batch_match[0] if batch_match else _openalex_query(work, raw_citation)
-        candidate = batch_match[1] if batch_match else None
-        match = (
-            match_openalex_candidate(work, raw_citation, candidate)
-            if candidate is not None
-            else None
+        query_url = _openalex_query(work, raw_citation)
+        payload = client.get_json(query_url, allow_not_found=True)
+        candidates = (
+            ()
+            if payload is None
+            else (
+                payload.get("results", ())
+                if isinstance(payload, dict) and "results" in payload
+                else (payload,)
+            )
         )
-        if match is None:
-            payload = client.get_json(query_url if not batch_match else _openalex_query(work, raw_citation), allow_not_found=bool(doi))
-            candidates = () if payload is None else (payload.get("results", ()) if isinstance(payload, dict) and "results" in payload else (payload,))
-            match = next((matched for item in candidates if isinstance(item, dict) for matched in (match_openalex_candidate(work, raw_citation, item),) if matched is not None), None)
-            if batch_match:
-                query_url = _openalex_query(work, raw_citation)
-            time.sleep(_REQUEST_INTERVAL_SECONDS)
+        match = next(
+            (
+                matched
+                for item in candidates
+                if isinstance(item, dict)
+                for matched in (match_openalex_candidate(work, raw_citation, item),)
+                if matched is not None
+            ),
+            None,
+        )
+        time.sleep(_REQUEST_INTERVAL_SECONDS)
         if (
             match is not None
             and sum(match.annual_citation_counts.values()) < match.citation_count
         ):
-            history_url = _openalex_full_history_url(match.source_identifier)
-            history = _full_citation_history(client.get_json(history_url))
-            if not history and match.citation_count:
-                raise OpenCitationCollectionError(
-                    "OpenAlex omitted the full citation history for a cited work."
-                )
-            match = replace(match, annual_citation_counts=history)
-            time.sleep(_REQUEST_INTERVAL_SECONDS)
+            if os.environ.get("OPENALEX_API_KEY", "").strip():
+                history_url = _openalex_full_history_url(match.source_identifier)
+                history = _full_citation_history(client.get_json(history_url))
+                if not history and match.citation_count:
+                    raise OpenCitationCollectionError(
+                        "OpenAlex omitted the full citation history for a cited work."
+                    )
+                match = replace(match, annual_citation_counts=history)
+                time.sleep(_REQUEST_INTERVAL_SECONDS)
+            else:
+                match = replace(match, annual_citation_counts={})
         rows.append(_row(work, "OPENALEX", observed_at, reviewer, query_url, match))
         if progress is not None:
             progress(index, total, "OPENALEX")
