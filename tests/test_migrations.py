@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_publication_preview() ->
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 27
-    assert sorted(connection.records) == list(range(1, 31))
+    assert applied == 28
+    assert sorted(connection.records) == list(range(1, 32))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,7 +290,7 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_thirty_migrations() -> None:
+def test_fresh_repository_run_applies_all_thirty_one_migrations() -> None:
     """Break caught: a new database could omit the synthetic-session boundary."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_thirty_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 31))
-    assert applied == 30
+    assert [migration.version for migration in migrations] == list(range(1, 32))
+    assert applied == 31
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -311,7 +311,7 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     """Break caught: a later metrics filter could remove the authoritative academic-age derivation."""
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
-    assert [migration.path.name for migration in migrations[-10:]] == [
+    assert [migration.path.name for migration in migrations[-11:]] == [
         "021_application_publications.sql",
         "022_applicant_publication_preview.sql",
         "023_open_citation_sources.sql",
@@ -321,7 +321,8 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
             "027_internal_document_audit_payload.sql",
             "028_openalex_work_cutoff_metrics.sql",
             "029_openalex_missing_observation_guard.sql",
-            "030_applicant_detail_author_roles.sql",
+                "030_applicant_detail_author_roles.sql",
+                "031_citation_metric_cutoff_runs.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -510,6 +511,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
             "028_openalex_work_cutoff_metrics.sql",
             "029_openalex_missing_observation_guard.sql",
             "030_applicant_detail_author_roles.sql",
+            "031_citation_metric_cutoff_runs.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -542,6 +544,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
             "028_validate_openalex_work_cutoff_metrics.sql",
             "029_validate_openalex_missing_observation_guard.sql",
             "030_validate_applicant_detail_author_roles.sql",
+            "031_validate_citation_metric_cutoff_runs.sql",
     ]
 
 
@@ -597,7 +600,8 @@ def test_every_table_has_a_primary_key_and_database_generated_utc_timestamp() ->
         "PublicationMetadataObservation",
         "PublicationCitationObservation",
         "ApplicantCitationProfileObservation",
-        "ApplicationPublicationReview",
+            "ApplicationPublicationReview",
+            "CitationMetricCutoffRun",
     }
     for table_name, block in blocks.items():
         assert re.search(r"\bPRIMARY KEY\b", block, flags=re.IGNORECASE), table_name
@@ -849,7 +853,7 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "026_validate_internal_document_access.sql" in script
     assert "027_internal_document_audit_payload.sql" in script
     assert "027_validate_internal_document_audit_payload.sql" in script
-    assert "Applied 30 migration\\(s\\)\\." in script
+    assert "Applied 31 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1213,14 +1217,38 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_thirty() -> None:
+def test_database_contract_validator_reports_version_thirty_one() -> None:
     """Break caught: post-upgrade validation could still require the old schema tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 30" in validator
-    assert "WHERE MigrationCount = 30 AND CurrentVersion = 30" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 31" in validator
+    assert "WHERE MigrationCount = 31 AND CurrentVersion = 31" in validator
+
+
+def test_citation_cutoff_migration_requires_a_complete_single_source_import_run() -> None:
+    """Break caught: incomplete or mixed-source evidence could become a comparative metric."""
+    migration = (
+        MIGRATION_DIRECTORY / "031_citation_metric_cutoff_runs.sql"
+    ).read_text(encoding="utf-8")
+    validator = (
+        VALIDATION_DIRECTORY / "031_validate_citation_metric_cutoff_runs.sql"
+    ).read_text(encoding="utf-8")
+
+    for fragment in (
+        "CREATE TABLE dbo.CitationMetricCutoffRun",
+        "CREATE PROCEDURE dbo.ActivateCitationMetricCutoffRun",
+        "COUNT(CASE WHEN observation.CitationStatus=''OBSERVED'' THEN 1 END)",
+        "COUNT(DISTINCT observation.SourceCode)",
+        "THROW",
+        "ALTER PROCEDURE dbo.GetInternalApplicationMetrics",
+        "CitationMetricCutoffRun",
+    ):
+        assert fragment in migration
+    assert "TR_CitationMetricCutoffRun_AppendOnly" in migration
+    assert "incomplete" in validator.casefold()
+    assert "mixed" in validator.casefold()
 
 
 def test_synthetic_validator_captures_the_current_metric_result_shape() -> None:

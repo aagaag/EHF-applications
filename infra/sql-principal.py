@@ -89,6 +89,7 @@ MIGRATIONS = {
     "028_openalex_work_cutoff_metrics.sql": (28, "openalex_work_cutoff_metrics"),
     "029_openalex_missing_observation_guard.sql": (29, "openalex_missing_observation_guard"),
     "030_applicant_detail_author_roles.sql": (30, "applicant_detail_author_roles"),
+    "031_citation_metric_cutoff_runs.sql": (31, "citation_metric_cutoff_runs"),
 }
 COMMANDS = (
     "inspect-production",
