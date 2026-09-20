@@ -123,6 +123,29 @@ def register_applicant_document_routes(
             content={"status": "PENDING", "message": "Uploaded for Foundation review."},
         )
 
+    @application.get("/api/applicant/documents/package/view")
+    def view_applicant_document_package(request: Request) -> Response:
+        return _document_package_response(auth, documents, request, disposition="inline")
+
+    @application.get("/api/applicant/documents/package/download")
+    def download_applicant_document_package(request: Request) -> Response:
+        return _document_package_response(auth, documents, request, disposition="attachment")
+
+    @application.get("/api/applicant/documents/{slot_id}/view")
+    def view_applicant_document(slot_id: UUID, request: Request) -> Response:
+        session = _session(auth, request)
+        if session is None:
+            return _unauthorized()
+        if session.synthetic_actor_identity is not None:
+            return _unavailable()
+        payload = documents.download(session, slot_id)
+        if payload is None:
+            return JSONResponse(
+                status_code=404,
+                content={"message": "The document slot is unavailable."},
+            )
+        return _pdf_response(payload, disposition="inline", filename="document.pdf")
+
     @application.get("/api/applicant/documents/{slot_id}/download")
     def download_applicant_document(slot_id: UUID, request: Request) -> Response:
         session = _session(auth, request)
@@ -136,11 +159,50 @@ def register_applicant_document_routes(
                 status_code=404,
                 content={"message": "The document slot is unavailable."},
             )
-        return Response(
-            payload,
-            media_type="application/pdf",
-            headers={"Content-Disposition": 'attachment; filename="document.pdf"'},
+        return _pdf_response(payload, disposition="attachment", filename="document.pdf")
+
+
+def _document_package_response(
+    auth: ApplicantAuthService,
+    documents: ApplicantDocumentService,
+    request: Request,
+    *,
+    disposition: str,
+) -> Response:
+    session = _session(auth, request)
+    if session is None:
+        return _unauthorized()
+    if session.synthetic_actor_identity is not None:
+        return _unavailable()
+    payload = documents.package(session)
+    if payload is None:
+        return JSONResponse(
+            status_code=404,
+            content={"message": "The document package is unavailable."},
         )
+    return _pdf_response(
+        payload,
+        disposition=disposition,
+        filename="application-document-package.pdf",
+    )
+
+
+def _pdf_response(payload: bytes, *, disposition: str, filename: str) -> Response:
+    return Response(
+        payload,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{filename}"',
+            "Content-Security-Policy": (
+                "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'"
+            ),
+            "Cache-Control": "private, no-store",
+            "Pragma": "no-cache",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+            "Cross-Origin-Resource-Policy": "same-origin",
+        },
+    )
 
 
 def _session(

@@ -16,6 +16,7 @@ from app.documents.store import (
     StoredObjectRecord,
 )
 from app.documents.validation import validate_pdf
+from app.documents.package import PdfPackageError, build_pdf_package
 
 
 REQUIRED_SLOT_CODES = (
@@ -345,6 +346,19 @@ class ApplicantDocumentService:
         ):
             return None
         return self._object_store.decrypt_bytes(version.object_record, version.binding)
+
+    def package(self, session: ApplicantSessionContext) -> bytes | None:
+        sources = tuple(
+            payload
+            for slot in self.slots(session)
+            if (payload := self.download(session, slot.slot_id)) is not None
+        )
+        if not sources:
+            return None
+        try:
+            return build_pdf_package(sources)
+        except PdfPackageError:
+            return None
 
 
 def _safe_applicant_slot(slot: ApplicantDocumentSlot) -> bool:

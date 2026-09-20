@@ -79,6 +79,7 @@ from app.documents.store import (
     StoredObjectRecord,
 )
 from app.documents.validation import ValidatedPdf, validate_pdf
+from app.documents.package import PdfPackageError, build_pdf_package
 from app.navigation import INTERNAL_GROUPS
 
 
@@ -739,6 +740,19 @@ class SqlApplicantDocumentService:
         if item is None:
             return None
         return self._object_store.decrypt_bytes(*item)
+
+    def package(self, session: ApplicantSessionContext) -> bytes | None:
+        sources = tuple(
+            payload
+            for slot in self.slots(session)
+            if (payload := self.download(session, slot.slot_id)) is not None
+        )
+        if not sources:
+            return None
+        try:
+            return build_pdf_package(sources)
+        except PdfPackageError:
+            return None
 
 
 class SqlApplicantFinalizationService:
