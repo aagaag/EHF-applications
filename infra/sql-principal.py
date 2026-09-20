@@ -88,6 +88,7 @@ MIGRATIONS = {
     "027_internal_document_audit_payload.sql": (27, "internal_document_audit_payload"),
     "028_openalex_work_cutoff_metrics.sql": (28, "openalex_work_cutoff_metrics"),
     "029_openalex_missing_observation_guard.sql": (29, "openalex_missing_observation_guard"),
+    "030_applicant_detail_author_roles.sql": (30, "applicant_detail_author_roles"),
 }
 COMMANDS = (
     "inspect-production",
@@ -141,6 +142,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "027_validate_internal_document_audit_payload.sql",
         "028_validate_openalex_work_cutoff_metrics.sql",
         "029_validate_openalex_missing_observation_guard.sql",
+        "030_validate_applicant_detail_author_roles.sql",
     }
 )
 

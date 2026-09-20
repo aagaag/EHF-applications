@@ -21,6 +21,7 @@ class Publication:
     source_url: str | None = None
     citation_count: int | None = None
     citations_by_year: tuple[tuple[int, int], ...] = ()
+    authors_text: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,13 +62,15 @@ def render_applicant_detail(
         f'<span>Academic age: {_text(_number(detail.academic_age))}</span></div>'
     )
     ordered = sorted(detail.publications, key=lambda item: item.year or 0, reverse=True)
-    rows = "".join(_publication_row(publication) for publication in ordered)
+    rows = "".join(_publication_row(publication, detail.name) for publication in ordered)
     empty = '<p class="applicant-detail-empty">No publications are available.</p>' if not rows else ""
     return (
         '<section class="applicant-detail" aria-label="Applicant detail">'
         f"{identity}"
-        f'{_bar_chart("Papers by year", papers, start_year, end_year)}'
-        f'{_bar_chart("Citations by year", citations, start_year, end_year)}'
+        '<div class="applicant-detail-charts">'
+        f'{_bar_chart("Papers by year", "Papers", papers, start_year, end_year)}'
+        f'{_bar_chart("Citations by year", "Citations", citations, start_year, end_year)}'
+        '</div>'
         '<section class="applicant-publications" aria-labelledby="applicant-publications-heading">'
         '<h2 id="applicant-publications-heading">Publications</h2>'
         f'<div class="applicant-publication-list" role="list">{rows}</div>{empty}'
@@ -75,14 +78,21 @@ def render_applicant_detail(
     )
 
 
-def _bar_chart(title: str, values: dict[int, int], start_year: int, end_year: int) -> str:
+def _bar_chart(
+    title: str,
+    axis_label: str,
+    values: dict[int, int],
+    start_year: int,
+    end_year: int,
+) -> str:
     maximum = max(values.values(), default=0)
-    width, height, baseline = 720, 180, 145
-    slot = width / max(1, len(values))
+    width, height, left, right, top, baseline = 720, 180, 52, 708, 18, 145
+    plot_height = baseline - top
+    slot = (right - left) / max(1, len(values))
     bars: list[str] = []
     for index, (year, value) in enumerate(values.items()):
-        bar_height = 0 if maximum == 0 else max(2, round((value / maximum) * 108))
-        x = round(index * slot + slot * 0.15, 2)
+        bar_height = 0 if maximum == 0 else max(2, round((value / maximum) * plot_height))
+        x = round(left + index * slot + slot * 0.15, 2)
         bar_width = round(slot * 0.7, 2)
         y = baseline - bar_height
         bars.append(
@@ -91,33 +101,74 @@ def _bar_chart(title: str, values: dict[int, int], start_year: int, end_year: in
             f'<title>{_text(year)}: {_text(value)}</title></rect>'
         )
     labels = "".join(
-        f'<text x="{round(index * slot + slot / 2, 2)}" y="165" text-anchor="middle">{_text(year)}</text>'
+        f'<text x="{round(left + index * slot + slot / 2, 2)}" y="165" text-anchor="middle">{_text(year)}</text>'
         for index, year in enumerate(values)
+    )
+    ticks = _axis_ticks(maximum)
+    tick_markup = "".join(
+        f'<line x1="{left - 5}" y1="{round(baseline - (value / max(ticks)) * plot_height, 2)}" '
+        f'x2="{left}" y2="{round(baseline - (value / max(ticks)) * plot_height, 2)}" />'
+        f'<text class="chart-y-axis-tick" x="{left - 8}" '
+        f'y="{round(baseline - (value / max(ticks)) * plot_height + 3, 2)}" text-anchor="end">{_text(value)}</text>'
+        for value in ticks
     )
     label = f'{title}, {start_year} through {end_year}'
     return (
         f'<figure class="applicant-detail-chart" aria-label="{_text(label)}">'
         f'<figcaption>{_text(title)}</figcaption>'
         f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{_text(label)}" '
-        f'xmlns="http://www.w3.org/2000/svg"><line x1="0" y1="{baseline}" x2="{width}" y2="{baseline}" />'
-        f'{"".join(bars)}{labels}</svg></figure>'
+        f'xmlns="http://www.w3.org/2000/svg"><line x1="{left}" y1="{top}" x2="{left}" y2="{baseline}" />'
+        f'<line x1="{left}" y1="{baseline}" x2="{right}" y2="{baseline}" />'
+        f'{tick_markup}<text class="chart-y-axis-label" x="15" y="82" text-anchor="middle" '
+        f'transform="rotate(-90 15 82)">{_text(axis_label)}</text>{"".join(bars)}{labels}</svg></figure>'
     )
 
 
-def _publication_row(publication: Publication) -> str:
+def _axis_ticks(maximum: int) -> tuple[int, ...]:
+    if maximum <= 1:
+        return (0, 1)
+    return (0, (maximum + 1) // 2, maximum)
+
+
+def _publication_row(publication: Publication, applicant_name: str) -> str:
     href = _publication_url(publication)
     href_markup = (
         f' data-publication-url="{escape(href, quote=True)}"' if href else ""
     )
     label = ". ".join(part for part in (publication.title, publication.journal, _number(publication.year)) if part)
+    author_position = _author_position(publication.authors_text, applicant_name)
+    position_markup = f' data-author-position="{author_position}"' if author_position else ""
+    lead_author_class = " applicant-publication-row--lead-author" if author_position else ""
     return (
-        f'<div class="applicant-publication-row" role="listitem" data-publication-row '
-        f'data-double-clickable="true" tabindex="0"{href_markup} '
+        f'<div class="applicant-publication-row{lead_author_class}" role="listitem" data-publication-row '
+        f'data-double-clickable="true" tabindex="0"{href_markup}{position_markup} '
         f'aria-label="Open publication: {_text(label)}" title="Double-click to open publication">'
         f'<span class="publication-title">{_text(publication.title)}</span>'
         f'<span class="publication-meta">{_text(publication.journal)} · {_text(publication.year)}</span>'
         '</div>'
     )
+
+
+def _author_position(authors_text: str | None, applicant_name: str) -> str | None:
+    applicant = _person_tokens(applicant_name)
+    authors = [
+        _person_tokens(author)
+        for author in (authors_text or "").split(";")
+        if author.strip()
+    ]
+    if not applicant or not authors:
+        return None
+    if authors[0] == applicant:
+        return "first" if len(authors) > 1 else "sole"
+    if authors[-1] == applicant:
+        return "last"
+    return None
+
+
+def _person_tokens(value: str) -> tuple[str, ...]:
+    return tuple(sorted(part for part in "".join(
+        character.lower() if character.isalnum() else " " for character in value
+    ).split() if part))
 
 
 def _publication_url(publication: Publication) -> str | None:

@@ -99,6 +99,7 @@ def _publication(row: Any) -> Publication:
         source_url=_text(row[5]),
         citation_count=_integer(row[6]),
         citations_by_year=_citation_years(row[7]),
+        authors_text=_text(row[8]) if len(row) > 8 else None,
     )
 
 

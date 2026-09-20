@@ -168,6 +168,7 @@ class _DetailCursor:
                 "https://openalex.org/W123",
                 9,
                 '{"counts_by_year":{"2024":4,"2025":5}}',
+                "Example Applicant; Ben Biologist",
             )
         ]
 
@@ -194,3 +195,4 @@ def test_sql_metric_repository_maps_annual_citation_detail() -> None:
     assert detail.application_number == "EHF-2026-001"
     assert detail.publications[0].doi == "10.1000/example"
     assert detail.publications[0].citations_by_year == ((2024, 4), (2025, 5))
+    assert detail.publications[0].authors_text == "Example Applicant; Ben Biologist"

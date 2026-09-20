@@ -47,6 +47,50 @@ def test_render_detail_shows_identity_charts_and_newest_first_links() -> None:
     assert 'data-publication-row' in html and 'data-double-clickable="true"' in html
 
 
+def test_render_detail_exposes_labeled_vertical_axes_in_a_single_chart_row() -> None:
+    """Break caught: charts could lose their quantity axes or return to a tall stack."""
+    detail = ApplicantDetail(
+        application_number="EHF-2026-007",
+        name="Ada Researcher",
+        publications=(
+            Publication(title="First work", year=2024, citations_by_year=((2024, 2),)),
+            Publication(title="Companion work", year=2024),
+            Publication(title="Second work", year=2025, citations_by_year=((2025, 5),)),
+        ),
+    )
+
+    html = render_applicant_detail(detail, current_year=2025)
+
+    assert '<div class="applicant-detail-charts">' in html
+    assert 'class="chart-y-axis-label"' in html
+    assert '>Papers</text>' in html
+    assert '>Citations</text>' in html
+    assert html.count('class="chart-y-axis-tick"') >= 4
+    assert '>0</text>' in html
+    assert '>2</text>' in html
+    assert '>5</text>' in html
+
+
+def test_render_detail_marks_confident_first_and_last_author_publications() -> None:
+    """Break caught: applicant lead-author publications could be indistinguishable in review."""
+    detail = ApplicantDetail(
+        application_number="EHF-2026-007",
+        name="Ada Researcher",
+        publications=(
+            Publication(title="First author", year=2022, authors_text="Ada Researcher; Ben Biologist"),
+            Publication(title="Middle author", year=2023, authors_text="Ben Biologist; Ada Researcher; Cara Chemist"),
+            Publication(title="Last author", year=2024, authors_text="Ben Biologist; Ada Researcher"),
+        ),
+    )
+
+    html = render_applicant_detail(detail, current_year=2024)
+
+    assert 'data-author-position="first"' in html
+    assert 'data-author-position="last"' in html
+    assert 'data-author-position="middle"' not in html
+    assert html.count("applicant-publication-row--lead-author") == 2
+
+
 def test_render_detail_escapes_text_and_rejects_unsafe_links() -> None:
     detail = ApplicantDetail(
         application_number='"><script>alert(1)</script>',

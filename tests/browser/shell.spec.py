@@ -212,6 +212,56 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             browser.close()
 
 
+def test_applicant_detail_keeps_charts_side_by_side_and_colours_lead_authors_red() -> None:
+    """Break caught: the compact modal could stack charts or lose lead-author emphasis."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from app.applicant_detail import ApplicantDetail, Publication, render_applicant_detail
+
+    html = render_applicant_detail(
+        ApplicantDetail(
+            application_number="EHF-2026-007",
+            name="Ada Researcher",
+            publications=(
+                Publication(
+                    title="Lead work",
+                    year=2025,
+                    authors_text="Ada Researcher; Ben Biologist",
+                    citations_by_year=((2025, 4),),
+                ),
+                Publication(
+                    title="Collaborative work",
+                    year=2024,
+                    authors_text="Ben Biologist; Cara Chemist; Ada Researcher",
+                ),
+            ),
+        ),
+        current_year=2026,
+    )
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover - environment-specific browser installation
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page(viewport={"width": 1024, "height": 768})
+            page.set_content(html, wait_until="domcontentloaded")
+            page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+
+            charts = page.locator(".applicant-detail-chart")
+            first_chart, second_chart = charts.nth(0).bounding_box(), charts.nth(1).bounding_box()
+            assert first_chart is not None and second_chart is not None
+            assert second_chart["x"] > first_chart["x"]
+            assert abs(second_chart["y"] - first_chart["y"]) < 1
+
+            lead = page.locator('[data-author-position="first"]')
+            assert lead.evaluate("node => getComputedStyle(node).color") == "rgb(180, 35, 24)"
+        finally:
+            browser.close()
+
+
 def test_report_field_triangles_sort_text_and_numbers_with_missing_values_last() -> None:
     """Break caught: field sort controls could disappear or order numeric and missing values incorrectly."""
     pytest.importorskip("playwright.sync_api")
