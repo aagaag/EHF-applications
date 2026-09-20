@@ -90,6 +90,7 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/029_openalex_missing_observation_guard.sql",
     "database/migrations/030_applicant_detail_author_roles.sql",
     "database/migrations/031_citation_metric_cutoff_runs.sql",
+    "database/migrations/032_revoke_cutoff_activation_runtime.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -121,6 +122,7 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/029_validate_openalex_missing_observation_guard.sql",
     "database/tests/030_validate_applicant_detail_author_roles.sql",
     "database/tests/031_validate_citation_metric_cutoff_runs.sql",
+    "database/tests/032_validate_cutoff_activation_permissions.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",

@@ -206,7 +206,7 @@ def test_confirmation_procedures_are_session_scoped_and_finalization_is_atomic()
     assert "INSERT dbo.AuditEvent" in submit
 
 
-def test_isolated_database_harness_applies_and_validates_release_thirty_one() -> None:
+def test_isolated_database_harness_applies_and_validates_release_thirty_two() -> None:
     script = DATABASE_SCRIPT.read_text(encoding="utf-8")
     contract = (VALIDATORS / "001_validate_database_contract.sql").read_text(
         encoding="utf-8"
@@ -255,8 +255,10 @@ def test_isolated_database_harness_applies_and_validates_release_thirty_one() ->
             "030_validate_applicant_detail_author_roles.sql",
             "031_citation_metric_cutoff_runs.sql",
             "031_validate_citation_metric_cutoff_runs.sql",
+            "032_revoke_cutoff_activation_runtime.sql",
+            "032_validate_cutoff_activation_permissions.sql",
         ):
             assert name in script
-    assert "Applied 31 migration\\(s\\)\\." in script
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 31" in contract
-    assert "WHERE MigrationCount = 31 AND CurrentVersion = 31" in contract
+    assert "Applied 32 migration\\(s\\)\\." in script
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 32" in contract
+    assert "WHERE MigrationCount = 32 AND CurrentVersion = 32" in contract

@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_publication_preview() ->
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 28
-    assert sorted(connection.records) == list(range(1, 32))
+    assert applied == 29
+    assert sorted(connection.records) == list(range(1, 33))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,7 +290,7 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_thirty_one_migrations() -> None:
+def test_fresh_repository_run_applies_all_thirty_two_migrations() -> None:
     """Break caught: a new database could omit the synthetic-session boundary."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_thirty_one_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 32))
-    assert applied == 31
+    assert [migration.version for migration in migrations] == list(range(1, 33))
+    assert applied == 32
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -311,18 +311,19 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     """Break caught: a later metrics filter could remove the authoritative academic-age derivation."""
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
-    assert [migration.path.name for migration in migrations[-11:]] == [
+    assert [migration.path.name for migration in migrations[-12:]] == [
         "021_application_publications.sql",
         "022_applicant_publication_preview.sql",
         "023_open_citation_sources.sql",
         "024_applicant_citation_profiles.sql",
         "025_publication_review_workflow.sql",
-            "026_internal_document_access.sql",
-            "027_internal_document_audit_payload.sql",
-            "028_openalex_work_cutoff_metrics.sql",
-            "029_openalex_missing_observation_guard.sql",
-                "030_applicant_detail_author_roles.sql",
-                "031_citation_metric_cutoff_runs.sql",
+        "026_internal_document_access.sql",
+        "027_internal_document_audit_payload.sql",
+        "028_openalex_work_cutoff_metrics.sql",
+        "029_openalex_missing_observation_guard.sql",
+        "030_applicant_detail_author_roles.sql",
+        "031_citation_metric_cutoff_runs.sql",
+        "032_revoke_cutoff_activation_runtime.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -507,11 +508,12 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "024_applicant_citation_profiles.sql",
         "025_publication_review_workflow.sql",
         "026_internal_document_access.sql",
-            "027_internal_document_audit_payload.sql",
-            "028_openalex_work_cutoff_metrics.sql",
-            "029_openalex_missing_observation_guard.sql",
-            "030_applicant_detail_author_roles.sql",
-            "031_citation_metric_cutoff_runs.sql",
+        "027_internal_document_audit_payload.sql",
+        "028_openalex_work_cutoff_metrics.sql",
+        "029_openalex_missing_observation_guard.sql",
+        "030_applicant_detail_author_roles.sql",
+        "031_citation_metric_cutoff_runs.sql",
+        "032_revoke_cutoff_activation_runtime.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -540,11 +542,12 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "024_validate_applicant_citation_profiles.sql",
         "025_validate_publication_review_workflow.sql",
         "026_validate_internal_document_access.sql",
-            "027_validate_internal_document_audit_payload.sql",
-            "028_validate_openalex_work_cutoff_metrics.sql",
-            "029_validate_openalex_missing_observation_guard.sql",
-            "030_validate_applicant_detail_author_roles.sql",
-            "031_validate_citation_metric_cutoff_runs.sql",
+        "027_validate_internal_document_audit_payload.sql",
+        "028_validate_openalex_work_cutoff_metrics.sql",
+        "029_validate_openalex_missing_observation_guard.sql",
+        "030_validate_applicant_detail_author_roles.sql",
+        "031_validate_citation_metric_cutoff_runs.sql",
+        "032_validate_cutoff_activation_permissions.sql",
     ]
 
 
@@ -853,7 +856,7 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "026_validate_internal_document_access.sql" in script
     assert "027_internal_document_audit_payload.sql" in script
     assert "027_validate_internal_document_audit_payload.sql" in script
-    assert "Applied 31 migration\\(s\\)\\." in script
+    assert "Applied 32 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1217,14 +1220,14 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_thirty_one() -> None:
+def test_database_contract_validator_reports_version_thirty_two() -> None:
     """Break caught: post-upgrade validation could still require the old schema tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 31" in validator
-    assert "WHERE MigrationCount = 31 AND CurrentVersion = 31" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 32" in validator
+    assert "WHERE MigrationCount = 32 AND CurrentVersion = 32" in validator
 
 
 def test_citation_cutoff_migration_requires_a_complete_single_source_import_run() -> None:

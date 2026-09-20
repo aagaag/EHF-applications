@@ -78,7 +78,7 @@ INSERT @ProtectedTables VALUES
     (N'ApplicantFinalReviewDecision'), (N'ApplicantDocumentReviewDecision'),
     (N'ApplicationPublication'), (N'ApplicationPublicationSourceOccurrence'),
     (N'ApplicationPublicationReview'), (N'PublicationMetadataObservation'),
-    (N'PublicationCitationObservation');
+    (N'PublicationCitationObservation'), (N'CitationMetricCutoffRun');
 DECLARE @RequiredDmlDenies TABLE (TableName sysname NOT NULL, PermissionName sysname NOT NULL, PRIMARY KEY (TableName, PermissionName));
 INSERT @RequiredDmlDenies
 SELECT TableName, PermissionName

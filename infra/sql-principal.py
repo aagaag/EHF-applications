@@ -90,6 +90,7 @@ MIGRATIONS = {
     "029_openalex_missing_observation_guard.sql": (29, "openalex_missing_observation_guard"),
     "030_applicant_detail_author_roles.sql": (30, "applicant_detail_author_roles"),
     "031_citation_metric_cutoff_runs.sql": (31, "citation_metric_cutoff_runs"),
+    "032_revoke_cutoff_activation_runtime.sql": (32, "revoke_cutoff_activation_runtime"),
 }
 COMMANDS = (
     "inspect-production",
@@ -145,6 +146,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "029_validate_openalex_missing_observation_guard.sql",
         "030_validate_applicant_detail_author_roles.sql",
         "031_validate_citation_metric_cutoff_runs.sql",
+        "032_validate_cutoff_activation_permissions.sql",
     }
 )
 
