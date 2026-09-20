@@ -29,6 +29,7 @@ def _records() -> tuple[PreviewApplicantMetric, ...]:
             first_author_papers=7,
             last_author_papers=2,
             total_papers=18,
+            validated_published_papers=16,
             h_index=12,
             verified_citations=640,
             orcid="0000-0002-1825-0097",
@@ -41,6 +42,7 @@ def _records() -> tuple[PreviewApplicantMetric, ...]:
             age=31,
             academic_age=4,
             total_papers=9,
+            validated_published_papers=8,
             google_scholar_citations=125,
         ),
     )
@@ -82,7 +84,11 @@ def test_workbook_preserves_the_approved_metrics_contract_and_native_charts() ->
     assert metrics.cell(header_row[0].row + 1, 3).value == 36
     assert isinstance(metrics.cell(header_row[0].row + 1, 4).value, float)
     assert metrics.cell(header_row[0].row + 1, 5).value == "NR"
+    assert metrics.cell(header_row[0].row + 1, 8).value == 18
+    assert metrics.cell(header_row[0].row + 1, 9).value == 16
     assert metrics.cell(header_row[0].row + 2, 1).value == "Zoë Example"
+    assert metrics.cell(header_row[0].row + 2, 8).value == 9
+    assert metrics.cell(header_row[0].row + 2, 9).value == 8
     assert metrics.tables
     assert metrics.auto_filter.ref is None
     assert len(workbook["Charts"]._charts) == 2

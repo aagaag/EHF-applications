@@ -105,7 +105,7 @@ def _sections(
 def _report_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
     return (
         '<section id="reports" aria-labelledby="reports-heading"><div class="section-heading">'
-        '<h2 id="reports-heading">Reports</h2><p>OpenAlex citations are calculated from each applicant’s verified published works at the 20 September 2026 cutoff. Unmatched works are excluded and retained for audit.</p><p class="report-interaction-hint">Use the triangles beside any field title to sort ascending or descending. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
+        '<h2 id="reports-heading">Reports</h2><p>OpenAlex citations are calculated from each applicant’s verified published works at the 20 September 2026 cutoff; validated publication counts use the same verified set. Applicant-reported publication totals remain separate, while unmatched and non-publication records are excluded from validated statistics and retained for audit.</p><p class="report-interaction-hint">Use the triangles beside any field title to sort ascending or descending. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
         '<div class="report-grid">'
         f'{_scatterplot(records, "Citations by anagraphic age", "age", "Anagraphic age")}'
         f'{_scatterplot(records, "Citations by academic age", "academic_age", "Academic age")}'
@@ -126,7 +126,8 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
         ("Applicant", "text"), ("Degree", "text"), ("Age", "number"),
         ("Academic age (years)", "number"), ("Gender", "text"),
         ("First / last author papers", "number"),
-        ("Total papers", "number"), ("h-index", "number"),
+        ("Applicant-reported / validated published papers", "number"),
+        ("h-index", "number"),
         ("OpenAlex citations (20 Sep 2026)", "number"),
     )
     labels = tuple(label for label, _kind in headers)
@@ -180,7 +181,13 @@ def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str
             _combined_metric_markup(record.first_author_papers, record.last_author_papers),
             _number(record.first_author_papers),
         ),
-        (record.total_papers, _display_markup(_number(record.total_papers)), None),
+        (
+            (record.total_papers, record.validated_published_papers),
+            _combined_metric_markup(
+                record.total_papers, record.validated_published_papers
+            ),
+            _number(record.validated_published_papers),
+        ),
         (record.h_index, _display_markup(_number(record.h_index)), None),
         (record.verified_citations, _display_markup(_number(record.verified_citations)), None),
     )

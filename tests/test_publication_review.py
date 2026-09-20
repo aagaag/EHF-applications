@@ -66,6 +66,36 @@ def test_unresolved_preview_uses_review_status_and_evidence_not_missing_placehol
     assert 'role="link"' not in rendered
 
 
+def test_accepted_preprint_disposition_is_presented_as_a_human_readable_category() -> None:
+    record = SimpleNamespace(
+        application_publication_id=UUID("25000000-0000-4000-8000-000000000002"),
+        authors_text=None,
+        title=None,
+        journal_text=None,
+        volume_text=None,
+        pages_text=None,
+        publication_year=None,
+        citation_count=None,
+        citation_status="NOT_APPLICABLE",
+        openalex_citation_count=None,
+        openalex_citation_status="NOT_APPLICABLE",
+        semantic_scholar_citation_count=None,
+        semantic_scholar_citation_status="NOT_APPLICABLE",
+        publication_url=None,
+        resolution_status="UNRESOLVED",
+        review_disposition="ACCEPTED_PREPRINT",
+        review_reason="Accepted manuscript; not yet a published paper.",
+        review_evidence="Dossier page 4.",
+        source_citation="Accepted manuscript",
+        source_page=4,
+    )
+
+    rendered = _publication_record(record)
+
+    assert "UNRESOLVED · ACCEPTED / PREPRINT" in rendered
+    assert "Missing" not in rendered
+
+
 def test_publication_review_migration_is_append_only_and_controls_promotions() -> None:
     source = MIGRATION.read_text(encoding="utf-8")
     validator = VALIDATOR.read_text(encoding="utf-8")

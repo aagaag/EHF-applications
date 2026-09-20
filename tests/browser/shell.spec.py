@@ -166,6 +166,7 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
                 first_author_papers=7,
                 last_author_papers=2,
                 total_papers=18,
+                validated_published_papers=16,
                 h_index=12,
                 total_citations=640,
                 orcid="0000-0002-1825-0097",

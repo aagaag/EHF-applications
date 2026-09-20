@@ -320,7 +320,10 @@ def _scientific_citation(record: Any) -> str:
 def _publication_review(record: Any) -> str:
     resolution = str(getattr(record, "resolution_status", None) or "UNRESOLVED")
     disposition = str(getattr(record, "review_disposition", None) or "PENDING_REVIEW")
-    summary = f"{resolution.replace('_', ' ')} · {disposition.replace('_', ' ')}"
+    disposition_label = {
+        "ACCEPTED_PREPRINT": "ACCEPTED / PREPRINT",
+    }.get(disposition, disposition.replace("_", " "))
+    summary = f"{resolution.replace('_', ' ')} · {disposition_label}"
     reason = _optional_value(getattr(record, "review_reason", None))
     evidence = _optional_value(getattr(record, "review_evidence", None))
     source = _optional_value(getattr(record, "source_citation", None))
