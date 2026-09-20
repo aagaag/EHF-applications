@@ -43,7 +43,7 @@ manifest=$1
 chmod 600 -- "$manifest"
 test "$(/usr/bin/stat -c '%U:%G:%a' "$manifest")" = 'aag:aag:600'
 '@
-    $EncodedProtectScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ProtectScript))
+    $EncodedProtectScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ProtectScript.Replace("`r`n", "`n")))
     & ssh.exe -o BatchMode=yes $Target "printf %s '$EncodedProtectScript' | /usr/bin/base64 --decode | /bin/sh -s -- '$RemoteManifest'"
     if ($LASTEXITCODE -ne 0) { throw 'The transferred publication manifest has unsafe permissions.' }
 
@@ -59,7 +59,7 @@ PYTHONPATH=/opt/ehf/current "$python" -m app.importer.collect_open_citations \
 chmod 600 -- "$snapshot"
 test "$(/usr/bin/stat -c '%U:%G:%a' "$snapshot")" = 'aag:aag:600'
 '@
-    $EncodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteScript))
+    $EncodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteScript.Replace("`r`n", "`n")))
     & ssh.exe -o BatchMode=yes $Target "printf %s '$EncodedScript' | /usr/bin/base64 --decode | /bin/sh -s -- '$RemoteManifest' '$RemoteSnapshot'"
     if ($LASTEXITCODE -ne 0) { throw 'The the EHF VM open-citation collection failed.' }
 

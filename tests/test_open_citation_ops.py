@@ -49,6 +49,14 @@ def test_collection_wrapper_runs_unprivileged_on_the_ehf_vm_and_cleans_private_s
     assert "[StringComparison]::OrdinalIgnoreCase" in source
 
 
+def test_collection_wrapper_normalizes_windows_line_endings_before_remote_shell() -> None:
+    """Break caught: CRLF in the remote permission probe made `/bin/sh` reject it."""
+    source = COLLECT_SCRIPT.read_text(encoding="utf-8")
+
+    assert '$ProtectScript.Replace("`r`n", "`n")' in source
+    assert '$RemoteScript.Replace("`r`n", "`n")' in source
+
+
 def test_import_wrapper_protects_private_snapshot_and_verifier_requires_openalex() -> None:
     assert IMPORT_SCRIPT.exists() and VERIFY_SCRIPT.exists()
     importer = IMPORT_SCRIPT.read_text(encoding="utf-8")

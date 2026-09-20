@@ -135,7 +135,8 @@ def run_validators(connection) -> None:
         "025_validate_publication_review_workflow.sql",
         "026_validate_internal_document_access.sql",
         "027_validate_internal_document_audit_payload.sql",
-        "028_validate_openalex_work_cutoff_metrics.sql",
+            "028_validate_openalex_work_cutoff_metrics.sql",
+            "029_validate_openalex_missing_observation_guard.sql",
     ]:
         raise BootstrapError("The EHF validator set is incomplete or unexpected.")
     try:
