@@ -1217,6 +1217,16 @@ def test_database_contract_validator_reports_version_twenty_eight() -> None:
     assert "WHERE MigrationCount = 28 AND CurrentVersion = 28" in validator
 
 
+def test_synthetic_validator_captures_the_current_metric_result_shape() -> None:
+    """Break caught: migration 019's runtime probe could lag the metrics procedure shape."""
+    validator = (
+        VALIDATION_DIRECTORY / "019_validate_synthetic_applicant_workspace.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "ApplicationId varchar(36)" in validator
+    assert "ApplicationNumber nvarchar(20)" in validator
+
+
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")
 def test_database_script_rejects_a_non_test_database_before_connecting() -> None:
     """Break caught: the integration harness could target a production database name."""
