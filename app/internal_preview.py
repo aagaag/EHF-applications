@@ -72,8 +72,7 @@ def render_internal_preview(
 <nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation"><span class="app-nav-heading">Settings</span><a class="app-nav-link" href="#appearance">Appearance</a><button class="app-nav-disclosure" type="button" data-disclosure aria-expanded="false" aria-controls="help-links">Help</button><div class="app-nav-submenu" id="help-links" hidden>{_help_links(help_items)}</div>{_authorization_pills(pills)}</nav></aside>
 <main class="site-main" id="main-content" tabindex="-1"><header class="site-hero" id="overview"><h1>Charles Weissmann Fellowships</h1><p>Internal workspace preview for the Ernst Hadorn Foundation.</p></header>
 <div class="preview-notice" role="status">Preview only<span>{escape(notice)} Submission is not active. Communication sending is not active. {escape(record_notice)}</span></div>
-<section aria-labelledby="workspaces-heading"><div class="section-heading"><h2 id="workspaces-heading">Workspaces</h2><p>The current application register is available below for administrator inspection.</p></div><div class="shell-grid">{_cards(entries)}</div></section>
-{_report_section(records)}{_sections(entries, exclude=frozenset({"reports"}))}<section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance preview</h2><p>Preferences load and save server-side only after secure sign-in is active.</p></div>{_appearance_controls()}</section></main>
+{_report_section(records)}{_sections(entries, include=frozenset({"operations"}))}<section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance preview</h2><p>Preferences load and save server-side only after secure sign-in is active.</p></div>{_appearance_controls()}</section></main>
 <footer class="site-footer">EHF Fellowships · internal preview · Page last modified: <time data-last-modified></time></footer><script src="/assets/theme.js"></script><script src="/assets/shell.js"></script></body></html>"""
 
 
@@ -91,20 +90,13 @@ def _help_links(entries: tuple[NavigationEntry, ...]) -> str:
     )
 
 
-def _cards(entries: tuple[NavigationEntry, ...]) -> str:
-    return "".join(
-        f'<a class="shell-card" href="{escape(entry.href)}"><strong>{escape(entry.label)}</strong><span>{escape(entry.help_text)}</span></a>'
-        for entry in entries
-    )
-
-
 def _sections(
-    entries: tuple[NavigationEntry, ...], *, exclude: frozenset[str] = frozenset()
+    entries: tuple[NavigationEntry, ...], *, include: frozenset[str] = frozenset()
 ) -> str:
     return "".join(
         f'<section id="{escape(entry.key)}" class="section-heading"><h2>{escape(entry.label)}</h2><p>{escape(entry.help_text)}</p></section>'
         for entry in entries
-        if entry.key not in exclude
+        if entry.key in include
     )
 
 
@@ -112,18 +104,18 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
     return (
         '<section id="reports" aria-labelledby="reports-heading"><div class="section-heading">'
         '<h2 id="reports-heading">Reports</h2><p>Source citation counts plotted against the age observations in the 2026 register. Source-attributed profile totals take precedence; applicant-reported and historic Google Scholar values remain visible for comparison.</p><p class="report-interaction-hint">Use the triangles beside any field title to sort ascending or descending. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
+        '<div class="report-grid">'
+        f'{_scatterplot(records, "Citations by anagraphic age", "age", "Anagraphic age")}'
+        f'{_scatterplot(records, "Citations by academic age", "academic_age", "Academic age")}'
+        f'{_age_comparison_plot(records)}'
+        "</div>"
         '<div class="report-actions"><label class="report-filter" for="report-applicant-filter">Filter applicants'
         '<select id="report-applicant-filter" data-report-filter>'
         '<option value="" selected disabled>Select application status</option>'
         '<option value="completed">Completed applications</option>'
         '<option value="missing">Applications where anything is missing</option>'
         '</select></label><a class="report-download" href="/internal/reports/metrics.xlsx">Download Excel</a></div>'
-        f'{_report_table(records)}'
-        '<div class="report-grid">'
-        f'{_scatterplot(records, "Citations by anagraphic age", "age", "Anagraphic age")}'
-        f'{_scatterplot(records, "Citations by academic age", "academic_age", "Academic age")}'
-        f'{_age_comparison_plot(records)}'
-        "</div></section>"
+        f'{_report_table(records)}</section>'
     )
 
 
@@ -131,10 +123,9 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
     headers = (
         ("Applicant", "text"), ("Degree", "text"), ("Age", "number"),
         ("Academic age (years)", "number"), ("Gender", "text"),
-        ("First-author papers", "number"), ("Last-author papers", "number"),
+        ("First / last author papers", "number"),
         ("Total papers", "number"), ("h-index", "number"),
-        ("Verified citations", "number"), ("Citation source", "text"),
-        ("Total citations", "number"), ("ORCID", "text"),
+        ("Verified / total citations", "number"),
         ("Google Scholar citations", "number"), ("GS identity certainty", "text"),
     )
     labels = tuple(label for label, _kind in headers)
@@ -179,21 +170,56 @@ def _report_header(index: int, label: str, kind: str) -> str:
 
 def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str:
     values = (
-        record.applicant, record.degree, _number(record.age), _number(record.academic_age),
-        record.gender, record.first_author_papers, record.last_author_papers,
-        record.total_papers, record.h_index, record.verified_citations,
-        _profile_source_markup(record), record.total_citations, record.orcid,
-        record.google_scholar_citations, record.identity_certainty,
+        (record.applicant, _display_markup(record.applicant), None),
+        (record.degree, _display_markup(record.degree), None),
+        (record.age, _display_markup(_number(record.age)), None),
+        (record.academic_age, _display_markup(_number(record.academic_age)), None),
+        (record.gender, _display_markup(record.gender), None),
+        (
+            (record.first_author_papers, record.last_author_papers),
+            _combined_metric_markup(record.first_author_papers, record.last_author_papers),
+            _number(record.first_author_papers),
+        ),
+        (record.total_papers, _display_markup(_number(record.total_papers)), None),
+        (record.h_index, _display_markup(_number(record.h_index)), None),
+        (
+            (record.verified_citations, record.total_citations, record.verified_citation_source),
+            _citation_summary_markup(record),
+            _number(record.verified_citations),
+        ),
+        (record.google_scholar_citations, _display_markup(_number(record.google_scholar_citations)), None),
+        (record.identity_certainty, _display_markup(record.identity_certainty), None),
     )
     cells = "".join(
-        f'<span role="cell" data-label="{escape(label)}">'
-        f'{value if label == "Citation source" else _display_markup(value)}</span>'
-        for label, value in zip(headers, values, strict=True)
+        _report_cell(label, markup, sort_value=sort_value)
+        for label, (_raw, markup, sort_value) in zip(headers, values, strict=True)
     )
-    status = "missing" if any(value in (None, "") for value in values) else "completed"
+    status_values = tuple(raw for raw, _markup, _sort_value in values)
+    status = "missing" if any(value in (None, "") or (isinstance(value, tuple) and any(part in (None, "") for part in value)) for value in status_values) else "completed"
     return (
         f'<div class="report-data-row" role="row" data-report-row tabindex="0" data-report-status="{status}" '
         f'aria-label="Open full details for {escape(record.applicant)}">{cells}</div>'
+    )
+
+
+def _report_cell(label: str, markup: str, *, sort_value: str | None) -> str:
+    sort_attribute = (
+        f' data-report-sort-value="{escape(sort_value, quote=True)}"'
+        if sort_value is not None
+        else ""
+    )
+    return f'<span role="cell" data-label="{escape(label)}"{sort_attribute}>{markup}</span>'
+
+
+def _combined_metric_markup(first: int | None, last: int | None) -> str:
+    return f"{_display_markup(_number(first))} / {_display_markup(_number(last))}"
+
+
+def _citation_summary_markup(record: PreviewApplicantMetric) -> str:
+    return (
+        f"{_display_markup(_number(record.verified_citations))} / "
+        f"{_display_markup(_number(record.total_citations))} "
+        f"({_profile_source_markup(record)})"
     )
 
 

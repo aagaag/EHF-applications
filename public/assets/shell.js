@@ -124,8 +124,8 @@
           if (leftMissing === rightMissing) return 0;
           return leftMissing ? 1 : -1;
         }
-        const leftText = left?.textContent.trim() || "";
-        const rightText = right?.textContent.trim() || "";
+        const leftText = left?.dataset.reportSortValue || left?.textContent.trim() || "";
+        const rightText = right?.dataset.reportSortValue || right?.textContent.trim() || "";
         const comparison = kind === "number"
           ? Number(leftText.replaceAll(",", "")) - Number(rightText.replaceAll(",", ""))
           : reportCollator.compare(leftText, rightText);

@@ -69,12 +69,24 @@ def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_ov
             page.locator("html[data-preferences-ready='true']").wait_for()
             assert not page_errors, page_errors
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
-            assert page.locator(".shell-card").count() >= 1
+            assert page.locator(".shell-card").count() == 0
             assert page.locator(".preview-notice").count() == 1
             assert page.locator(".report-table").count() == 1
             assert page.get_by_role("link", name="Download Excel").count() == 1
             assert "Preview only" in page.locator(".preview-notice").inner_text()
             assert page.locator("text=Authorizations:").count() == 1
+            if viewport[0] >= 1280:
+                cards = page.locator(".report-grid .report-card")
+                assert cards.count() == 3
+                top_edges = cards.evaluate_all(
+                    "nodes => nodes.map(node => node.getBoundingClientRect().top)"
+                )
+                assert max(top_edges) - min(top_edges) < 1
+                assert page.locator(".report-header [role='columnheader']").count() == 11
+                header_columns = page.locator(".report-header").evaluate(
+                    "node => getComputedStyle(node).gridTemplateColumns.split(' ').length"
+                )
+                assert header_columns == 11
 
             if viewport[0] <= 720:
                 assert page.evaluate("matchMedia('(max-width: 720px)').matches")
@@ -182,10 +194,10 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             modal = page.locator("[data-report-modal]")
             assert modal.get_attribute("open") == ""
             assert modal.get_by_role("heading", name="Applicant One").count() == 1
-            assert modal.locator("dt").count() == 15
-            assert modal.locator("dd").count() == 15
+            assert modal.locator("dt").count() == 11
+            assert modal.locator("dd").count() == 11
             assert modal.locator("dd", has_text="Missing").count() == 1
-            assert modal.locator("dd", has_text="0000-0002-1825-0097").count() == 1
+            assert modal.locator("dd", has_text="0000-0002-1825-0097").count() == 0
 
             missing = modal.locator(".missing-value")
             assert missing.evaluate("node => getComputedStyle(node).color") == "rgb(180, 35, 24)"
@@ -238,7 +250,7 @@ def test_report_field_triangles_sort_text_and_numbers_with_missing_values_last()
             def applicant_order() -> list[str]:
                 return page.locator("[data-report-row] [role='cell']:first-child").all_inner_texts()
 
-            assert page.locator("[data-report-sort]").count() == 30
+            assert page.locator("[data-report-sort]").count() == 22
             assert page.get_by_role("button", name="Sort Applicant ascending").is_visible()
 
             page.get_by_role("button", name="Sort Applicant ascending").click()

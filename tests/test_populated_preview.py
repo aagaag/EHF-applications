@@ -17,7 +17,7 @@ def _administrator() -> AuthenticatedIdentity:
     )
 
 
-def test_populated_preview_places_reports_directly_after_workspaces_without_application_cards() -> None:
+def test_overview_starts_with_three_reports_and_uses_compact_combined_metrics() -> None:
     records = (
         PreviewApplicantMetric(
             applicant="Applicant One",
@@ -25,22 +25,25 @@ def test_populated_preview_places_reports_directly_after_workspaces_without_appl
             age=36,
             academic_age=8.5,
             gender=None,
-            first_author_papers=7,
-            last_author_papers=2,
+            first_author_papers=2,
+            last_author_papers=0,
             total_papers=18,
             h_index=12,
-            total_citations=640,
+            total_citations=743,
             orcid="0000-0002-1825-0097",
             google_scholar_citations=710,
             identity_certainty="High",
+            verified_citations=656,
+            verified_citation_source="OpenAlex",
+            verified_citation_profile_url="https://openalex.org/A123",
         ),
     )
 
     html = render_internal_preview(_administrator(), simulation=True, records=records)
 
-    after_workspaces = html.split("</section>", 1)[1].lstrip()
-
-    assert after_workspaces.startswith('<section id="reports"')
+    assert 'workspaces-heading' not in html
+    assert 'class="shell-grid"' not in html
+    assert html.index('class="report-grid"') < html.index('class="report-table"')
     assert 'id="applications"' not in html
     assert 'href="#applications"' not in html
     assert 'class="application-row"' not in html
@@ -50,9 +53,9 @@ def test_populated_preview_places_reports_directly_after_workspaces_without_appl
     assert html.count('class="report-data-row"') == len(records)
     assert html.count('data-report-row tabindex="0"') == len(records)
     assert 'data-report-modal aria-labelledby="report-details-title"' in html
-    assert html.count('<strong class="missing-value">Missing</strong>') == 3
-    assert html.count('data-report-sort-direction="ascending"') == 15
-    assert html.count('data-report-sort-direction="descending"') == 15
+    assert html.count('<strong class="missing-value">Missing</strong>') == 1
+    assert html.count('data-report-sort-direction="ascending"') == 11
+    assert html.count('data-report-sort-direction="descending"') == 11
     assert 'aria-label="Sort Applicant ascending"' in html
     assert 'aria-label="Sort GS identity certainty descending"' in html
     assert 'data-report-filter' in html
@@ -64,6 +67,13 @@ def test_populated_preview_places_reports_directly_after_workspaces_without_appl
     assert "Citations by anagraphic age" in html
     assert "Citations by academic age" in html
     assert "Academic age versus anagraphic age" in html
+    assert "First / last author papers" in html
+    assert "Verified / total citations" in html
+    assert "2 / 0" in html
+    assert "656 / 743" in html
+    assert ">OpenAlex</a>" in html
+    assert "Citation source" not in html
+    assert "ORCID" not in html
     assert "No applicant records" not in html
 
 
@@ -80,10 +90,10 @@ def test_reports_name_the_verified_profile_source_without_overwriting_the_self_r
 
     html = render_internal_preview(_administrator(), simulation=True, records=(record,))
 
-    assert "Verified citations" in html
-    assert "Citation source" in html
-    assert ">710<" in html
-    assert ">OpenAlex<" in html
+    assert "Verified / total citations" in html
+    assert "Citation source" not in html
+    assert "710 / 640" in html
+    assert ">OpenAlex</a>" in html
     assert "Source-attributed profile totals take precedence" in html
 
 
