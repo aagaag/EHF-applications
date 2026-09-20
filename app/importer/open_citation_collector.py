@@ -315,7 +315,9 @@ def _openalex_query(work: PublicationWork, raw_citation: str) -> str:
         return "https://api.openalex.org/works/" + quote(
             f"https://doi.org/{doi}", safe=""
         )
-    query = work.canonical_metadata.title or raw_citation[:1000]
+    query = _normalized_text(work.canonical_metadata.title or raw_citation)[:300]
+    if not query:
+        query = "publication"
     return "https://api.openalex.org/works?" + urlencode(
         {"search": query, "per_page": 5}
     )

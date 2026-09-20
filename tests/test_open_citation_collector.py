@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
 from app.importer.open_citation_collector import (
     OfficialCitationApiClient,
     OpenCitationCollectionError,
+    _openalex_query,
     build_openalex_doi_batch_urls,
     collect_open_citation_rows,
     match_openalex_candidate,
@@ -21,6 +23,26 @@ from app.importer.publications import ManifestCounts, load_publication_manifest
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "import" / "publications-minimal.json"
 FIXTURE_COUNTS = ManifestCounts(1, 1, 2, 3)
+
+
+def test_openalex_fallback_search_removes_query_syntax_and_bounds_length() -> None:
+    manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
+    work = replace(
+        manifest.works[0],
+        canonical_metadata=replace(
+            manifest.works[0].canonical_metadata,
+            doi=None,
+            doi_url=None,
+            title=None,
+        ),
+    )
+
+    url = _openalex_query(work, "Author, F.* " + "Population genetics — study " * 30)
+    query = parse_qs(urlparse(url).query)["search"][0]
+
+    assert "*" not in query
+    assert "—" not in query
+    assert len(query) <= 300
 
 
 def test_collection_uses_openalex_for_the_common_cutoff(monkeypatch) -> None:
