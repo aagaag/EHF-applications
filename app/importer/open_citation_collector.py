@@ -52,10 +52,14 @@ class OfficialCitationApiClient:
     """Small retrying client for official citation APIs."""
 
     def __init__(self, *, user_agent: str, timeout_seconds: float = 30.0) -> None:
+        headers = {"User-Agent": user_agent, "Accept": "application/json"}
+        api_key = os.environ.get("OPENALEX_API_KEY", "").strip()
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         self._client = httpx.Client(
             timeout=timeout_seconds,
             follow_redirects=True,
-            headers={"User-Agent": user_agent, "Accept": "application/json"},
+            headers=headers,
         )
 
     def close(self) -> None:

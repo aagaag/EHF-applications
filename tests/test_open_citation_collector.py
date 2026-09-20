@@ -75,6 +75,16 @@ def test_collection_uses_openalex_for_the_common_cutoff(monkeypatch) -> None:
     assert rows[0]["citation_count"] == "17"
 
 
+def test_official_client_uses_the_protected_openalex_api_key(monkeypatch) -> None:
+    monkeypatch.setenv("OPENALEX_API_KEY", "fixture-key")
+
+    client = OfficialCitationApiClient(user_agent="fixture")
+    try:
+        assert client._client.headers["Authorization"] == "Bearer fixture-key"
+    finally:
+        client.close()
+
+
 def test_rate_limit_failure_identifies_the_official_api_host(monkeypatch) -> None:
     class Response:
         status_code = 429
