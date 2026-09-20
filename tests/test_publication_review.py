@@ -86,3 +86,12 @@ def test_publication_review_migration_is_append_only_and_controls_promotions() -
     assert "@ResolutionStatus AS status" in source
     assert "@ApplicationPublicationId AS publicationId" not in source
     assert "PASS 025 publication review workflow" in validator
+
+
+def test_existing_synthetic_metrics_validator_accepts_validated_count_column() -> None:
+    """Break caught: an appended metrics column broke the full SQL validator sequence."""
+    synthetic_validator = (
+        ROOT / "database" / "tests" / "019_validate_synthetic_applicant_workspace.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "ValidatedPublishedPaperCount int" in synthetic_validator
