@@ -88,10 +88,10 @@ def render_applicant_preview(
 
 def _safe_back_href(value: str | None) -> str:
     if not value or len(value) > 2048:
-        return "/internal/applicants"
+        return "/internal/applicant-previews"
     parsed = urlsplit(value)
-    if parsed.scheme or parsed.netloc or parsed.fragment or parsed.path != "/internal/applicants":
-        return "/internal/applicants"
+    if parsed.scheme or parsed.netloc or parsed.fragment or parsed.path != "/internal/applicant-previews":
+        return "/internal/applicant-previews"
     return value
 
 

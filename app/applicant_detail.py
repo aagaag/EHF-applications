@@ -45,21 +45,7 @@ def render_applicant_detail(
     detail: ApplicantDetail, *, current_year: int | None = None
 ) -> str:
     """Render an accessible, escaped HTML detail component."""
-    end_year = current_year if current_year is not None else date.today().year
-    years = [publication.year for publication in detail.publications if _valid_year(publication.year)]
-    start_year = min(years, default=end_year)
-    if start_year > end_year:
-        end_year = start_year
-    span = tuple(range(start_year, end_year + 1))
-    papers = {year: 0 for year in span}
-    citations = {year: 0 for year in span}
-    for publication in detail.publications:
-        if publication.year in papers:
-            papers[publication.year] += 1
-        for year, count in publication.citations_by_year:
-            if year in citations and isinstance(count, int) and count >= 0:
-                citations[year] += count
-
+    charts = _detail_charts(detail, current_year=current_year)
     identity = (
         f'<div class="applicant-detail-identity" aria-label="Applicant identity">'
         f'<span class="application-number">{_text(detail.application_number)}</span>'
@@ -74,9 +60,7 @@ def render_applicant_detail(
         '<section class="applicant-detail" aria-label="Applicant detail">'
         f"{identity}"
         '<div class="applicant-detail-charts">'
-        f'{_bar_chart("Papers by year", "Papers", papers, start_year, end_year)}'
-        f'{_bar_chart("Citations by year", "Citations", citations, start_year, end_year)}'
-        f'{_journal_scatter_chart(detail.publications, detail.name)}'
+        f'{"".join(charts)}'
         '</div>'
         '<section class="applicant-publications" aria-labelledby="applicant-publications-heading">'
         '<h2 id="applicant-publications-heading">Publications</h2>'
@@ -90,6 +74,53 @@ def render_applicant_detail(
         '</span></span></div>'
         f'<div class="applicant-publication-body" role="rowgroup">{rows}</div></div>{empty}'
         '</section></section>'
+    )
+
+
+def render_full_page_chart(
+    detail: ApplicantDetail, chart_index: int, *, current_year: int | None = None
+) -> str:
+    """Render one chart in a same-origin document that can load the shared stylesheet."""
+    charts = _detail_charts(detail, current_year=current_year)
+    titles = (
+        "Papers by year",
+        "Citations by year",
+        "Papers by year and journal citedness",
+    )
+    if not 0 <= chart_index < len(charts):
+        raise ValueError("unknown chart")
+    chart = charts[chart_index]
+    title = titles[chart_index]
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f'<title>{_text(title)}</title><link rel="stylesheet" href="/assets/site.css">'
+        f'</head><body class="chart-page"><main class="site-main"><h1>{_text(title)}</h1>{chart}'
+        '</main></body></html>'
+    )
+
+
+def _detail_charts(
+    detail: ApplicantDetail, *, current_year: int | None = None
+) -> tuple[str, str, str]:
+    end_year = current_year if current_year is not None else date.today().year
+    years = [publication.year for publication in detail.publications if _valid_year(publication.year)]
+    start_year = min(years, default=end_year)
+    if start_year > end_year:
+        end_year = start_year
+    span = tuple(range(start_year, end_year + 1))
+    papers = {year: 0 for year in span}
+    citations = {year: 0 for year in span}
+    for publication in detail.publications:
+        if publication.year in papers:
+            papers[publication.year] += 1
+        for year, count in publication.citations_by_year:
+            if year in citations and isinstance(count, int) and count >= 0:
+                citations[year] += count
+    return (
+        _bar_chart("Papers by year", "Papers", papers, start_year, end_year),
+        _bar_chart("Citations by year", "Citations", citations, start_year, end_year),
+        _journal_scatter_chart(detail.publications, detail.name),
     )
 
 

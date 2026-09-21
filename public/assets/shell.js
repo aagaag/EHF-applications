@@ -177,12 +177,11 @@
       reportDetails.innerHTML = await response.text();
       reportDetails.querySelectorAll("[data-full-page-chart]").forEach((chart) => {
         const openFullPageChart = () => {
-          const title = chart.querySelector("figcaption")?.textContent.trim() || "Applicant graph";
-          const escapedTitle = title.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-          const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><base href="${window.location.origin}/"><title>${escapedTitle}</title><link rel="stylesheet" href="/assets/site.css"></head><body><main class="site-main"><h1>${escapedTitle}</h1>${chart.outerHTML}</main></body></html>`;
-          const url = URL.createObjectURL(new Blob([page], { type: "text/html" }));
-          window.open(url, "_blank", "noopener,noreferrer");
-          window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+          const chartIndex = [...reportDetails.querySelectorAll("[data-full-page-chart]")].indexOf(chart);
+          if (chartIndex < 0 || !url) return;
+          const fullPageUrl = new URL(url, window.location.origin);
+          fullPageUrl.searchParams.set("full_page_chart", String(chartIndex));
+          window.open(fullPageUrl, "_blank", "noopener,noreferrer");
         };
         chart.addEventListener("click", openFullPageChart);
         chart.addEventListener("keydown", (event) => {

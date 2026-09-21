@@ -57,8 +57,10 @@ def test_internal_rendering_uses_one_filtered_inventory_for_navigation_help_card
 
     administrator = _client(_identity(INTERNAL_GROUPS.administrators)).get("/internal/")
     assert administrator.status_code == 200
-    for text in ("Overview", "Reports", "Operations", "Operations help"):
+    for text in ("Overview", "Reports"):
         assert text in administrator.text
+    assert "Operations" not in administrator.text
+    assert "Operations help" not in administrator.text
     assert 'href="#applications"' not in administrator.text
     assert INTERNAL_GROUPS.administrators in administrator.text
     assert INTERNAL_GROUPS.trustees in administrator.text
@@ -68,6 +70,28 @@ def test_internal_rendering_uses_one_filtered_inventory_for_navigation_help_card
     assert "Operations" not in trustee.text
     assert "Operations help" not in trustee.text
     assert 'href="#applications"' not in trustee.text
+
+
+def test_retired_internal_destinations_are_not_linked_or_routable() -> None:
+    """Break caught: retired applicant workspaces or report anchors could remain exposed."""
+    from app.navigation import INTERNAL_GROUPS, filtered_inventory
+
+    client = _client(_identity(INTERNAL_GROUPS.administrators))
+    internal = client.get("/internal/")
+
+    assert internal.status_code == 200
+    for href in (
+        "/internal/applicants",
+        "/internal/applicant-review",
+        "/internal/#reports",
+        "/internal/#operations",
+    ):
+        assert f'href="{href}"' not in internal.text
+    assert tuple(entry.key for entry in filtered_inventory({INTERNAL_GROUPS.administrators})) == (
+        "overview",
+    )
+    assert client.get("/internal/applicants").status_code == 404
+    assert client.get("/internal/applicant-review").status_code == 404
 
 
 def test_authenticated_production_root_opens_the_internal_portal() -> None:

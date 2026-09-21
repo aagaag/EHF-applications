@@ -43,8 +43,7 @@ from app.identity import (
     deny_identity,
 )
 from app.internal_preview import render_internal_preview
-from app.applicant_detail import render_applicant_detail
-from app.internal_shell import render_internal_page
+from app.applicant_detail import render_applicant_detail, render_full_page_chart
 from app.metrics import EmptyMetricRepository, MetricRepository, SqlMetricRepository
 from app.navigation import INTERNAL_GROUPS
 from app.preferences import AppearancePreference, Identity, PreferenceRepository, SqlPreferenceRepository
@@ -392,7 +391,7 @@ def create_app(
         response_class=HTMLResponse,
     )
     def internal_applicant_metric_detail(
-        application_id: UUID, request: Request
+        application_id: UUID, request: Request, full_page_chart: int | None = None
     ) -> HTMLResponse:
         principal = authenticated(request)
         if not principal.groups & {INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}:
@@ -406,18 +405,12 @@ def create_app(
             detail = metrics.load_detail(application_id, role)
         except LookupError:
             raise HTTPException(status_code=404) from None
-        return HTMLResponse(render_applicant_detail(detail))
-
-    @application.get("/internal/applicant-review", response_class=HTMLResponse)
-    @application.get("/internal/applicants", response_class=HTMLResponse)
-    def internal_applicant_review(request: Request) -> HTMLResponse:
-        principal = authenticated(request)
-        if not principal.groups & {INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}:
-            raise HTTPException(status_code=404)
-        template = (public_root / "internal" / "applicant-review.html").read_text(
-            encoding="utf-8"
-        )
-        return HTMLResponse(render_internal_page(template, principal))
+        if full_page_chart is None:
+            return HTMLResponse(render_applicant_detail(detail))
+        try:
+            return HTMLResponse(render_full_page_chart(detail, full_page_chart))
+        except ValueError:
+            raise HTTPException(status_code=404) from None
 
     @application.get("/internal/reports/metrics.xlsx")
     def metrics_workbook(request: Request) -> Response:

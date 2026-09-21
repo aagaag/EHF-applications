@@ -54,7 +54,7 @@ def test_internal_approval_renders_degree_and_publication_lists_readably() -> No
                                 "applicationId": "a7000000-0000-4000-8000-000000000001",
                                 "applicantName": "Synthetic Preview Applicant",
                                 "applicationStatus": "IMPORTED",
-                                "href": "/internal/applicants/a7000000-0000-4000-8000-000000000001",
+                                "href": "/internal/applicant-previews/a7000000-0000-4000-8000-000000000001",
                             }
                         ]
                     }
@@ -109,7 +109,7 @@ def test_internal_approval_renders_degree_and_publication_lists_readably() -> No
             preview = page.get_by_role("link", name="Synthetic Preview Applicant")
             expect(preview).to_be_visible()
             assert preview.get_attribute("href") == (
-                "/internal/applicants/a7000000-0000-4000-8000-000000000001"
+                "/internal/applicant-previews/a7000000-0000-4000-8000-000000000001"
             )
             submitted_pdf = page.get_by_role("link", name="View submitted PDF")
             expect(submitted_pdf).to_have_attribute(
@@ -172,7 +172,7 @@ def test_applicant_list_filters_persist_in_url_and_detail_back_link() -> None:
         try:
             page = browser.new_page()
             page.route(
-                "https://localhost/internal/applicants*",
+                "https://localhost/internal/applicant-previews*",
                 lambda route: route.fulfill(body=html, content_type="text/html"),
             )
             for endpoint, payload in (
@@ -196,19 +196,19 @@ def test_applicant_list_filters_persist_in_url_and_detail_back_link() -> None:
                                 "applicationId": "a7000000-0000-4000-8000-000000000001",
                                 "applicantName": "Ada Applicant",
                                 "applicationStatus": "SUBMITTED",
-                                "href": "/internal/applicants/a7000000-0000-4000-8000-000000000001",
+                                "href": "/internal/applicant-previews/a7000000-0000-4000-8000-000000000001",
                             },
                             {
                                 "applicationId": "b7000000-0000-4000-8000-000000000001",
                                 "applicantName": "Ben Applicant",
                                 "applicationStatus": "IMPORTED",
-                                "href": "/internal/applicants/b7000000-0000-4000-8000-000000000001",
+                                "href": "/internal/applicant-previews/b7000000-0000-4000-8000-000000000001",
                             },
                         ]
                     }
                 ),
             )
-            page.goto("https://localhost/internal/applicants")
+            page.goto("https://localhost/internal/applicant-previews")
             page.add_script_tag(
                 path=str(ROOT / "public" / "assets" / "internal-applicant-review.js")
             )
@@ -223,9 +223,9 @@ def test_applicant_list_filters_persist_in_url_and_detail_back_link() -> None:
             ada_href = page.get_by_role("link", name="Ada Applicant").get_attribute("href")
             assert ada_href is not None
             assert ada_href.startswith(
-                "/internal/applicants/a7000000-0000-4000-8000-000000000001?return="
+                "/internal/applicant-previews/a7000000-0000-4000-8000-000000000001?return="
             )
-            assert "%2Finternal%2Fapplicants%3Fq%3DAda%26status%3DSUBMITTED" in ada_href
+            assert "%2Finternal%2Fapplicant-previews%3Fq%3DAda%26status%3DSUBMITTED" in ada_href
         finally:
             browser.close()
 

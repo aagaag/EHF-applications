@@ -56,6 +56,50 @@ def test_trustee_can_load_applicant_metric_detail() -> None:
     assert 'data-publication-url="https://doi.org/10.1000/example"' in response.text
 
 
+def test_trustee_can_open_one_metric_chart_in_a_styled_full_page() -> None:
+    """Break caught: CSP could leave a click-through chart page without its stylesheet."""
+    principal = AuthenticatedIdentity(
+        Identity("trustee:1", "trustee@example.test", "Trustee"),
+        frozenset({INTERNAL_GROUPS.trustees}),
+    )
+    app = create_app(
+        Settings.from_environment({"EHF_ALLOWED_HOST": "localhost"}),
+        readiness_checks=ReadinessChecks(lambda _timeout: None, lambda _timeout: None),
+        identity_resolver=lambda _request: principal,
+        metric_repository=_Metrics(),
+    )
+
+    response = TestClient(app, base_url="http://localhost").get(
+        f"/api/internal/applicants/{APPLICATION_ID}/metrics-detail?full_page_chart=0"
+    )
+
+    assert response.status_code == 200
+    assert response.text.startswith("<!doctype html>")
+    assert '<link rel="stylesheet" href="/assets/site.css">' in response.text
+    assert response.text.count('data-full-page-chart') == 1
+    assert '<body class="chart-page">' in response.text
+
+
+def test_metric_chart_page_rejects_an_unknown_chart() -> None:
+    """Break caught: a negative index could expose a different chart than requested."""
+    principal = AuthenticatedIdentity(
+        Identity("trustee:1", "trustee@example.test", "Trustee"),
+        frozenset({INTERNAL_GROUPS.trustees}),
+    )
+    app = create_app(
+        Settings.from_environment({"EHF_ALLOWED_HOST": "localhost"}),
+        readiness_checks=ReadinessChecks(lambda _timeout: None, lambda _timeout: None),
+        identity_resolver=lambda _request: principal,
+        metric_repository=_Metrics(),
+    )
+
+    response = TestClient(app, base_url="http://localhost").get(
+        f"/api/internal/applicants/{APPLICATION_ID}/metrics-detail?full_page_chart=-1"
+    )
+
+    assert response.status_code == 404
+
+
 def test_metric_publication_maps_nullable_journal_evidence_from_the_projection() -> None:
     publication = _publication(
         (

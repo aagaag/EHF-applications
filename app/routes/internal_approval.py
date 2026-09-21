@@ -41,7 +41,7 @@ def register_internal_approval_routes(
                     "applicationId": item.application_id,
                     "applicantName": item.applicant_name,
                     "applicationStatus": item.application_status,
-                    "href": f"/internal/applicants/{item.application_id}",
+                    "href": f"/internal/applicant-previews/{item.application_id}",
                 }
                 for item in sorted(
                     approval.previews(group),
@@ -51,7 +51,6 @@ def register_internal_approval_routes(
         }))
 
     @application.get("/internal/applicant-previews/{application_id}")
-    @application.get("/internal/applicants/{application_id}")
     def applicant_preview(application_id: str, request: Request) -> HTMLResponse:
         principal = authenticated(request)
         group = _administrator_group(principal)

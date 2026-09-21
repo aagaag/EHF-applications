@@ -438,7 +438,28 @@ def test_modal_chart_opens_as_a_full_page_graph_in_a_new_tab() -> None:
             pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
         try:
             page = browser.new_page()
-            page.set_content(page_html, wait_until="domcontentloaded")
+            full_page_html = """<!doctype html><html lang=\"en\"><head><link rel=\"stylesheet\" href=\"/assets/site.css\"></head><body class=\"chart-page\"><main class=\"site-main\"><h1>Papers by year</h1><figure class=\"applicant-detail-chart\" data-full-page-chart><figcaption>Papers by year</figcaption></figure></main></body></html>"""
+            css = (ROOT / "public" / "assets" / "site.css").read_text(encoding="utf-8")
+
+            def route(route):  # type: ignore[no-untyped-def]
+                if route.request.url == "https://ehf.test/internal/":
+                    route.fulfill(
+                        content_type="text/html",
+                        body=page_html,
+                    )
+                elif route.request.url == "https://ehf.test/assets/site.css":
+                    route.fulfill(content_type="text/css", body=css)
+                elif route.request.url == f"https://ehf.test/api/internal/applicants/{application_id}/metrics-detail?full_page_chart=0":
+                    route.fulfill(
+                        content_type="text/html",
+                        body=full_page_html,
+                        headers={"Content-Security-Policy": "default-src 'none'; style-src 'self'; base-uri 'none'"},
+                    )
+                else:
+                    route.fulfill(status=404)
+
+            page.context.route("https://ehf.test/**", route)
+            page.goto("https://ehf.test/internal/")
             page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
             page.evaluate(
                 """detail => { window.fetch = async url => String(url).endsWith('/review-artifacts')
@@ -455,8 +476,12 @@ def test_modal_chart_opens_as_a_full_page_graph_in_a_new_tab() -> None:
                 chart.click()
             popup = popup_info.value
             popup.wait_for_load_state()
+            assert popup.url == f"https://ehf.test/api/internal/applicants/{application_id}/metrics-detail?full_page_chart=0", popup.url
             expect(popup.get_by_role("heading", name="Papers by year")).to_be_visible()
             expect(popup.locator("[data-full-page-chart]")).to_have_count(1)
+            assert popup.locator(".applicant-detail-chart").evaluate(
+                "node => getComputedStyle(node).borderTopWidth"
+            ) == "1px"
         finally:
             browser.close()
 
@@ -515,7 +540,11 @@ def test_modal_identity_items_stay_compact_on_one_desktop_line() -> None:
             boxes = [item.bounding_box() for item in items.all()]
             assert all(box is not None for box in boxes)
             assert len({round(box["y"]) for box in boxes if box is not None}) == 1
+            assert identity.evaluate("node => getComputedStyle(node).flexWrap") == "nowrap"
             assert boxes[1] is not None and boxes[1]["width"] < identity.bounding_box()["width"] * 0.4
+            page.set_viewport_size({"width": 390, "height": 844})
+            assert identity.evaluate("node => getComputedStyle(node).flexWrap") == "wrap"
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
         finally:
             browser.close()
 

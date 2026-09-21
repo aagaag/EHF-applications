@@ -58,7 +58,7 @@
     const applicationStatus = previewStatus?.value || "";
     if (query) params.set("q", query);
     if (applicationStatus) params.set("status", applicationStatus);
-    return `/internal/applicants${params.size ? `?${params}` : ""}`;
+    return `/internal/applicant-previews${params.size ? `?${params}` : ""}`;
   };
   const renderPreviews = () => {
     const query = previewSearch?.value.trim().toLocaleLowerCase() || "";
@@ -75,7 +75,7 @@
     previewList.replaceChildren(...filtered.map((item) => {
       const link = document.createElement("a");
       link.className = "shell-card";
-      link.href = returnUrl === "/internal/applicants" ? item.href : `${item.href}?return=${encodeURIComponent(returnUrl)}`;
+      link.href = returnUrl === "/internal/applicant-previews" ? item.href : `${item.href}?return=${encodeURIComponent(returnUrl)}`;
       const name = document.createElement("strong"); name.textContent = item.applicantName;
       const state = document.createElement("span"); state.textContent = `Application status: ${item.applicationStatus}`;
       link.append(name, state);

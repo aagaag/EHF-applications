@@ -145,14 +145,14 @@ def test_preview_uses_a_validated_return_link_for_filtered_applicant_lists() -> 
     )
 
     preserved = render_applicant_preview(
-        bundle, back_href="/internal/applicants?q=Synthetic&status=IMPORTED"
+        bundle, back_href="/internal/applicant-previews?q=Synthetic&status=IMPORTED"
     )
     unsafe = render_applicant_preview(
         bundle, back_href="https://attacker.example/collect"
     )
 
-    assert 'href="/internal/applicants?q=Synthetic&amp;status=IMPORTED"' in preserved
-    assert 'href="/internal/applicants">Back to applicants</a>' in unsafe
+    assert 'href="/internal/applicant-previews?q=Synthetic&amp;status=IMPORTED"' in preserved
+    assert 'href="/internal/applicant-previews">Back to applicants</a>' in unsafe
 
 
 class PreviewApprovalService(ApplicantApprovalService):
@@ -292,7 +292,7 @@ def test_administrator_can_open_every_existing_application_in_the_read_only_appl
                 "applicationId": str(APPLICATION_ID),
                 "applicantName": "Synthetic Preview Applicant",
                 "applicationStatus": "IMPORTED",
-                "href": f"/internal/applicants/{APPLICATION_ID}",
+                "href": f"/internal/applicant-previews/{APPLICATION_ID}",
             }
         ]
     }
@@ -327,8 +327,7 @@ def test_internal_surfaces_keep_the_same_primary_navigation_while_details_use_lo
     """Break caught: opening an applicant could replace global navigation with form sections."""
     with TestClient(_app(INTERNAL_GROUPS.administrators), base_url="https://localhost") as client:
         overview = client.get("/internal/")
-        applicants = client.get("/internal/applicants")
-        detail = client.get(f"/internal/applicants/{APPLICATION_ID}")
+        detail = client.get(f"/internal/applicant-previews/{APPLICATION_ID}")
 
     def labels(source: str) -> list[str]:
         match = re.search(
@@ -339,9 +338,8 @@ def test_internal_surfaces_keep_the_same_primary_navigation_while_details_use_lo
         assert match is not None
         return re.findall(r'<a[^>]*>([^<]+)</a>', match.group(1))
 
-    expected = ["Overview", "Applicants", "Review queue", "Reports", "Operations"]
+    expected = ["Overview"]
     assert labels(overview.text) == expected
-    assert labels(applicants.text) == expected
     assert labels(detail.text) == expected
     assert 'aria-label="Applicant details"' in detail.text
     assert "Summary" in detail.text

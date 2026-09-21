@@ -36,34 +36,6 @@ _INTERNAL_INVENTORY = (
         "See the 2026 call and current intake at a glance.",
         frozenset({INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}),
     ),
-    NavigationEntry(
-        "applicants",
-        "Applicants",
-        "/internal/applicants",
-        "Find an applicant and open their complete read-only application workspace.",
-        frozenset({INTERNAL_GROUPS.administrators}),
-    ),
-    NavigationEntry(
-        "review-queue",
-        "Review queue",
-        "/internal/applicant-review",
-        "Review Entra access requests, applicant changes, and uploaded documents.",
-        frozenset({INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}),
-    ),
-    NavigationEntry(
-        "reports",
-        "Reports",
-        "/internal/#reports",
-        "View aggregate citation reports without changing records.",
-        frozenset({INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}),
-    ),
-    NavigationEntry(
-        "operations",
-        "Operations",
-        "/internal/#operations",
-        "Prepare future operational work after authentication is activated.",
-        frozenset({INTERNAL_GROUPS.administrators}),
-    ),
 )
 
 
