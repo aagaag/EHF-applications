@@ -145,6 +145,57 @@ def test_counts_relationships_doi_uniqueness_and_null_initial_counts_are_enforce
         )
 
 
+def test_ambiguous_work_cannot_combine_distinct_source_citations() -> None:
+    """Break caught: a malformed DOI could collapse unrelated citations before review."""
+    document = json.loads(_fixture_bytes())
+    document["works"][0]["canonical_metadata"] = {
+        "doi": None,
+        "doi_url": None,
+        "authors_text": None,
+        "title": None,
+        "journal": None,
+        "volume": None,
+        "pages": None,
+        "year": None,
+    }
+    document["works"][0]["resolution"] = {
+        "status": "AMBIGUOUS",
+        "method": "REQUIRES_REVIEW",
+        "evidence": {"reason": "conflicting DOI evidence"},
+    }
+    document["source_occurrences"][1]["normalized_raw_citation"] = (
+        "a different publication with a conflicting doi"
+    )
+    document["summary"].update(
+        {
+            "resolved_doi_work_total": 0,
+            "exact_crossref_resolved_work_total": 0,
+            "ambiguous_work_total": 1,
+            "metadata_completeness": {
+                "doi": 0,
+                "doi_url": 0,
+                "authors_text": 0,
+                "title": 0,
+                "journal": 0,
+                "volume": 0,
+                "pages": 0,
+                "year": 0,
+                "fully_complete_canonical_records": 0,
+            },
+        }
+    )
+
+    with pytest.raises(PublicationImportError, match="ambiguous work combines distinct"):
+        load_publication_manifest(
+            _rewritten(
+                works=document["works"],
+                source_occurrences=document["source_occurrences"],
+                summary=document["summary"],
+            ),
+            expected=FIXTURE_COUNTS,
+        )
+
+
 def test_sql_bounds_declared_counts_and_source_work_relationships_fail_in_plan() -> None:
     document = json.loads(_fixture_bytes())
     document["works"][0]["final_work_id"] = "w" * 81

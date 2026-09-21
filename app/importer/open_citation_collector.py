@@ -157,10 +157,12 @@ def _match_method(
     candidate_authors: list[str],
 ) -> str | None:
     expected_doi = work.canonical_metadata.doi or ""
-    if expected_doi and candidate_doi == expected_doi:
-        return "DOI_EXACT"
     normalized_title = _normalized_text(candidate_title)
     expected_title = _normalized_text(work.canonical_metadata.title or "")
+    if expected_doi and candidate_doi == expected_doi:
+        if expected_title and normalized_title != expected_title:
+            return None
+        return "DOI_EXACT"
     compatible_year = (
         work.canonical_metadata.year is None
         or candidate_year is None

@@ -594,6 +594,26 @@ def test_openalex_match_prefers_exact_doi_and_preserves_source_count() -> None:
     assert match.annual_citation_counts == {}
 
 
+def test_openalex_rejects_an_exact_doi_when_the_authoritative_title_conflicts() -> None:
+    """Break caught: a mistyped source DOI could attach another paper's citations."""
+    work, raw = _work()
+
+    match = match_openalex_candidate(
+        work,
+        raw,
+        {
+            "id": "https://openalex.org/W123",
+            "doi": "https://doi.org/10.1000/example",
+            "title": "A wholly unrelated publication",
+            "publication_year": 2025,
+            "cited_by_count": 19,
+            "authorships": [{"author": {"display_name": "Alex Example"}}],
+        },
+    )
+
+    assert match is None
+
+
 def test_openalex_match_preserves_valid_annual_counts_and_discards_invalid_entries() -> None:
     work, raw = _work()
     match = match_openalex_candidate(

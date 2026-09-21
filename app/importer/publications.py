@@ -512,6 +512,19 @@ def load_publication_manifest(
         occurrence_id for work in works for occurrence_id in work.source_occurrence_ids
     }:
         raise PublicationImportError("An occurrence is not owned by exactly one final work.")
+    for work in works:
+        if work.resolution.status != "AMBIGUOUS":
+            continue
+        citations = {
+            " ".join(
+                occurrence_by_id[occurrence_id].normalized_raw_citation.casefold().split()
+            )
+            for occurrence_id in work.source_occurrence_ids
+        }
+        if len(citations) > 1:
+            raise PublicationImportError(
+                f"An ambiguous work combines distinct source citations: {work.final_work_id}."
+            )
     actual_works_by_applicant = Counter(work.applicant_folder for work in works)
     for applicant in applicants:
         if (
