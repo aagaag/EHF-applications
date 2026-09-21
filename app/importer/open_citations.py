@@ -147,7 +147,11 @@ def _journal_date(value: str, label: str, *, required: bool) -> str | None:
             raise OpenCitationImportError(f"{label} is missing or invalid.")
         return None
     try:
-        parsed = date.fromisoformat(value)
+        parsed = (
+            datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+            if "T" in value
+            else date.fromisoformat(value)
+        )
     except ValueError as error:
         raise OpenCitationImportError(f"{label} is missing or invalid.") from error
     if not 2000 <= parsed.year <= 2200 or parsed > datetime.now(timezone.utc).date():

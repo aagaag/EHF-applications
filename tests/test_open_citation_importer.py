@@ -189,6 +189,17 @@ def test_openalex_journal_evidence_is_validated_and_persisted_as_a_numeric_value
     }
 
 
+def test_openalex_journal_source_timestamp_is_normalized_to_a_date() -> None:
+    review = load_open_citation_reviews(
+        _openalex_journal_snapshot_bytes(
+            journal_source_updated_date="2026-08-20T10:03:11"
+        ),
+        _manifest(),
+    )[0]
+
+    assert review.journal_source_updated_date == "2026-08-20"
+
+
 @pytest.mark.parametrize(
     ("changes", "message"),
     (
