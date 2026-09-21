@@ -166,7 +166,7 @@ try {
 
     $firstRun = @(Invoke-MigrationRunner)
     if (($firstRun -join "`n") -notmatch 'Applied 33 migration\(s\)\.') {
-        throw 'The first migration run did not apply exactly thirty-two migrations.'
+        throw 'The first migration run did not apply exactly thirty-three migrations.'
     }
     $firstRun | Write-Output
 
