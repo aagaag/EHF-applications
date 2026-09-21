@@ -76,7 +76,7 @@ def test_publication_verifier_requires_exact_root_owned_credential_boundary() ->
     assert "import stat" in source
     assert "details.st_uid != 0" in source
     assert "stat.S_IMODE(details.st_mode) != 0o600" in source
-    assert 'resolved != Path("/etc/ehf/sql-admin-password")' in source
+    assert "resolved != Path('/etc/ehf/sql-admin-password')" in source
 
 
 def test_publication_verifier_checks_exact_counts_integrity_conflicts_and_safety() -> None:
