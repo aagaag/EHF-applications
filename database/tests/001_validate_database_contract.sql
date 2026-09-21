@@ -8,8 +8,8 @@ IF OBJECT_ID(N'dbo.SchemaVersion', N'V') IS NULL
 IF OBJECT_ID(N'dbo.TR_SchemaMigration_AppendOnly', N'TR') IS NULL
     THROW 51102, 'SchemaMigration append-only guard is missing.', 1;
 
-IF (SELECT COUNT_BIG(*) FROM dbo.SchemaMigration) <> 33
-    THROW 51103, 'Exactly thirty-three migrations must be recorded.', 1;
+IF (SELECT COUNT_BIG(*) FROM dbo.SchemaMigration) <> 34
+    THROW 51103, 'Exactly thirty-four migrations must be recorded.', 1;
 IF EXISTS
 (
     SELECT 1
@@ -23,9 +23,9 @@ IF NOT EXISTS
 (
     SELECT 1
     FROM dbo.SchemaVersion
-WHERE MigrationCount = 33 AND CurrentVersion = 33
+WHERE MigrationCount = 34 AND CurrentVersion = 34
 )
-    THROW 51105, 'SchemaVersion does not report version 33.', 1;
+    THROW 51105, 'SchemaVersion does not report version 34.', 1;
 
 IF EXISTS
 (

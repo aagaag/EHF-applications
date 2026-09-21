@@ -102,6 +102,10 @@ def _publication(row: Any) -> Publication:
         citation_count=_integer(row[6]),
         citations_by_year=_citation_years(row[7]),
         authors_text=_text(row[8]) if len(row) > 8 else None,
+        journal_openalex_id=_text(row[9]) if len(row) > 9 else None,
+        journal_openalex_name=_text(row[10]) if len(row) > 10 else None,
+        journal_two_year_mean_citedness=_number(row[11]) if len(row) > 11 else None,
+        journal_metric_observed_at_utc=_text(row[12]) if len(row) > 12 else None,
     )
 
 

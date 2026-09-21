@@ -23,6 +23,10 @@ class Publication:
     citation_count: int | None = None
     citations_by_year: tuple[tuple[int, int], ...] = ()
     authors_text: str | None = None
+    journal_openalex_id: str | None = None
+    journal_openalex_name: str | None = None
+    journal_two_year_mean_citedness: float | None = None
+    journal_metric_observed_at_utc: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
