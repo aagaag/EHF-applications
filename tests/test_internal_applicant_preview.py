@@ -20,8 +20,8 @@ from app.internal_preview import PreviewApplicantMetric, render_internal_preview
 APPLICATION_ID = UUID("a7000000-0000-4000-8000-000000000001")
 
 
-def test_report_detail_modal_has_track_record_application_and_supporting_document_tabs() -> None:
-    """Break caught: reviewers could not switch from metrics to the submitted package."""
+def test_report_detail_modal_has_three_separate_tab_document_actions() -> None:
+    """Break caught: reviewers could not open the three curated PDFs independently."""
     principal = AuthenticatedIdentity(
         Identity("development:administrator", "preview@example.invalid", "Preview"),
         frozenset({INTERNAL_GROUPS.administrators}),
@@ -38,12 +38,18 @@ def test_report_detail_modal_has_track_record_application_and_supporting_documen
         ),
     )
 
-    assert 'role="tablist" aria-label="Applicant review"' in page
-    assert 'data-report-tab="track-record"' in page
-    assert 'data-report-tab="application"' in page
-    assert 'data-report-tab="supporting-docs"' in page
-    assert 'data-report-application-pdf' in page
-    assert 'data-report-supporting-documents' in page
+    assert 'aria-label="Applicant documents"' in page
+    for category, label in (
+        ("application", "Application"),
+        ("curriculum", "Curriculum"),
+        ("publications", "Publication list"),
+    ):
+        assert f'data-report-artifact="{category}"' in page
+        assert f'>{label}</a>' in page
+    assert page.count('target="_blank"') >= 3
+    assert page.count('rel="noopener noreferrer"') >= 3
+    assert 'data-report-tab=' not in page
+    assert 'data-report-application-pdf' not in page
 
 
 def test_preview_uses_only_openalex_when_no_observation_exists() -> None:

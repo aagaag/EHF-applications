@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -187,6 +188,11 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             page = browser.new_page(viewport={"width": 1024, "height": 768})
             page.set_content(html, wait_until="domcontentloaded")
             page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+            page.evaluate(
+                """window.fetch = async url => String(url).endsWith('/review-artifacts')
+                    ? {ok: true, json: async () => ({available: ['application', 'publications']})}
+                    : {ok: false};"""
+            )
             page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
 
             row = page.locator("[data-report-row]")
@@ -203,22 +209,20 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             assert modal.locator("dd", has_text="Missing").count() == 1
             assert modal.locator("dd", has_text="0000-0002-1825-0097").count() == 0
 
-            expect(modal.get_by_role("tab", name="Track record")).to_have_attribute(
-                "aria-selected", "true"
+            application = modal.get_by_role("link", name="Application")
+            curriculum = modal.locator('[data-report-artifact="curriculum"]')
+            publications = modal.get_by_role("link", name="Publication list")
+            expect(application).to_have_attribute("target", "_blank")
+            expect(application).to_have_attribute("rel", "noopener noreferrer")
+            expect(application).to_have_attribute("aria-disabled", "false")
+            expect(application).to_have_attribute(
+                "href",
+                "/api/internal/applicants/a7000000-0000-4000-8000-000000000001/review-artifacts/application/view",
             )
-            expect(modal.get_by_role("tabpanel", name="Application")).to_be_hidden()
-            modal.get_by_role("tab", name="Application").click()
-            expect(modal.get_by_role("tab", name="Application")).to_have_attribute(
-                "aria-selected", "true"
-            )
-            application_pdf = modal.locator("[data-report-application-pdf]")
-            expect(application_pdf).to_be_visible()
-            expect(application_pdf).to_have_attribute(
-                "src",
-                "/api/internal/applicants/a7000000-0000-4000-8000-000000000001/documents/package/view",
-            )
-            modal.get_by_role("tab", name="Supporting docs").click()
-            expect(modal.get_by_text("Supporting documents are not available yet.")).to_be_visible()
+            expect(curriculum).to_have_attribute("aria-disabled", "true")
+            expect(curriculum).not_to_have_attribute("href", re.compile(".+"))
+            expect(publications).to_have_attribute("aria-disabled", "false")
+            expect(modal.get_by_text("2 reviewed PDFs are available.", exact=False)).to_be_visible()
 
             missing = modal.locator(".missing-value")
             assert missing.evaluate("node => getComputedStyle(node).color") == "rgb(180, 35, 24)"
@@ -278,6 +282,76 @@ def test_applicant_detail_keeps_charts_side_by_side_and_colours_lead_authors_red
 
             lead = page.locator('[data-author-position="first"]')
             assert lead.evaluate("node => getComputedStyle(node).color") == "rgb(180, 35, 24)"
+        finally:
+            browser.close()
+
+
+def test_modal_publication_citations_sort_numerically_with_missing_values_last() -> None:
+    """Break caught: citation counts could sort lexically or move missing values ahead."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import expect, sync_playwright
+
+    from app.applicant_detail import ApplicantDetail, Publication, render_applicant_detail
+    from app.identity import AuthenticatedIdentity
+    from app.internal_preview import PreviewApplicantMetric, render_internal_preview
+    from app.navigation import INTERNAL_GROUPS
+    from app.preferences import Identity
+
+    application_id = "a7000000-0000-4000-8000-000000000001"
+    principal = AuthenticatedIdentity(
+        Identity("development:administrator", "preview@example.invalid", "Preview"),
+        frozenset({INTERNAL_GROUPS.administrators}),
+    )
+    page_html = render_internal_preview(
+        principal,
+        simulation=True,
+        records=(PreviewApplicantMetric(applicant="Applicant One", application_id=application_id),),
+    )
+    detail_html = render_applicant_detail(
+        ApplicantDetail(
+            application_number="EHF-2026-001",
+            name="Applicant One",
+            publications=(
+                Publication(title="First ten", year=2025, citation_count=10),
+                Publication(title="Missing", year=2024, citation_count=None),
+                Publication(title="Two", year=2023, citation_count=2),
+                Publication(title="Second ten", year=2022, citation_count=10),
+            ),
+        ),
+        current_year=2026,
+    )
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page(viewport={"width": 1024, "height": 768})
+            page.set_content(page_html, wait_until="domcontentloaded")
+            page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+            page.evaluate(
+                """detail => { window.fetch = async url => String(url).endsWith('/review-artifacts')
+                    ? {ok: true, json: async () => ({available: []})}
+                    : {ok: true, text: async () => detail}; }""",
+                detail_html,
+            )
+            page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
+            page.locator("[data-report-row]").dblclick()
+
+            rows = page.locator("[data-publication-row]")
+            expect(rows).to_have_count(4)
+            page.get_by_role("button", name="Sort citations ascending").click()
+            assert rows.locator(".publication-title").all_inner_texts() == [
+                "Two", "First ten", "Second ten", "Missing"
+            ]
+            page.get_by_role("button", name="Sort citations descending").click()
+            assert rows.locator(".publication-title").all_inner_texts() == [
+                "First ten", "Second ten", "Two", "Missing"
+            ]
+            expect(page.locator("[data-publication-citation-header]")).to_have_attribute(
+                "aria-sort", "descending"
+            )
         finally:
             browser.close()
 

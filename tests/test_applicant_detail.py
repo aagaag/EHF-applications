@@ -45,6 +45,12 @@ def test_render_detail_shows_identity_charts_and_newest_first_links() -> None:
     assert 'data-publication-url="https://journals.example/newer"' in html
     assert 'href="https://source.example/newer"' not in html
     assert 'data-publication-row' in html and 'data-double-clickable="true"' in html
+    assert 'role="table" aria-label="Applicant publications"' in html
+    assert 'data-publication-sort-direction="ascending"' in html
+    assert 'data-publication-sort-direction="descending"' in html
+    assert '>Citations<' in html
+    assert 'data-publication-citations="7"' in html
+    assert 'data-publication-citations="3"' in html
 
 
 def test_render_detail_exposes_labeled_vertical_axes_in_a_single_chart_row() -> None:

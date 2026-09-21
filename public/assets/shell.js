@@ -72,34 +72,50 @@
   const reportModal = document.querySelector("[data-report-modal]");
   const reportDetails = reportModal?.querySelector("[data-report-details]");
   const reportTitle = reportModal?.querySelector("[data-report-details-title]");
-  const reportApplicationPdf = reportModal?.querySelector("[data-report-application-pdf]");
-  const reportApplicationEmpty = reportModal?.querySelector("[data-report-application-empty]");
+  const reportArtifactLinks = [...(reportModal?.querySelectorAll("[data-report-artifact]") || [])];
+  const reportArtifactStatus = reportModal?.querySelector("[data-report-artifact-status]");
   let activeReportRow = null;
-  const selectReportTab = (tab) => {
-    if (!reportModal) return;
-    reportModal.querySelectorAll("[data-report-tab]").forEach((button) => {
-      button.setAttribute("aria-selected", String(button.dataset.reportTab === tab));
+  let artifactRequest = 0;
+  const resetReportArtifacts = (message = "Checking document availability…") => {
+    reportArtifactLinks.forEach((link) => {
+      link.removeAttribute("href");
+      link.setAttribute("aria-disabled", "true");
     });
-    reportModal.querySelectorAll("[data-report-panel]").forEach((panel) => {
-      panel.hidden = panel.dataset.reportPanel !== tab;
+    if (reportArtifactStatus) reportArtifactStatus.textContent = message;
+  };
+  reportArtifactLinks.forEach((link) => {
+    link.addEventListener("click", (event) => {
+      if (link.getAttribute("aria-disabled") === "true") event.preventDefault();
     });
-    if (tab !== "application" || !reportApplicationPdf || !reportApplicationEmpty) return;
-    const applicationId = activeReportRow?.dataset.applicationId;
+  });
+  const loadReportArtifacts = async (applicationId) => {
+    const request = ++artifactRequest;
+    resetReportArtifacts();
     if (!applicationId) {
-      reportApplicationPdf.hidden = true;
-      reportApplicationPdf.removeAttribute("src");
-      reportApplicationEmpty.hidden = false;
+      resetReportArtifacts("No reviewed PDFs are available for this applicant.");
       return;
     }
-    reportApplicationEmpty.hidden = true;
-    reportApplicationPdf.hidden = false;
-    if (!reportApplicationPdf.getAttribute("src")) {
-      reportApplicationPdf.src = `/api/internal/applicants/${encodeURIComponent(applicationId)}/documents/package/view`;
+    try {
+      const response = await fetch(`/api/internal/applicants/${encodeURIComponent(applicationId)}/review-artifacts`, { credentials: "same-origin" });
+      if (!response.ok) throw new Error("Artifact availability unavailable");
+      const payload = await response.json();
+      if (request !== artifactRequest) return;
+      const available = new Set(Array.isArray(payload.available) ? payload.available : []);
+      reportArtifactLinks.forEach((link) => {
+        const category = link.dataset.reportArtifact;
+        if (!available.has(category)) return;
+        link.href = `/api/internal/applicants/${encodeURIComponent(applicationId)}/review-artifacts/${encodeURIComponent(category)}/view`;
+        link.setAttribute("aria-disabled", "false");
+      });
+      const count = reportArtifactLinks.filter((link) => link.getAttribute("aria-disabled") === "false").length;
+      if (reportArtifactStatus) reportArtifactStatus.textContent = count
+        ? `${count} reviewed PDF${count === 1 ? " is" : "s are"} available. Unavailable buttons are dimmed.`
+        : "No reviewed PDFs are available for this applicant.";
+    } catch (_error) {
+      if (request !== artifactRequest) return;
+      resetReportArtifacts("Document availability could not be loaded. Please try again.");
     }
   };
-  reportModal?.querySelectorAll("[data-report-tab]").forEach((button) => {
-    button.addEventListener("click", () => selectReportTab(button.dataset.reportTab));
-  });
   const fallbackReportDetails = (row) => {
     const cells = [...row.querySelectorAll('[role="cell"]')];
     const list = document.createElement("dl");
@@ -122,8 +138,7 @@
     const cells = [...row.querySelectorAll('[role="cell"]')];
     reportTitle.textContent = cells[0]?.textContent.trim() || "Application details";
     activeReportRow = row;
-    reportApplicationPdf?.removeAttribute("src");
-    selectReportTab("track-record");
+    loadReportArtifacts(row.dataset.applicationId);
     reportModal.showModal();
     const url = row.dataset.reportDetailsUrl;
     if (!url) {
@@ -135,7 +150,9 @@
       const response = await fetch(url, { credentials: "same-origin" });
       if (!response.ok) throw new Error("Applicant detail unavailable");
       reportDetails.innerHTML = await response.text();
-      reportDetails.querySelectorAll("[data-publication-row]").forEach((publication) => {
+      const publications = [...reportDetails.querySelectorAll("[data-publication-row]")];
+      publications.forEach((publication, index) => {
+        publication.dataset.publicationOrder = String(index);
         const openPublication = () => {
           const target = publication.dataset.publicationUrl;
           if (target) window.open(target, "_blank", "noopener,noreferrer");
@@ -147,6 +164,32 @@
           if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
           openPublication();
+        });
+      });
+      reportDetails.querySelectorAll("[data-publication-sort]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const table = button.closest("[data-publication-table]");
+          const body = table?.querySelector(".applicant-publication-body");
+          if (!body) return;
+          const direction = button.dataset.publicationSortDirection;
+          const ordered = [...body.querySelectorAll("[data-publication-row]")];
+          ordered.sort((left, right) => {
+            const leftValue = left.dataset.publicationCitations;
+            const rightValue = right.dataset.publicationCitations;
+            const leftMissing = leftValue === "";
+            const rightMissing = rightValue === "";
+            if (leftMissing || rightMissing) {
+              if (leftMissing !== rightMissing) return leftMissing ? 1 : -1;
+            } else {
+              const comparison = Number(leftValue) - Number(rightValue);
+              if (comparison) return direction === "descending" ? -comparison : comparison;
+            }
+            return Number(left.dataset.publicationOrder) - Number(right.dataset.publicationOrder);
+          });
+          body.append(...ordered);
+          table.querySelectorAll("[data-publication-sort]").forEach((control) => control.setAttribute("aria-pressed", "false"));
+          button.setAttribute("aria-pressed", "true");
+          table.querySelector("[data-publication-citation-header]")?.setAttribute("aria-sort", direction);
         });
       });
     } catch (_error) {
@@ -163,7 +206,8 @@
   });
   reportModal?.querySelector("[data-report-modal-close]")?.addEventListener("click", () => reportModal.close());
   reportModal?.addEventListener("close", () => {
-    reportApplicationPdf?.removeAttribute("src");
+    artifactRequest += 1;
+    resetReportArtifacts("Document availability loads when an applicant is opened.");
     activeReportRow?.focus();
     activeReportRow = null;
   });

@@ -73,7 +73,15 @@ def render_applicant_detail(
         '</div>'
         '<section class="applicant-publications" aria-labelledby="applicant-publications-heading">'
         '<h2 id="applicant-publications-heading">Publications</h2>'
-        f'<div class="applicant-publication-list" role="list">{rows}</div>{empty}'
+        '<div class="applicant-publication-list" role="table" aria-label="Applicant publications" data-publication-table>'
+        '<div class="applicant-publication-header" role="row">'
+        '<span role="columnheader">Title</span><span role="columnheader">Journal / year</span>'
+        '<span role="columnheader" data-publication-citation-header><span>Citations</span>'
+        '<span class="publication-sort-buttons">'
+        '<button type="button" data-publication-sort data-publication-sort-direction="ascending" aria-label="Sort citations ascending" aria-pressed="false">▲</button>'
+        '<button type="button" data-publication-sort data-publication-sort-direction="descending" aria-label="Sort citations descending" aria-pressed="false">▼</button>'
+        '</span></span></div>'
+        f'<div class="applicant-publication-body" role="rowgroup">{rows}</div></div>{empty}'
         '</section></section>'
     )
 
@@ -139,12 +147,16 @@ def _publication_row(publication: Publication, applicant_name: str) -> str:
     author_position = _author_position(publication.authors_text, applicant_name)
     position_markup = f' data-author-position="{author_position}"' if author_position else ""
     lead_author_class = " applicant-publication-row--lead-author" if author_position else ""
+    citations = _number(publication.citation_count)
+    citation_sort = "" if publication.citation_count is None else str(publication.citation_count)
     return (
-        f'<div class="applicant-publication-row{lead_author_class}" role="listitem" data-publication-row '
+        f'<div class="applicant-publication-row{lead_author_class}" role="row" data-publication-row '
+        f'data-publication-citations="{citation_sort}" '
         f'data-double-clickable="true" tabindex="0"{href_markup}{position_markup} '
         f'aria-label="Open publication: {_text(label)}" title="Double-click to open publication">'
-        f'<span class="publication-title">{_text(publication.title)}</span>'
-        f'<span class="publication-meta">{_text(publication.journal)} · {_text(publication.year)}</span>'
+        f'<span class="publication-title" role="cell">{_text(publication.title)}</span>'
+        f'<span class="publication-meta" role="cell">{_text(publication.journal)} · {_text(publication.year)}</span>'
+        f'<span class="publication-citations" role="cell">{_text(citations)}</span>'
         '</div>'
     )
 
