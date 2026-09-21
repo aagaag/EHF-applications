@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from io import StringIO
 from pathlib import Path
 
@@ -87,6 +88,31 @@ def test_snapshot_requires_one_semantic_scholar_observation_per_work() -> None:
     assert all(row.citation_status == "OBSERVED" for row in reviews)
 
 
+def test_snapshot_rejects_mixed_openalex_and_semantic_scholar_rows() -> None:
+    source = StringIO(_snapshot_bytes().decode("utf-8-sig"), newline="")
+    reader = csv.DictReader(source)
+    rows = list(reader)
+    mixed_row = dict(rows[0])
+    mixed_row.update(
+        source_code="OPENALEX",
+        citation_status="NOT_FOUND",
+        citation_count="",
+        source_identifier="",
+        result_url="https://api.openalex.org/works",
+        matched_doi="",
+        matched_title="",
+        matched_authors="",
+        match_method="NO_CONFIDENT_MATCH",
+    )
+    output = StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=FIELDS)
+    writer.writeheader()
+    writer.writerows([*rows, mixed_row])
+
+    with pytest.raises(OpenCitationImportError, match="exactly one source"):
+        load_open_citation_reviews(output.getvalue().encode("utf-8-sig"), _manifest())
+
+
 def test_snapshot_plan_validates_every_work_without_constructing_a_repository() -> None:
     result = run_open_citation_import(
         FIXTURE.read_bytes(),
@@ -100,6 +126,8 @@ def test_snapshot_plan_validates_every_work_without_constructing_a_repository() 
 
     assert result.review_count == 1
     assert result.observed_count == 1
+    assert result.source_code == "SEMANTIC_SCHOLAR"
+    assert result.eligible_count == 1
     assert result.run_id is None
 
 
@@ -153,10 +181,11 @@ class _Cursor:
 
 
 class _Connection:
-    def __init__(self):
+    def __init__(self, *, eligible_work_ids: set[str] | None = None):
         self.executed: list[tuple[str, tuple[object, ...]]] = []
         self.commits = 0
         self.rollbacks = 0
+        self.eligible_work_ids = eligible_work_ids or {"work-001"}
 
     def execute(self, statement, *parameters):
         normalized = " ".join(statement.split())
@@ -166,7 +195,16 @@ class _Connection:
         if "FROM dbo.ImportRun" in normalized and "COMPLETED" in normalized:
             return _Cursor([])
         if "ManifestWorkKey" in normalized and "JOIN dbo.Application" in normalized:
-            return _Cursor([("publication-id", "application-id")])
+            work_id = str(parameters[1])
+            return _Cursor(
+                [
+                    (
+                        f"publication-{work_id}",
+                        "application-id",
+                        int(work_id in self.eligible_work_ids),
+                    )
+                ]
+            )
         if "INSERT dbo.ImportRun" in normalized and "OUTPUT" in normalized:
             return _Cursor([("run-id",)])
         if "INSERT dbo.ImportRow" in normalized and "OUTPUT" in normalized:
@@ -198,3 +236,63 @@ def test_sql_repository_appends_semantic_scholar_observations_without_overwrite(
     assert "ISAB01_OPEN_CITATION_IMPORT" in statements
     assert result.review_count == 1
     assert result.run_id == "run-id"
+
+
+def test_complete_semantic_snapshot_activates_its_import_run() -> None:
+    connection = _Connection()
+    reviews = load_open_citation_reviews(_snapshot_bytes(), _manifest())
+
+    result = SqlOpenCitationRepository(connection).apply(reviews, "b" * 64)
+
+    statements = "\n".join(statement for statement, _ in connection.executed)
+    assert "ActivateCitationMetricCutoffRun" in statements
+    assert result.source_code == "SEMANTIC_SCHOLAR"
+    assert result.eligible_count == result.observed_count == 1
+
+
+def test_incomplete_semantic_snapshot_is_audited_without_activation() -> None:
+    connection = _Connection()
+    reviews = load_open_citation_reviews(
+        _snapshot_bytes(
+            citation_status="NOT_FOUND",
+            citation_count="",
+            source_identifier="",
+            result_url="https://api.semanticscholar.org/graph/v1/paper/search",
+            matched_doi="",
+            matched_title="",
+            matched_authors="",
+            match_method="NO_CONFIDENT_MATCH",
+        ),
+        _manifest(),
+    )
+
+    result = SqlOpenCitationRepository(connection).apply(reviews, "c" * 64)
+
+    statements = "\n".join(statement for statement, _ in connection.executed)
+    assert result.not_found_count == 1
+    assert "ActivateCitationMetricCutoffRun" not in statements
+
+
+def test_noneligible_not_found_rows_do_not_block_complete_cutoff_activation() -> None:
+    connection = _Connection(eligible_work_ids={"work-001"})
+    observed = load_open_citation_reviews(_snapshot_bytes(), _manifest())[0]
+    missing = replace(
+        observed,
+        final_work_id="work-002",
+        citation_status="NOT_FOUND",
+        citation_count=None,
+        source_identifier="",
+        matched_doi="",
+        matched_title="",
+        matched_authors="",
+        match_method="NO_CONFIDENT_MATCH",
+    )
+
+    result = SqlOpenCitationRepository(connection).apply(
+        (observed, missing), "d" * 64
+    )
+
+    statements = "\n".join(statement for statement, _ in connection.executed)
+    assert result.eligible_count == 1
+    assert result.not_found_count == 1
+    assert "ActivateCitationMetricCutoffRun" in statements

@@ -117,6 +117,16 @@ def test_sql_dml_denial_probe_uses_columns_declared_by_current_import_migrations
         assert f"    {column} " in migration_source
 
 
+def test_isolated_sql_validator_failure_identifies_the_safe_artifact_name() -> None:
+    """Break caught: deployment failures could hide which non-secret validator failed."""
+    source = SQL_LOGIN_TEST.read_text(encoding="utf-8")
+
+    assert (
+        'fail "The isolated EHF SQL validator ${validation_file} failed without credential details."'
+        in source
+    )
+
+
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell deployment contracts run on the Windows controller")
 def test_deploy_whatif_names_the_exact_commit_without_starting_remote_mutation() -> None:
     """Break caught: a dry run could connect to the EHF VM or hide the release revision it would deploy."""
@@ -149,6 +159,14 @@ def test_deploy_and_verify_scripts_parse_without_executing_a_live_deployment() -
             timeout=30,
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_deploy_normalizes_the_linux_helper_shebang_before_copying_it() -> None:
+    """Break caught: CRLF could make Linux reject the helper's python3 shebang."""
+    source = DEPLOY.read_text(encoding="utf-8")
+
+    assert 'Replace("`r`n", "`n")' in source
+    assert "ehf-deploy.py" in source
 
 
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell deployment contracts run on the Windows controller")

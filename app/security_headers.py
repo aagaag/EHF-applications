@@ -22,11 +22,15 @@ _SECURITY_HEADER_NAMES = frozenset(
 )
 
 
-def security_headers(*, private: bool) -> dict[str, str]:
+def security_headers(*, private: bool, pdf: bool = False) -> dict[str, str]:
     """Return the exact fixed cache and browser-security header set."""
     return {
         "Cache-Control": "private, no-store" if private else "no-store",
-        "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+        "Content-Security-Policy": (
+            "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'"
+            if pdf
+            else CONTENT_SECURITY_POLICY
+        ),
         "X-Frame-Options": "DENY",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",

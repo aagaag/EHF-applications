@@ -72,7 +72,11 @@ def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
         "dbo.SetApplicationStatus",
         "dbo.ValidateApplicationInvitation",
         "dbo.GetInternalApplicationMetrics",
+        "dbo.GetInternalApplicantMetricDetail",
         "dbo.RecordReportExportAudit",
+        "dbo.ListInternalApplicantDocuments",
+        "dbo.GetInternalApplicantDocument",
+        "dbo.RecordInternalDocumentAccessOutcome",
         "EHFApplicationRuntime",
         "sys.database_permissions",
         "The runtime role has a missing or altered permission row.",
@@ -236,6 +240,9 @@ def test_permission_validator_includes_the_complete_applicant_runtime_surface() 
         "GetApplicantFacingApplication",
         "ValidateApplicantUploadSlot",
         "GetApplicantDocumentSlots",
+        "ListInternalApplicantDocuments",
+        "GetInternalApplicantDocument",
+        "RecordInternalDocumentAccessOutcome",
     ):
         assert f"(N'{procedure}')" in validator
     for table in (
@@ -284,6 +291,25 @@ def test_permission_validator_recognizes_exact_synthetic_runtime_boundary() -> N
         "DECLARE @RequiredDmlDenies", 1
     )[0]
     assert "(N'ApplicantSyntheticWorkspace')" in protected_tables
+    assert "(N'ApplicationPublicationReview')" in protected_tables
+    assert "(N'CitationMetricCutoffRun')" in protected_tables
+
+
+def test_runtime_cannot_activate_citation_metric_cutoff_runs() -> None:
+    """Break caught: the web runtime could select the comparative citation cutoff."""
+    migration = (
+        MIGRATIONS / "032_revoke_cutoff_activation_runtime.sql"
+    ).read_text(encoding="utf-8")
+    validator = (
+        VALIDATORS / "032_validate_cutoff_activation_permissions.sql"
+    ).read_text(encoding="utf-8")
+
+    assert (
+        "REVOKE EXECUTE ON dbo.ActivateCitationMetricCutoffRun "
+        "FROM EHFApplicationRuntime;"
+    ) in migration
+    assert "ActivateCitationMetricCutoffRun" in validator
+    assert "permission_row.state IN (N'G', N'W')" in validator
 
 
 def test_real_login_probe_covers_applicant_tables_and_finalization_executor() -> None:

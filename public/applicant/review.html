@@ -18,12 +18,8 @@
         <span class="app-nav-purpose">Review, correct, and complete your fellowship application.</span>
       </div>
       <div class="app-nav-scroll">
-        <nav class="app-nav-list" aria-label="Application sections">
-          <button class="app-nav-link review-nav-link" type="button" data-section-target="identity">Identity and contact</button>
-          <button class="app-nav-link review-nav-link" type="button" data-section-target="employment">UZH employment and eligibility</button>
-          <button class="app-nav-link review-nav-link" type="button" data-section-target="qualifications">Qualifications and academic age</button>
-          <button class="app-nav-link review-nav-link" type="button" data-section-target="publications">Publications and identifiers</button>
-          <button class="app-nav-link review-nav-link" type="button" data-section-target="contribution">Scientific contribution</button>
+        <nav class="app-nav-list" aria-label="Primary navigation">
+          <a class="app-nav-link" href="/applicant/review" aria-current="page">Application information</a>
           <a class="app-nav-link" href="/applicant/documents">Documents</a>
           <a class="app-nav-link" href="/applicant/final-review">Final review</a>
         </nav>
@@ -44,6 +40,14 @@
         <p data-progress-text>Loading your current application progress…</p>
         <progress max="5" value="0" data-progress>0 of 5 sections confirmed</progress>
       </section>
+
+      <nav class="applicant-section-tabs" aria-label="Application information sections">
+        <button class="review-nav-link" type="button" data-section-target="identity">Identity and contact</button>
+        <button class="review-nav-link" type="button" data-section-target="employment">UZH employment and eligibility</button>
+        <button class="review-nav-link" type="button" data-section-target="qualifications">Qualifications and academic age</button>
+        <button class="review-nav-link" type="button" data-section-target="publications">Publications and identifiers</button>
+        <button class="review-nav-link" type="button" data-section-target="contribution">Scientific contribution</button>
+      </nav>
 
       <section class="review-section" data-review-section="identity" aria-labelledby="identity-heading">
         <div class="section-heading"><h2 id="identity-heading">Identity and contact</h2><p>Check the personal and contact details registered for your application.</p></div>

@@ -621,6 +621,20 @@ def _canonical_database_values(work: PublicationWork) -> dict[str, Any]:
     }
 
 
+def _is_promotable_metadata(values: Mapping[str, Any]) -> bool:
+    return (
+        isinstance(values.get("doi"), str)
+        and bool(values["doi"].strip())
+        and isinstance(values.get("authors_text"), str)
+        and bool(values["authors_text"].strip())
+        and isinstance(values.get("title"), str)
+        and bool(values["title"].strip())
+        and isinstance(values.get("journal_text"), str)
+        and bool(values["journal_text"].strip())
+        and isinstance(values.get("publication_year"), int)
+    )
+
+
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -804,7 +818,7 @@ class SqlPublicationRepository:
         incoming = _canonical_database_values(work)
         select_columns = (
             "CONVERT(varchar(36), ApplicationPublicationId), Doi, HttpLink, AuthorsText, "
-            "Title, JournalText, VolumeText, PagesText, PublicationYear"
+            "Title, JournalText, VolumeText, PagesText, PublicationYear, ResolutionStatus"
         )
         existing_row = None
         if incoming["doi"] is not None:
@@ -852,10 +866,24 @@ class SqlPublicationRepository:
             ).fetchone()
             if publication_row is None:
                 raise PublicationImportError("A publication row could not be created.")
-            return str(publication_row[0]), 0
+            publication_id = str(publication_row[0])
+            self._record_initial_review(publication_id, work)
+            return publication_id, 0
 
         publication_id = str(existing_row[0])
-        existing = dict(zip(_CANONICAL_DATABASE_FIELDS, existing_row[1:], strict=True))
+        existing = dict(zip(_CANONICAL_DATABASE_FIELDS, existing_row[1:9], strict=True))
+        existing_status = (
+            str(existing_row[9])
+            if len(existing_row) > 9 and existing_row[9] is not None
+            else None
+        )
+        if (
+            existing_status in {"UNRESOLVED", "AMBIGUOUS"}
+            and work.resolution.status == "RESOLVED"
+            and _is_promotable_metadata(incoming)
+        ):
+            self._promote_existing_publication(publication_id, incoming, work)
+            return publication_id, 0
         fills, conflicts = reconcile_canonical_values(existing, incoming)
         if fills:
             self._connection.execute(
@@ -882,6 +910,60 @@ class SqlPublicationRepository:
                 detail_hash,
             )
         return publication_id, len(conflicts)
+
+    def _record_initial_review(
+        self, publication_id: str, work: PublicationWork
+    ) -> None:
+        disposition = (
+            "PUBLISHED" if work.resolution.status == "RESOLVED" else "PENDING_REVIEW"
+        )
+        self._connection.execute(
+            "EXEC dbo.RecordApplicationPublicationReview "
+            "@ApplicationPublicationId=?, @ReviewDisposition=?, @ReviewerIdentity=?, "
+            "@ReviewReason=?, @EvidenceJson=?",
+            publication_id,
+            disposition,
+            "publication-importer",
+            "Initial review decision from the reviewed publication import manifest.",
+            _canonical_json(
+                {
+                    "method": work.resolution.method,
+                    "resolution": work.resolution.evidence,
+                    "work_id": work.final_work_id,
+                }
+            ),
+        )
+
+    def _promote_existing_publication(
+        self,
+        publication_id: str,
+        incoming: Mapping[str, Any],
+        work: PublicationWork,
+    ) -> None:
+        self._connection.execute(
+            "EXEC dbo.PromoteApplicationPublication "
+            "@ApplicationPublicationId=?, @Doi=?, @HttpLink=?, @AuthorsText=?, "
+            "@Title=?, @JournalText=?, @VolumeText=?, @PagesText=?, "
+            "@PublicationYear=?, @ReviewerIdentity=?, @ReviewReason=?, @EvidenceJson=?",
+            publication_id,
+            incoming["doi"],
+            incoming["http_link"],
+            incoming["authors_text"],
+            incoming["title"],
+            incoming["journal_text"],
+            incoming["volume_text"],
+            incoming["pages_text"],
+            incoming["publication_year"],
+            "publication-importer",
+            "Promoted from an unresolved record after verified import-manifest reconciliation.",
+            _canonical_json(
+                {
+                    "method": work.resolution.method,
+                    "resolution": work.resolution.evidence,
+                    "work_id": work.final_work_id,
+                }
+            ),
+        )
 
     def _record_occurrence(
         self,

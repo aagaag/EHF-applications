@@ -26,8 +26,8 @@ from app.importer.publications import (
 from app.importer.run import ImportMode
 
 
-OPEN_CITATION_IMPORTER_VERSION = "2026.4-open-citations"
-OPEN_CITATION_SOURCES = ("SEMANTIC_SCHOLAR",)
+OPEN_CITATION_IMPORTER_VERSION = "2026.7-source-cutoff"
+OPEN_CITATION_SOURCES = ("OPENALEX", "SEMANTIC_SCHOLAR")
 OPEN_CITATION_FIELDS = (
     "applicant",
     "final_work_id",
@@ -45,7 +45,9 @@ OPEN_CITATION_FIELDS = (
     "observed_at_utc",
     "reviewer",
     "match_method",
+    "annual_citation_counts",
 )
+LEGACY_OPEN_CITATION_FIELDS = OPEN_CITATION_FIELDS[:-1]
 _RESULT_HOSTS = {
     "OPENALEX": {"openalex.org", "api.openalex.org", "www.openalex.org"},
     "SEMANTIC_SCHOLAR": {
@@ -84,13 +86,16 @@ class OpenCitationReview:
     observed_at_utc: str
     reviewer: str
     match_method: str
+    annual_citation_counts: dict[str, int]
     raw: dict[str, str]
 
 
 @dataclass(frozen=True, slots=True)
 class OpenCitationImportResult:
     fingerprint: str
+    source_code: str
     review_count: int
+    eligible_count: int
     observed_count: int
     not_found_count: int
     run_id: str | None
@@ -208,7 +213,8 @@ def load_open_citation_reviews(
             "The open citation snapshot is not valid UTF-8 CSV."
         ) from error
     reader = csv.DictReader(StringIO(text, newline=""))
-    if tuple(reader.fieldnames or ()) != OPEN_CITATION_FIELDS:
+    fields = tuple(reader.fieldnames or ())
+    if fields not in (OPEN_CITATION_FIELDS, LEGACY_OPEN_CITATION_FIELDS):
         raise OpenCitationImportError("The open citation snapshot has an unexpected schema.")
     work_by_id = {work.final_work_id: work for work in manifest.works}
     raw_by_work: dict[str, list[str]] = {}
@@ -217,12 +223,18 @@ def load_open_citation_reviews(
             occurrence.normalized_raw_citation
         )
     seen: set[tuple[str, str]] = set()
+    source_codes: set[str] = set()
     reviews: list[OpenCitationReview] = []
     for row_number, row in enumerate(reader, start=2):
         if None in row or any(value is None for value in row.values()):
             raise OpenCitationImportError(f"Snapshot row {row_number} is malformed.")
         work_id = _safe_text(row["final_work_id"], "final_work_id", 80)
         source = row["source_code"]
+        source_codes.add(source)
+        if len(source_codes) > 1:
+            raise OpenCitationImportError(
+                "The snapshot must contain exactly one source for every manifest work."
+            )
         key = (work_id, source)
         if work_id not in work_by_id or source not in OPEN_CITATION_SOURCES or key in seen:
             raise OpenCitationImportError(
@@ -288,6 +300,38 @@ def load_open_citation_reviews(
         if status == "OBSERVED" and match_method == "NO_CONFIDENT_MATCH":
             raise OpenCitationImportError("OBSERVED reviews require a positive match_method.")
         result_url = _result_url(row["result_url"], source)
+        annual_raw = row.get("annual_citation_counts", "")
+        if not annual_raw:
+            annual_counts: dict[str, int] = {}
+        else:
+            try:
+                parsed_annual = json.loads(annual_raw)
+            except json.JSONDecodeError as error:
+                raise OpenCitationImportError(
+                    "annual_citation_counts must be a JSON object."
+                ) from error
+            if not isinstance(parsed_annual, dict):
+                raise OpenCitationImportError(
+                    "annual_citation_counts must be a JSON object."
+                )
+            annual_counts = {}
+            for year_key, year_count in parsed_annual.items():
+                if (
+                    not isinstance(year_key, str)
+                    or not year_key.isdigit()
+                    or not 1900 <= int(year_key) <= 2200
+                    or isinstance(year_count, bool)
+                    or not isinstance(year_count, int)
+                    or year_count < 0
+                ):
+                    raise OpenCitationImportError(
+                        "annual_citation_counts contains an invalid year or count."
+                    )
+                annual_counts[year_key] = year_count
+        if source == "OPENALEX" and status == "OBSERVED" and not annual_raw:
+            raise OpenCitationImportError(
+                "OpenAlex OBSERVED reviews require annual_citation_counts."
+            )
         _validated_match_evidence(
             source=source,
             status=status,
@@ -315,17 +359,13 @@ def load_open_citation_reviews(
                 _utc_timestamp(row["observed_at_utc"]),
                 _safe_text(row["reviewer"], "reviewer", 255),
                 match_method,
+                annual_counts,
                 dict(row),
             )
         )
-    expected = {
-        (work_id, source)
-        for work_id in work_by_id
-        for source in OPEN_CITATION_SOURCES
-    }
-    if seen != expected:
+    if {work_id for work_id, _source in seen} != set(work_by_id):
         raise OpenCitationImportError(
-            "The snapshot must contain Semantic Scholar for every manifest work."
+            "The snapshot must contain exactly one source for every manifest work."
         )
     return tuple(reviews)
 
@@ -346,12 +386,23 @@ def run_open_citation_import(
 ) -> OpenCitationImportResult:
     manifest = load_publication_manifest(manifest_bytes, expected=expected)
     reviews = load_open_citation_reviews(snapshot_bytes, manifest)
+    source_codes = {review.source_code for review in reviews}
+    if len(source_codes) != 1:
+        raise OpenCitationImportError("The snapshot must contain exactly one source.")
+    source_code = next(iter(source_codes))
     fingerprint = open_citation_fingerprint(snapshot_bytes)
     observed = sum(review.citation_status == "OBSERVED" for review in reviews)
     not_found = len(reviews) - observed
     if mode == ImportMode.PLAN_ONLY:
         return OpenCitationImportResult(
-            fingerprint, len(reviews), observed, not_found, None, False
+            fingerprint,
+            source_code,
+            len(reviews),
+            len(reviews),
+            observed,
+            not_found,
+            None,
+            False,
         )
     if mode != ImportMode.APPLY:
         raise OpenCitationImportError("The open citation import mode is invalid.")
@@ -367,6 +418,10 @@ class SqlOpenCitationRepository:
     def apply(
         self, reviews: Sequence[OpenCitationReview], fingerprint: str
     ) -> OpenCitationImportResult:
+        source_codes = {review.source_code for review in reviews}
+        if len(source_codes) != 1:
+            raise OpenCitationImportError("The snapshot must contain exactly one source.")
+        source_code = next(iter(source_codes))
         calls = self._connection.execute(
             "SELECT CONVERT(varchar(36), FellowshipCallId) "
             "FROM dbo.FellowshipCall WHERE CallCode = N'EHF-2026'"
@@ -386,21 +441,25 @@ class SqlOpenCitationRepository:
         ).fetchone()
         observed = sum(review.citation_status == "OBSERVED" for review in reviews)
         not_found = len(reviews) - observed
-        if completed is not None:
-            return OpenCitationImportResult(
-                fingerprint, len(reviews), observed, not_found, str(completed[0]), True
-            )
-
-        publication_ids: dict[str, tuple[str, str]] = {}
+        completed_run_id = str(completed[0]) if completed is not None else None
+        publication_ids: dict[str, tuple[str, str, bool]] = {}
         for review in reviews:
             if review.final_work_id in publication_ids:
                 continue
             rows = self._connection.execute(
                 "SELECT CONVERT(varchar(36), publication_row.ApplicationPublicationId), "
-                "CONVERT(varchar(36), publication_row.ApplicationId) "
+                "CONVERT(varchar(36), publication_row.ApplicationId), "
+                "CASE WHEN publication_row.ResolutionStatus = 'RESOLVED' "
+                "AND latest_review.ReviewDisposition = 'PUBLISHED' THEN 1 ELSE 0 END "
                 "FROM dbo.ApplicationPublication AS publication_row "
                 "JOIN dbo.Application AS application_row "
                 "ON application_row.ApplicationId = publication_row.ApplicationId "
+                "OUTER APPLY (SELECT TOP (1) review_row.ReviewDisposition "
+                "FROM dbo.ApplicationPublicationReview AS review_row "
+                "WHERE review_row.ApplicationPublicationId = "
+                "publication_row.ApplicationPublicationId "
+                "ORDER BY review_row.RecordedAtUtc DESC, "
+                "review_row.ApplicationPublicationReviewId DESC) AS latest_review "
                 "WHERE application_row.FellowshipCallId = ? "
                 "AND publication_row.ManifestWorkKey = ?",
                 call_id,
@@ -410,7 +469,41 @@ class SqlOpenCitationRepository:
                 raise OpenCitationImportError(
                     "A reviewed work does not resolve to exactly one publication."
                 )
-            publication_ids[review.final_work_id] = (str(rows[0][0]), str(rows[0][1]))
+            publication_ids[review.final_work_id] = (
+                str(rows[0][0]),
+                str(rows[0][1]),
+                bool(rows[0][2]),
+            )
+
+        eligible_reviews = tuple(
+            review
+            for review in reviews
+            if publication_ids[review.final_work_id][2]
+        )
+        eligible_count = len(eligible_reviews)
+        eligible_observed = sum(
+            review.citation_status == "OBSERVED" for review in eligible_reviews
+        )
+        cutoff_is_complete = (
+            eligible_count > 0 and eligible_observed == eligible_count
+        )
+        if completed_run_id is not None:
+            if cutoff_is_complete:
+                self._connection.execute(
+                    "EXEC dbo.ActivateCitationMetricCutoffRun @ImportRunId = ?",
+                    completed_run_id,
+                )
+                self._connection.commit()
+            return OpenCitationImportResult(
+                fingerprint,
+                source_code,
+                len(reviews),
+                eligible_count,
+                observed,
+                not_found,
+                completed_run_id,
+                True,
+            )
 
         run = self._connection.execute(
             "INSERT dbo.ImportRun "
@@ -428,7 +521,9 @@ class SqlOpenCitationRepository:
         self._connection.commit()
         try:
             for row_number, review in enumerate(reviews, start=1):
-                publication_id, application_id = publication_ids[review.final_work_id]
+                publication_id, application_id, _is_eligible = publication_ids[
+                    review.final_work_id
+                ]
                 payload = json.dumps(
                     review.raw,
                     ensure_ascii=False,
@@ -462,6 +557,7 @@ class SqlOpenCitationRepository:
                         "result_url": review.result_url,
                         "reviewer": review.reviewer,
                         "source_identifier": review.source_identifier or None,
+                        "counts_by_year": review.annual_citation_counts,
                     },
                     ensure_ascii=False,
                     sort_keys=True,
@@ -488,6 +584,11 @@ class SqlOpenCitationRepository:
                 "AND RunStatus = 'RUNNING'",
                 run_id,
             )
+            if cutoff_is_complete:
+                self._connection.execute(
+                    "EXEC dbo.ActivateCitationMetricCutoffRun @ImportRunId = ?",
+                    run_id,
+                )
             self._connection.commit()
         except Exception as error:
             self._connection.rollback()
@@ -501,5 +602,12 @@ class SqlOpenCitationRepository:
                 raise
             raise OpenCitationImportError("The open citation import failed.") from error
         return OpenCitationImportResult(
-            fingerprint, len(reviews), observed, not_found, run_id, False
+            fingerprint,
+            source_code,
+            len(reviews),
+            eligible_count,
+            observed,
+            not_found,
+            run_id,
+            False,
         )

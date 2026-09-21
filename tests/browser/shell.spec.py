@@ -69,12 +69,24 @@ def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_ov
             page.locator("html[data-preferences-ready='true']").wait_for()
             assert not page_errors, page_errors
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
-            assert page.locator(".shell-card").count() >= 1
+            assert page.locator(".shell-card").count() == 0
             assert page.locator(".preview-notice").count() == 1
             assert page.locator(".report-table").count() == 1
             assert page.get_by_role("link", name="Download Excel").count() == 1
             assert "Preview only" in page.locator(".preview-notice").inner_text()
             assert page.locator("text=Authorizations:").count() == 1
+            if viewport[0] >= 1280:
+                cards = page.locator(".report-grid .report-card")
+                assert cards.count() == 3
+                top_edges = cards.evaluate_all(
+                    "nodes => nodes.map(node => node.getBoundingClientRect().top)"
+                )
+                assert max(top_edges) - min(top_edges) < 1
+                assert page.locator(".report-header [role='columnheader']").count() == 9
+                header_columns = page.locator(".report-header").evaluate(
+                    "node => getComputedStyle(node).gridTemplateColumns.split(' ').length"
+                )
+                assert header_columns == 9
 
             if viewport[0] <= 720:
                 assert page.evaluate("matchMedia('(max-width: 720px)').matches")
@@ -154,11 +166,14 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
                 first_author_papers=7,
                 last_author_papers=2,
                 total_papers=18,
+                validated_published_papers=16,
                 h_index=12,
                 total_citations=640,
                 orcid="0000-0002-1825-0097",
                 google_scholar_citations=710,
                 identity_certainty="High",
+                verified_citations=705,
+                verified_citation_source="OpenAlex",
             ),
         ),
     )
@@ -180,10 +195,10 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             modal = page.locator("[data-report-modal]")
             assert modal.get_attribute("open") == ""
             assert modal.get_by_role("heading", name="Applicant One").count() == 1
-            assert modal.locator("dt").count() == 13
-            assert modal.locator("dd").count() == 13
+            assert modal.locator("dt").count() == 9
+            assert modal.locator("dd").count() == 9
             assert modal.locator("dd", has_text="Missing").count() == 1
-            assert modal.locator("dd", has_text="0000-0002-1825-0097").count() == 1
+            assert modal.locator("dd", has_text="0000-0002-1825-0097").count() == 0
 
             missing = modal.locator(".missing-value")
             assert missing.evaluate("node => getComputedStyle(node).color") == "rgb(180, 35, 24)"
@@ -193,6 +208,56 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             modal.get_by_role("button", name="Close details").click()
             assert modal.get_attribute("open") is None
             assert page.evaluate("document.activeElement === document.querySelector('[data-report-row]')")
+        finally:
+            browser.close()
+
+
+def test_applicant_detail_keeps_charts_side_by_side_and_colours_lead_authors_red() -> None:
+    """Break caught: the compact modal could stack charts or lose lead-author emphasis."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from app.applicant_detail import ApplicantDetail, Publication, render_applicant_detail
+
+    html = render_applicant_detail(
+        ApplicantDetail(
+            application_number="EHF-2026-007",
+            name="Ada Researcher",
+            publications=(
+                Publication(
+                    title="Lead work",
+                    year=2025,
+                    authors_text="Ada Researcher; Ben Biologist",
+                    citations_by_year=((2025, 4),),
+                ),
+                Publication(
+                    title="Collaborative work",
+                    year=2024,
+                    authors_text="Ben Biologist; Cara Chemist; Ada Researcher",
+                ),
+            ),
+        ),
+        current_year=2026,
+    )
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover - environment-specific browser installation
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page(viewport={"width": 1024, "height": 768})
+            page.set_content(html, wait_until="domcontentloaded")
+            page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+
+            charts = page.locator(".applicant-detail-chart")
+            first_chart, second_chart = charts.nth(0).bounding_box(), charts.nth(1).bounding_box()
+            assert first_chart is not None and second_chart is not None
+            assert second_chart["x"] > first_chart["x"]
+            assert abs(second_chart["y"] - first_chart["y"]) < 1
+
+            lead = page.locator('[data-author-position="first"]')
+            assert lead.evaluate("node => getComputedStyle(node).color") == "rgb(180, 35, 24)"
         finally:
             browser.close()
 
@@ -236,7 +301,7 @@ def test_report_field_triangles_sort_text_and_numbers_with_missing_values_last()
             def applicant_order() -> list[str]:
                 return page.locator("[data-report-row] [role='cell']:first-child").all_inner_texts()
 
-            assert page.locator("[data-report-sort]").count() == 26
+            assert page.locator("[data-report-sort]").count() == 18
             assert page.get_by_role("button", name="Sort Applicant ascending").is_visible()
 
             page.get_by_role("button", name="Sort Applicant ascending").click()
@@ -287,6 +352,8 @@ def test_report_dropdown_filters_completed_and_missing_applications_only() -> No
         orcid="0000-0002-1825-0097",
         google_scholar_citations=710,
         identity_certainty="High",
+        verified_citations=705,
+        verified_citation_source="OpenAlex",
     )
     incomplete = PreviewApplicantMetric(
         applicant="Missing Applicant",
@@ -359,7 +426,7 @@ def test_citation_plot_callouts_remain_distinct_accessible_and_responsive() -> N
             applicant=f"Given Exceptionally-Long-Hyphenated-Surname{index:02d}",
             age=40,
             academic_age=8,
-            total_citations=index,
+                verified_citations=index,
         )
         for index in range(18)
     )

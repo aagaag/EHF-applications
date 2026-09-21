@@ -2,12 +2,33 @@
   const accessQueue = document.querySelector("[data-access-queue]");
   const previewSection = document.querySelector("#viewpoints");
   const previewList = document.querySelector("[data-preview-list]");
+  const previewSearch = document.querySelector("[data-preview-search]");
+  const previewStatus = document.querySelector("[data-preview-status]");
   const syntheticWorkspace = document.querySelector("[data-synthetic-workspace]");
   const changeQueue = document.querySelector("[data-change-queue]");
   const documentQueue = document.querySelector("[data-document-queue]");
   const detail = document.querySelector("[data-change-detail]");
   const status = document.querySelector("[data-review-status]");
+  const reviewDialog = document.querySelector("[data-review-dialog]");
+  const reviewDialogForm = document.querySelector("[data-review-dialog-form]");
+  const reviewDialogTitle = document.querySelector("[data-review-dialog-title]");
+  const reviewDialogFields = document.querySelector("[data-review-dialog-fields]");
+  const reviewDialogSubmit = document.querySelector("[data-review-dialog-submit]");
+  const reviewDialogError = () => {
+    if (!reviewDialogForm) return null;
+    let error = reviewDialogForm.querySelector("[data-review-dialog-error]");
+    if (!error) {
+      error = document.createElement("p");
+      error.dataset.reviewDialogError = "";
+      error.setAttribute("role", "alert");
+      error.setAttribute("aria-live", "assertive");
+      reviewDialogForm.prepend(error);
+    }
+    return error;
+  };
   let canReturnForCorrection = false;
+  let previewItems = [];
+  let dialogAction = null;
   const show = (message) => { if (status) status.textContent = message; };
   const legacyFields = new Set(["genderSelfDescription", "degreeCategory", "phdDate", "noGoogleScholarProfile", "googleScholarCitationTotal"]);
   const formatValue = (field, value) => {
@@ -21,6 +42,9 @@
   const button = (label, action, value, className = "secondary-action") => {
     const item = document.createElement("button"); item.type = "button"; item.className = className; item.textContent = label; item.dataset.action = action; item.dataset.value = value; return item;
   };
+  const actionLink = (label, href) => {
+    const item = document.createElement("a"); item.className = "secondary-action"; item.textContent = label; item.href = href; item.target = "_blank"; item.rel = "noopener"; return item;
+  };
   const card = (title, lines, actions = []) => {
     const article = document.createElement("article"); article.className = "shell-card review-queue-card";
     const heading = document.createElement("strong"); heading.textContent = title; article.append(heading);
@@ -28,91 +52,59 @@
     const controls = document.createElement("div"); controls.className = "review-actions"; actions.forEach((action) => controls.append(action)); article.append(controls); return article;
   };
   const empty = (target, message) => { target.replaceChildren(Object.assign(document.createElement("p"), { textContent: message })); };
-  const citationSources = { OPENALEX: "OpenAlex", SEMANTIC_SCHOLAR: "Semantic Scholar" };
-  const sourceLabel = (source) => {
-    if (!source) return "";
-    const code = String(source).toUpperCase();
-    if (citationSources[code]) return " (" + citationSources[code] + ")";
-    const words = String(source).toLowerCase().split("_").filter(Boolean);
-    if (!words.length) return "";
-    return " (" + words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ") + ")";
+  const listReturnUrl = () => {
+    const params = new URLSearchParams();
+    const query = previewSearch?.value.trim() || "";
+    const applicationStatus = previewStatus?.value || "";
+    if (query) params.set("q", query);
+    if (applicationStatus) params.set("status", applicationStatus);
+    return `/internal/applicants${params.size ? `?${params}` : ""}`;
   };
-  const metricValue = (value, fractionDigits) => {
-    if (value === null || value === undefined || value === "") return "Missing";
-    const numeric = Number(value);
-    if (Number.isFinite(numeric)) {
-      return fractionDigits === undefined ? String(numeric) : numeric.toFixed(fractionDigits);
+  const renderPreviews = () => {
+    const query = previewSearch?.value.trim().toLocaleLowerCase() || "";
+    const applicationStatus = previewStatus?.value || "";
+    const filtered = previewItems.filter((item) => (
+      (!query || item.applicantName.toLocaleLowerCase().includes(query))
+      && (!applicationStatus || item.applicationStatus === applicationStatus)
+    ));
+    if (!filtered.length) {
+      empty(previewList, previewItems.length ? "No applicants match these filters." : "No existing portal applications are available.");
+      return;
     }
-    return String(value);
+    const returnUrl = listReturnUrl();
+    previewList.replaceChildren(...filtered.map((item) => {
+      const link = document.createElement("a");
+      link.className = "shell-card";
+      link.href = returnUrl === "/internal/applicants" ? item.href : `${item.href}?return=${encodeURIComponent(returnUrl)}`;
+      const name = document.createElement("strong"); name.textContent = item.applicantName;
+      const state = document.createElement("span"); state.textContent = `Application status: ${item.applicationStatus}`;
+      link.append(name, state);
+      return link;
+    }));
   };
-  const applicantCardMetrics = (item) => {
-    const age = metricValue(item.academicAgeYears, 1);
-    const documents = item.documentCount === 1
-      ? "1 proposal PDF"
-      : metricValue(item.documentCount === undefined ? null : item.documentCount) + " proposal PDFs";
-    return [
-      "Academic age: " + age + (age === "Missing" ? "" : " years"),
-      "h-index: " + metricValue(item.hIndex),
-      "Citations: " + metricValue(item.citationCount) + sourceLabel(item.citationSource),
-      "Area of work: " + (item.researchArea ? item.researchArea : "Missing"),
-      documents,
-    ];
-  };
-  const openOnGesture = (link, previewHref, documentsHref, name) => {
-    link.dataset.documentsHref = documentsHref;
-    link.title = "Double-click, or press Ctrl+Enter, for the proposal PDFs of " + name;
-    link.addEventListener("click", (event) => {
-      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      event.preventDefault();
-      if (event.detail > 1) { window.location.assign(documentsHref); return; }
-      window.setTimeout(() => { window.location.assign(previewHref); }, 220);
-    });
-    link.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
-      event.preventDefault();
-      window.location.assign(documentsHref);
-    });
-  };
-  const previewHint =
-    "Each card carries the academic age, h-index, citation count and area of work of that " +
-    "application. Double-click a card, or focus it and press Ctrl+Enter, to open the proposal " +
-    "PDFs of that application.";
-  const ensurePreviewHint = () => {
-    if (!previewSection || previewSection.querySelector("[data-preview-hint]")) return;
-    const heading = previewSection.querySelector(".section-heading");
-    if (!heading) return;
-    const hint = document.createElement("p");
-    hint.className = "report-interaction-hint";
-    hint.dataset.previewHint = "";
-    hint.textContent = previewHint;
-    heading.append(hint);
+  const updatePreviewFilters = () => {
+    const returnUrl = listReturnUrl();
+    try { window.history.replaceState({}, "", returnUrl); } catch (_error) { /* static browser fixture */ }
+    renderPreviews();
   };
   const loadPreviews = async () => {
     const response = await fetch("/api/internal/applicant-previews", { credentials: "same-origin" });
     if (response.status === 404) return;
     if (!response.ok) throw new Error("preview list unavailable");
-    const items = (await response.json()).applications || [];
+    const payload = await response.json();
+    if (!Array.isArray(payload.applications)) return;
+    previewItems = payload.applications;
     previewSection.hidden = false;
     if (syntheticWorkspace) syntheticWorkspace.hidden = false;
     document.querySelectorAll("[data-preview-nav]").forEach((link) => { link.hidden = false; });
-    if (!items.length) { empty(previewList, "No existing portal applications are available."); return; }
-    ensurePreviewHint();
-    previewList.replaceChildren(...items.map((item) => {
-      const link = document.createElement("a");
-      link.className = "shell-card preview-applicant-card";
-      link.href = item.href;
-      const name = document.createElement("strong"); name.textContent = item.applicantName;
-      link.append(name);
-      const state = document.createElement("span"); state.textContent = "Application status: " + item.applicationStatus;
-      link.append(state);
-      applicantCardMetrics(item).forEach((line) => {
-        const metric = document.createElement("span"); metric.textContent = line; link.append(metric);
+    if (previewStatus) {
+      [...new Set(previewItems.map((item) => item.applicationStatus))].sort().forEach((value) => {
+        const option = document.createElement("option"); option.value = value; option.textContent = value; previewStatus.append(option);
       });
-      if (item.documentsHref) {
-        openOnGesture(link, item.href, item.documentsHref, item.applicantName);
-      }
-      return link;
-    }));
+      previewStatus.value = new URLSearchParams(window.location.search).get("status") || "";
+    }
+    if (previewSearch) previewSearch.value = new URLSearchParams(window.location.search).get("q") || "";
+    renderPreviews();
   };
   const load = async () => {
     const [access, changes, documents] = await Promise.all([
@@ -128,9 +120,65 @@
     const documentItems = (await documents.json()).submissions || [];
     if (!accessItems.length) empty(accessQueue, "No access requests await action."); else accessQueue.replaceChildren(...accessItems.map((item) => card(item.displayName, [item.email, `Requested ${item.requestedAtUtc}`, `Status: ${item.status}`], item.status === "APPROVED" ? [button("Bind approved Entra identity", "access-provision", item.requestId, "primary-action")] : [button("Approve access", "access-approve", item.requestId, "primary-action"), button("Reject access", "access-reject", item.requestId, "secondary-action")])));
     if (!changeItems.length) empty(changeQueue, "No application changes await approval."); else changeQueue.replaceChildren(...changeItems.map((item) => card(`Application ${item.applicationId}`, [`Submitted ${item.submittedAtUtc}`], [button("Inspect changes", "change-open", item.confirmationId, "primary-action")])));
-    if (!documentItems.length) empty(documentQueue, "No uploaded documents await review."); else documentQueue.replaceChildren(...documentItems.map((item) => card(item.displayName, [`Application ${item.applicationId}`, `Submitted ${item.submittedAtUtc}`], [button("Accept document", "document-accept", item.submissionId, "primary-action"), button("Reject document", "document-reject", item.submissionId, "secondary-action")])));
+    if (!documentItems.length) empty(documentQueue, "No uploaded documents await review."); else documentQueue.replaceChildren(...documentItems.map((item) => card(item.displayName, [`Application ${item.applicationId}`, `Submitted ${item.submittedAtUtc}`], [actionLink("View submitted PDF", `/api/internal/applicants/${item.applicationId}/documents/${item.versionId}/view`), button("Accept document", "document-accept", item.submissionId, "primary-action"), button("Reject document", "document-reject", item.submissionId, "secondary-action")])));
   };
   const postEmpty = (url) => fetch(url, { method: "POST", credentials: "same-origin" });
+  const field = (labelText, name, control) => {
+    const label = document.createElement("label"); label.textContent = labelText; control.name = name; control.required = true; label.append(control); return label;
+  };
+  const textInput = () => { const control = document.createElement("input"); control.type = "text"; return control; };
+  const openReviewDialog = (action, value) => {
+    if (!reviewDialog || !reviewDialogFields || !reviewDialogTitle || !reviewDialogSubmit) return;
+    dialogAction = { action, value };
+    const error = reviewDialogError();
+    if (error) error.textContent = "";
+    reviewDialogFields.replaceChildren();
+    if (action === "access-provision") {
+      reviewDialogTitle.textContent = "Bind approved Entra identity";
+      reviewDialogSubmit.textContent = "Bind identity";
+      reviewDialogFields.append(field("Application ID", "applicationId", textInput()), field("Entra object ID", "entraObjectId", textInput()));
+    }
+    if (action === "change-return") {
+      reviewDialogTitle.textContent = "Return section for correction";
+      reviewDialogSubmit.textContent = "Return for correction";
+      const select = document.createElement("select");
+      [["identity", "Identity and contact"], ["employment", "UZH employment and eligibility"], ["qualifications", "Qualifications and academic age"], ["publications", "Publications and identifiers"], ["contribution", "Scientific contribution"]].forEach(([value, label]) => { const option = document.createElement("option"); option.value = value; option.textContent = label; select.append(option); });
+      select.value = "employment";
+      const reason = document.createElement("textarea"); reason.rows = 5;
+      reviewDialogFields.append(field("Application section", "section", select), field("Correction requested", "reason", reason));
+    }
+    if (action === "document-reject") {
+      reviewDialogTitle.textContent = "Reject submitted document";
+      reviewDialogSubmit.textContent = "Reject document";
+      const reason = document.createElement("textarea"); reason.rows = 5;
+      reviewDialogFields.append(field("Reason for rejection", "reason", reason));
+    }
+    reviewDialog.showModal();
+    reviewDialogFields.querySelector("input, select, textarea")?.focus();
+  };
+  document.querySelectorAll("[data-review-dialog-cancel]").forEach((control) => control.addEventListener("click", () => { reviewDialog?.close(); dialogAction = null; }));
+  if (reviewDialogForm) reviewDialogForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!dialogAction || !reviewDialogSubmit) return;
+    reviewDialogSubmit.disabled = true;
+    try {
+      const values = Object.fromEntries(new FormData(reviewDialogForm));
+      let response;
+      if (dialogAction.action === "access-provision") response = await fetch(`/api/internal/applicant-access-requests/${dialogAction.value}/provision`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ applicationId: String(values.applicationId).trim(), entraObjectId: String(values.entraObjectId).trim() }) });
+      if (dialogAction.action === "change-return") response = await fetch(`/api/internal/applicant-submissions/${dialogAction.value}/return-for-correction`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ section: values.section, reason: String(values.reason).trim() }) });
+      if (dialogAction.action === "document-reject") response = await fetch(`/api/internal/applicant-document-submissions/${dialogAction.value}/reject`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: String(values.reason).trim() }) });
+      if (!response?.ok) throw new Error();
+      reviewDialog.close(); dialogAction = null; show("Review decision recorded."); await load();
+    } catch (_error) {
+      const error = reviewDialogError();
+      if (error) error.textContent = "The review decision could not be recorded. Please check the entered values and try again.";
+      else show("The review decision could not be recorded. Please check the entered values and try again.");
+    }
+    finally { reviewDialogSubmit.disabled = false; }
+  });
+  previewSearch?.addEventListener("input", updatePreviewFilters);
+  previewStatus?.addEventListener("change", updatePreviewFilters);
+  document.querySelector("[data-preview-filter]")?.addEventListener("submit", (event) => { event.preventDefault(); updatePreviewFilters(); });
   if (syntheticWorkspace) syntheticWorkspace.addEventListener("submit", async (event) => {
     event.preventDefault();
     const control = syntheticWorkspace.querySelector('button[type="submit"]');
@@ -160,13 +208,7 @@
       }
       let response;
       if (action === "access-approve" || action === "access-reject") response = await postEmpty(`/api/internal/applicant-access-requests/${value}/review/${action.endsWith("approve") ? "approve" : "reject"}`);
-      if (action === "access-provision") {
-        const applicationId = window.prompt("Application ID to bind");
-        if (!applicationId) return;
-        const entraObjectId = window.prompt("Entra object ID to bind");
-        if (!entraObjectId) return;
-        response = await fetch(`/api/internal/applicant-access-requests/${value}/provision`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ applicationId, entraObjectId }) });
-      }
+      if (action === "access-provision") { openReviewDialog(action, value); return; }
       if (action === "change-approve") {
         response = await postEmpty(`/api/internal/applicant-submissions/${value}/approve`);
         if (response.status === 409) {
@@ -175,15 +217,9 @@
           return;
         }
       }
-      if (action === "change-return") {
-        const section = (window.prompt("Section to return: identity, employment, qualifications, publications, or contribution", "employment") || "").trim().toLowerCase();
-        if (!["identity", "employment", "qualifications", "publications", "contribution"].includes(section)) { show("Choose one of the listed application sections."); return; }
-        const reason = (window.prompt("Explain what the applicant must correct") || "").trim();
-        if (!reason) return;
-        response = await fetch(`/api/internal/applicant-submissions/${value}/return-for-correction`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ section, reason }) });
-      }
+      if (action === "change-return") { openReviewDialog(action, value); return; }
       if (action === "document-accept") response = await postEmpty(`/api/internal/applicant-document-submissions/${value}/accept`);
-      if (action === "document-reject") { const reason = window.prompt("Reason for rejection"); if (!reason) return; response = await fetch(`/api/internal/applicant-document-submissions/${value}/reject`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) }); }
+      if (action === "document-reject") { openReviewDialog(action, value); return; }
       if (!response?.ok) throw new Error(); show("Review decision recorded."); await load();
     } catch (_error) { show("The review decision could not be recorded. Please refresh and try again."); }
     finally { control.disabled = false; }

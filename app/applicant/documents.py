@@ -16,6 +16,7 @@ from app.documents.store import (
     StoredObjectRecord,
 )
 from app.documents.validation import validate_pdf
+from app.documents.package import PdfPackageError, build_pdf_package
 
 
 REQUIRED_SLOT_CODES = (
@@ -74,6 +75,26 @@ class ApplicantDocumentVersion:
     document_type: str = "OTHER"
     recommendation_linked: bool = False
     rejection_reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InternalDocumentSummary:
+    slot_id: UUID
+    version_id: UUID
+    code: str
+    label: str
+    version_number: int
+    status: str
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentAccessEvent:
+    application_id: UUID
+    version_id: UUID
+    actor: str
+    actor_group: str
+    purpose: str
+    outcome: str
 
 
 class DocumentSlotRepository:
@@ -218,6 +239,42 @@ class DocumentSlotRepository:
     def versions(self, slot_id: UUID) -> tuple[ApplicantDocumentVersion, ...]:
         return tuple(self._versions[version_id] for version_id in self._slot_versions.get(slot_id, []))
 
+    def internal_documents(
+        self, application_id: UUID
+    ) -> tuple[tuple[ApplicantDocumentSlot, ApplicantDocumentVersion], ...]:
+        result = []
+        for slot in self.slots_for_application(application_id):
+            version = self.active_version(slot)
+            if (
+                version is not None
+                and version.status == "ACCEPTED"
+                and version.classification == "APPLICANT_VISIBLE"
+                and version.document_type != "RECOMMENDATION_LETTER"
+                and not version.recommendation_linked
+            ):
+                result.append((slot, version))
+        return tuple(result)
+
+    def internal_version(
+        self, application_id: UUID, version_id: UUID
+    ) -> ApplicantDocumentVersion | None:
+        for slot in self.slots_for_application(application_id):
+            for version in self.versions(slot.slot_id):
+                if version.version_id != version_id:
+                    continue
+                if version.document_type == "RECOMMENDATION_LETTER" or version.recommendation_linked:
+                    return None
+                if version.status == "PENDING":
+                    return version
+                if (
+                    version.status == "ACCEPTED"
+                    and version.classification == "APPLICANT_VISIBLE"
+                    and slot.active_version_id == version.version_id
+                ):
+                    return version
+                return None
+        return None
+
     def accept(self, version_id: UUID, actor: str) -> ApplicantDocumentVersion:
         if not actor.strip():
             raise ValueError("reviewing actor is required")
@@ -267,6 +324,7 @@ class ApplicantDocumentService:
         self._repository = repository
         self._object_store = object_store
         self._scanner = scanner
+        self._access_events: list[DocumentAccessEvent] = []
 
     def slots(
         self, session: ApplicantSessionContext
@@ -346,6 +404,94 @@ class ApplicantDocumentService:
             return None
         return self._object_store.decrypt_bytes(version.object_record, version.binding)
 
+    def package(self, session: ApplicantSessionContext) -> bytes | None:
+        sources = tuple(
+            payload
+            for slot in self.slots(session)
+            if (payload := self.download(session, slot.slot_id)) is not None
+        )
+        if not sources:
+            return None
+        try:
+            return build_pdf_package(sources)
+        except PdfPackageError:
+            return None
+
+    @property
+    def access_events(self) -> tuple[DocumentAccessEvent, ...]:
+        return tuple(self._access_events)
+
+    def internal_documents(
+        self, application_id: UUID, *, actor: str, actor_group: str
+    ) -> tuple[InternalDocumentSummary, ...]:
+        _authorize_internal_document_access(actor, actor_group)
+        return tuple(
+            InternalDocumentSummary(
+                slot.slot_id,
+                version.version_id,
+                slot.code,
+                slot.label,
+                version.version_number,
+                version.status,
+            )
+            for slot, version in self._repository.internal_documents(application_id)
+        )
+
+    def internal_download(
+        self,
+        application_id: UUID,
+        version_id: UUID,
+        *,
+        actor: str,
+        actor_group: str,
+        purpose: str,
+    ) -> bytes | None:
+        _authorize_internal_document_access(actor, actor_group)
+        if purpose not in {"VIEW", "DOWNLOAD", "PACKAGE"}:
+            raise ValueError("A valid document-access purpose is required.")
+        event = DocumentAccessEvent(
+            application_id, version_id, actor.strip(), actor_group, purpose, "REQUESTED"
+        )
+        self._access_events.append(event)
+        version = self._repository.internal_version(application_id, version_id)
+        if version is None:
+            self._access_events.append(replace(event, outcome="FAILED"))
+            return None
+        try:
+            payload = self._object_store.decrypt_bytes(version.object_record, version.binding)
+        except DocumentStoreError:
+            self._access_events.append(replace(event, outcome="FAILED"))
+            return None
+        self._access_events.append(replace(event, outcome="SUCCEEDED"))
+        return payload
+
+    def internal_package(
+        self, application_id: UUID, *, actor: str, actor_group: str
+    ) -> bytes | None:
+        summaries = self.internal_documents(
+            application_id, actor=actor, actor_group=actor_group
+        )
+        sources = tuple(
+            payload
+            for summary in summaries
+            if (
+                payload := self.internal_download(
+                    application_id,
+                    summary.version_id,
+                    actor=actor,
+                    actor_group=actor_group,
+                    purpose="PACKAGE",
+                )
+            )
+            is not None
+        )
+        if len(sources) != len(summaries) or not sources:
+            return None
+        try:
+            return build_pdf_package(sources)
+        except PdfPackageError:
+            return None
+
 
 def _safe_applicant_slot(slot: ApplicantDocumentSlot) -> bool:
     return (
@@ -355,3 +501,8 @@ def _safe_applicant_slot(slot: ApplicantDocumentSlot) -> bool:
         and not slot.recommendation_linked
         and "RECOMMEND" not in slot.code
     )
+
+
+def _authorize_internal_document_access(actor: str, actor_group: str) -> None:
+    if actor_group not in {"EHF-Administrators", "EHF-Trustees"} or not actor.strip():
+        raise PermissionError("Administrator or trustee authorization is required.")

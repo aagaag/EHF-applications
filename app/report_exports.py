@@ -11,6 +11,7 @@ from openpyxl import Workbook
 from openpyxl.chart import Reference, ScatterChart, Series
 from openpyxl.chart.label import DataLabelList
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from app.citation_plots import citation_plot_points
@@ -25,12 +26,10 @@ METRIC_HEADERS = (
     "Gender",
     "First-author papers",
     "Last-author papers",
-    "Total papers",
+    "Applicant-reported papers",
+    "Validated published papers",
     "h-index",
-    "Total citations",
-    "ORCID",
-    "Google Scholar citations",
-    "GS identity certainty",
+    "OpenAlex citations (20 Sep 2026)",
 )
 
 _METRIC_ATTRIBUTES = (
@@ -42,11 +41,9 @@ _METRIC_ATTRIBUTES = (
     "first_author_papers",
     "last_author_papers",
     "total_papers",
+    "validated_published_papers",
     "h_index",
-    "total_citations",
-    "orcid",
-    "google_scholar_citations",
-    "identity_certainty",
+    "verified_citations",
 )
 
 
@@ -155,8 +152,12 @@ def _write_metrics_sheet(sheet, records: tuple[PreviewApplicantMetric, ...]) -> 
     sheet["A4"].font = Font(name="Aptos", bold=True)
     sheet["A5"] = "NR means not recorded in the source register."
     sheet["A6"] = (
-        "Academic age is the recorded career duration; citation plots use total citations "
-        "with Google Scholar citations as the fallback."
+        "Academic age is the recorded career duration; citation plots use the "
+        "OpenAlex cutoff total from verified published works."
+    )
+    sheet["A7"] = (
+        "Applicant-reported papers are preserved separately from the independently "
+        "validated count of published papers."
     )
 
     header_row = 8
@@ -180,14 +181,18 @@ def _write_metrics_sheet(sheet, records: tuple[PreviewApplicantMetric, ...]) -> 
     if not records:
         for column in range(1, len(METRIC_HEADERS) + 1):
             sheet.cell(last_row, column, None)
-    table = Table(displayName="EHFApplicantMetrics", ref=f"A{header_row}:M{last_row}")
+    last_column = get_column_letter(len(METRIC_HEADERS))
+    table = Table(
+        displayName="EHFApplicantMetrics",
+        ref=f"A{header_row}:{last_column}{last_row}",
+    )
     table.tableStyleInfo = TableStyleInfo(
         name="TableStyleMedium2", showFirstColumn=False, showLastColumn=False,
         showRowStripes=True, showColumnStripes=False
     )
     sheet.add_table(table)
     sheet.freeze_panes = f"A{header_row + 1}"
-    widths = (28, 14, 10, 18, 12, 16, 16, 14, 10, 16, 23, 22, 22)
+    widths = (28, 14, 10, 18, 12, 16, 16, 20, 20, 10, 24)
     for index, width in enumerate(widths, start=1):
         sheet.column_dimensions[sheet.cell(1, index).column_letter].width = width
     sheet.sheet_view.showGridLines = False
@@ -202,11 +207,7 @@ def _write_charts_sheet(sheet, records: tuple[PreviewApplicantMetric, ...]) -> N
         cell.font = Font(name="Aptos", bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="1F4E78")
     for row_number, record in enumerate(records, start=4):
-        citations = (
-            record.total_citations
-            if record.total_citations is not None
-            else record.google_scholar_citations
-        )
+        citations = record.verified_citations
         values = (record.applicant, record.age, record.academic_age, citations)
         for column, value in enumerate(values, start=1):
             if isinstance(value, str):

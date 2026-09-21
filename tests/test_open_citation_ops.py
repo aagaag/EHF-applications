@@ -35,21 +35,32 @@ def test_collector_and_import_cli_are_separate_and_apply_is_root_mediated() -> N
     assert "--sql-admin-credential-file" in cli
 
 
-def test_collection_wrapper_runs_unprivileged_on_the_ehf_vm_and_cleans_private_staging() -> None:
+def test_collection_wrapper_sources_the_root_only_openalex_key_and_cleans_private_staging() -> None:
     assert COLLECT_SCRIPT.exists()
     source = COLLECT_SCRIPT.read_text(encoding="utf-8")
     assert "ehf-hestia" in source
     assert "chmod 700" in source and "chmod 600" in source
     assert "/opt/ehf/current/venv/bin/python" in source
     assert "-m app.importer.collect_open_citations" in source
-    assert "sudo" not in source.lower()
+    assert "/etc/ehf/openalex-api-key" in source
+    assert ". /etc/ehf/openalex-api-key" in source
+    assert "sudo -n /bin/sh -s" in source
+    assert "chown aag:aag" in source
     assert "finally" in source and "rm -rf -- '$RemoteTransfer'" in source
     assert "must remain outside the repository" in source
     assert "GetRelativePath" not in source
     assert "[StringComparison]::OrdinalIgnoreCase" in source
 
 
-def test_import_wrapper_protects_private_snapshot_and_verifier_requires_semantic_scholar() -> None:
+def test_collection_wrapper_normalizes_windows_line_endings_before_remote_shell() -> None:
+    """Break caught: CRLF in the remote permission probe made `/bin/sh` reject it."""
+    source = COLLECT_SCRIPT.read_text(encoding="utf-8")
+
+    assert '$ProtectScript.Replace("`r`n", "`n")' in source
+    assert '$RemoteScript.Replace("`r`n", "`n")' in source
+
+
+def test_import_wrapper_protects_private_snapshot_and_verifier_requires_openalex() -> None:
     assert IMPORT_SCRIPT.exists() and VERIFY_SCRIPT.exists()
     importer = IMPORT_SCRIPT.read_text(encoding="utf-8")
     verifier = VERIFY_SCRIPT.read_text(encoding="utf-8")
@@ -58,9 +69,9 @@ def test_import_wrapper_protects_private_snapshot_and_verifier_requires_semantic
     assert "-m app.importer.run_open_citations" in importer
     assert "The open citation snapshot must remain outside the repository." in importer
     for fragment in (
-        "SEMANTIC_SCHOLAR",
         "source_rows != 841",
-        "semantic_rows != 841",
+        "OPENALEX",
+        "openalex_rows != 841",
         "observation_rows != 841",
         "observation.ImportRunId=?",
         "EHF_INVITATIONS_ENABLED=false",
@@ -68,15 +79,8 @@ def test_import_wrapper_protects_private_snapshot_and_verifier_requires_semantic
     ):
         assert fragment in verifier
     for obsolete_requirement in (
-        "OPENALEX",
         "source_rows != 1682",
-        "openalex_rows != 841",
         "citation_disagreements",
     ):
         assert obsolete_requirement not in verifier
 
-
-def test_collection_cli_reports_semantic_scholar_only() -> None:
-    collector = COLLECTOR.read_text(encoding="utf-8")
-    assert "Semantic Scholar observed:" in collector
-    assert "OpenAlex observed:" not in collector

@@ -83,7 +83,14 @@ MIGRATIONS = {
     "022_applicant_publication_preview.sql": (22, "applicant_publication_preview"),
     "023_open_citation_sources.sql": (23, "open_citation_sources"),
     "024_applicant_citation_profiles.sql": (24, "applicant_citation_profiles"),
-    "025_applicant_review_documents.sql": (25, "applicant_review_documents"),
+    "025_publication_review_workflow.sql": (25, "publication_review_workflow"),
+    "026_internal_document_access.sql": (26, "internal_document_access"),
+    "027_internal_document_audit_payload.sql": (27, "internal_document_audit_payload"),
+    "028_openalex_work_cutoff_metrics.sql": (28, "openalex_work_cutoff_metrics"),
+    "029_openalex_missing_observation_guard.sql": (29, "openalex_missing_observation_guard"),
+    "030_applicant_detail_author_roles.sql": (30, "applicant_detail_author_roles"),
+    "031_citation_metric_cutoff_runs.sql": (31, "citation_metric_cutoff_runs"),
+    "032_revoke_cutoff_activation_runtime.sql": (32, "revoke_cutoff_activation_runtime"),
 }
 COMMANDS = (
     "inspect-production",
@@ -132,7 +139,14 @@ SQLCMD_ARTIFACTS = frozenset(
         "022_validate_applicant_publication_preview.sql",
         "023_validate_open_citation_sources.sql",
         "024_validate_applicant_citation_profiles.sql",
-        "025_validate_applicant_review_documents.sql",
+        "025_validate_publication_review_workflow.sql",
+        "026_validate_internal_document_access.sql",
+        "027_validate_internal_document_audit_payload.sql",
+        "028_validate_openalex_work_cutoff_metrics.sql",
+        "029_validate_openalex_missing_observation_guard.sql",
+        "030_validate_applicant_detail_author_roles.sql",
+        "031_validate_citation_metric_cutoff_runs.sql",
+        "032_validate_cutoff_activation_permissions.sql",
     }
 )
 

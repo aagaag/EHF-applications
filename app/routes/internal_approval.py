@@ -7,19 +7,21 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.applicant.approval import (
     ApplicantApprovalBlocked,
     ApplicantApprovalService,
     REVIEWER_GROUPS,
 )
+from app.applicant.documents import ApplicantDocumentService
 from app.applicant.fields import upgrade_legacy_applicant, upgrade_legacy_section
-from app.applicant.admin_documents import render_applicant_documents
 from app.applicant.admin_preview import render_applicant_preview
 from app.identity import AuthenticatedIdentity
 from app.http import is_same_origin_write
+from app.internal_shell import authorization_pills, help_navigation, primary_navigation
 from app.navigation import INTERNAL_GROUPS
+from app.routes.documents import pdf_response
 
 
 def register_internal_approval_routes(
@@ -27,6 +29,7 @@ def register_internal_approval_routes(
     *,
     authenticated: Callable[[Request], AuthenticatedIdentity],
     approval: ApplicantApprovalService,
+    documents: ApplicantDocumentService | None = None,
 ) -> None:
     @application.get("/api/internal/applicant-previews")
     def applicant_previews(request: Request) -> JSONResponse:
@@ -38,17 +41,7 @@ def register_internal_approval_routes(
                     "applicationId": item.application_id,
                     "applicantName": item.applicant_name,
                     "applicationStatus": item.application_status,
-                    "academicAgeYears": getattr(item, "academic_age_years", None),
-                    "hIndex": getattr(item, "h_index", None),
-                    "citationCount": getattr(item, "citation_count", None),
-                    "citationSource": getattr(item, "citation_source", None),
-                    "citationProfileUrl": getattr(item, "citation_profile_url", None),
-                    "researchArea": getattr(item, "research_area", None),
-                    "documentCount": getattr(item, "document_count", 0),
-                    "href": f"/internal/applicant-previews/{item.application_id}",
-                    "documentsHref": (
-                        f"/internal/applicant-previews/{item.application_id}/documents"
-                    ),
+                    "href": f"/internal/applicants/{item.application_id}",
                 }
                 for item in sorted(
                     approval.previews(group),
@@ -57,43 +50,8 @@ def register_internal_approval_routes(
             ]
         }))
 
-    @application.get("/internal/applicant-previews/{application_id}/documents")
-    def applicant_preview_documents(application_id: str, request: Request) -> HTMLResponse:
-        principal = authenticated(request)
-        group = _administrator_group(principal)
-        try:
-            preview_id = UUID(application_id)
-        except ValueError:
-            raise HTTPException(status_code=404) from None
-        try:
-            bundle = approval.preview_documents(
-                preview_id, actor=principal.identity.key, actor_group=group
-            )
-        except LookupError:
-            raise HTTPException(status_code=404) from None
-        return HTMLResponse(render_applicant_documents(bundle))
-
-    @application.get("/api/internal/applicant-preview-documents/{document_version_id}")
-    def applicant_preview_document(document_version_id: str, request: Request) -> Response:
-        principal = authenticated(request)
-        group = _administrator_group(principal)
-        try:
-            version_id = UUID(document_version_id)
-        except ValueError:
-            raise HTTPException(status_code=404) from None
-        try:
-            payload = approval.preview_document(
-                version_id, actor=principal.identity.key, actor_group=group
-            )
-        except LookupError:
-            raise HTTPException(status_code=404) from None
-        return Response(
-            payload.content,
-            media_type=payload.media_type,
-            headers={"Content-Disposition": f'inline; filename="{payload.display_name}"'},
-        )
-
     @application.get("/internal/applicant-previews/{application_id}")
+    @application.get("/internal/applicants/{application_id}")
     def applicant_preview(application_id: str, request: Request) -> HTMLResponse:
         principal = authenticated(request)
         group = _administrator_group(principal)
@@ -107,7 +65,15 @@ def register_internal_approval_routes(
             )
         except LookupError:
             raise HTTPException(status_code=404) from None
-        return HTMLResponse(render_applicant_preview(bundle))
+        return HTMLResponse(
+            render_applicant_preview(
+                bundle,
+                primary_navigation=primary_navigation(principal),
+                help_navigation=help_navigation(principal),
+                authorization_pills=authorization_pills(principal),
+                back_href=request.query_params.get("return"),
+            )
+        )
 
     @application.get("/api/internal/applicant-submissions")
     def pending_applicant_submissions(request: Request) -> JSONResponse:
@@ -261,6 +227,74 @@ def register_internal_approval_routes(
             ]
         }))
 
+    @application.get("/api/internal/applicants/{application_id}/documents")
+    def internal_applicant_documents(
+        application_id: UUID, request: Request
+    ) -> JSONResponse:
+        principal = authenticated(request)
+        group = _reviewer_group(principal)
+        if documents is None:
+            raise HTTPException(status_code=404)
+        items = documents.internal_documents(
+            application_id, actor=principal.identity.key, actor_group=group
+        )
+        return JSONResponse(
+            jsonable_encoder(
+                {
+                    "documents": [
+                        {
+                            "slotId": item.slot_id,
+                            "versionId": item.version_id,
+                            "code": item.code,
+                            "label": item.label,
+                            "versionNumber": item.version_number,
+                            "status": item.status,
+                        }
+                        for item in items
+                    ],
+                    "packageAvailable": bool(items),
+                }
+            )
+        )
+
+    @application.get("/api/internal/applicants/{application_id}/documents/package/view")
+    def view_internal_applicant_package(
+        application_id: UUID, request: Request
+    ) -> Response:
+        return _internal_package_response(
+            application_id, request, authenticated, documents, disposition="inline"
+        )
+
+    @application.get("/api/internal/applicants/{application_id}/documents/package/download")
+    def download_internal_applicant_package(
+        application_id: UUID, request: Request
+    ) -> Response:
+        return _internal_package_response(
+            application_id, request, authenticated, documents, disposition="attachment"
+        )
+
+    @application.get(
+        "/api/internal/applicants/{application_id}/documents/{version_id}/view"
+    )
+    def view_internal_applicant_document(
+        application_id: UUID, version_id: UUID, request: Request
+    ) -> Response:
+        return _internal_document_response(
+            application_id, version_id, request, authenticated, documents,
+            purpose="VIEW", disposition="inline",
+        )
+
+    @application.get(
+        "/api/internal/applicants/{application_id}/documents/{version_id}/download"
+    )
+    def download_internal_applicant_document(
+        application_id: UUID, version_id: UUID, request: Request
+    ) -> Response:
+        return _internal_document_response(
+            application_id, version_id, request, authenticated, documents,
+            purpose="DOWNLOAD", disposition="attachment",
+        )
+
     @application.post(
         "/api/internal/applicant-document-submissions/{submission_id}/accept"
     )
@@ -328,3 +362,59 @@ def _administrator_group(principal: AuthenticatedIdentity) -> str:
     if INTERNAL_GROUPS.administrators in principal.groups:
         return INTERNAL_GROUPS.administrators
     raise HTTPException(status_code=404)
+
+
+def _internal_document_response(
+    application_id: UUID,
+    version_id: UUID,
+    request: Request,
+    authenticated: Callable[[Request], AuthenticatedIdentity],
+    documents: ApplicantDocumentService | None,
+    *,
+    purpose: str,
+    disposition: str,
+) -> Response:
+    principal = authenticated(request)
+    group = _reviewer_group(principal)
+    if documents is None:
+        return _internal_document_unavailable()
+    payload = documents.internal_download(
+        application_id,
+        version_id,
+        actor=principal.identity.key,
+        actor_group=group,
+        purpose=purpose,
+    )
+    if payload is None:
+        return _internal_document_unavailable()
+    return pdf_response(payload, disposition=disposition, filename="document.pdf")
+
+
+def _internal_package_response(
+    application_id: UUID,
+    request: Request,
+    authenticated: Callable[[Request], AuthenticatedIdentity],
+    documents: ApplicantDocumentService | None,
+    *,
+    disposition: str,
+) -> Response:
+    principal = authenticated(request)
+    group = _reviewer_group(principal)
+    if documents is None:
+        return _internal_document_unavailable()
+    payload = documents.internal_package(
+        application_id, actor=principal.identity.key, actor_group=group
+    )
+    if payload is None:
+        return _internal_document_unavailable()
+    return pdf_response(
+        payload,
+        disposition=disposition,
+        filename="application-document-package.pdf",
+    )
+
+
+def _internal_document_unavailable() -> JSONResponse:
+    return JSONResponse(
+        status_code=404, content={"message": "The document is unavailable."}
+    )

@@ -486,6 +486,23 @@ def test_sql_repository_fills_a_previously_unresolved_work_by_manifest_key() -> 
     assert "INSERT dbo.ApplicationPublication (" not in statements
 
 
+def test_sql_repository_promotes_a_resolved_manifest_over_an_unresolved_record() -> None:
+    """Break caught: later verified metadata could fill blanks but never change resolver state."""
+    manifest = load_publication_manifest(_fixture_bytes(), expected=FIXTURE_COUNTS)
+    existing = (
+        "publication-id", None, None, None, None, None, None, None, None, "UNRESOLVED"
+    )
+    connection = _PublicationConnection(existing_manifest_publication=existing)
+
+    from app.importer.publications import SqlPublicationRepository
+
+    SqlPublicationRepository(connection).apply(manifest, "2" * 64)
+
+    statements = "\n".join(statement for statement, _ in connection.executed)
+    assert "EXEC dbo.PromoteApplicationPublication" in statements
+    assert "UPDATE dbo.ApplicationPublication SET" not in statements
+
+
 def test_completed_identical_sql_import_is_reused_without_new_writes() -> None:
     from app.importer.publications import SqlPublicationRepository
 

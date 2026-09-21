@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)] [string] $ManifestPath,
     [Parameter(Mandatory = $true)] [string] $OutputPath,
+    [ValidateSet('OPENALEX', 'SEMANTIC_SCHOLAR')] [string] $Source = 'OPENALEX',
     [string] $Target = 'ehf-hestia'
 )
 
@@ -43,24 +44,31 @@ manifest=$1
 chmod 600 -- "$manifest"
 test "$(/usr/bin/stat -c '%U:%G:%a' "$manifest")" = 'aag:aag:600'
 '@
-    $EncodedProtectScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ProtectScript))
+    $EncodedProtectScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ProtectScript.Replace("`r`n", "`n")))
     & ssh.exe -o BatchMode=yes $Target "printf %s '$EncodedProtectScript' | /usr/bin/base64 --decode | /bin/sh -s -- '$RemoteManifest'"
     if ($LASTEXITCODE -ne 0) { throw 'The transferred publication manifest has unsafe permissions.' }
 
-    $RemoteScript = @'
+$RemoteScript = @'
 set -eu
 manifest=$1
 snapshot=$2
+source=$3
 python=/opt/ehf/current/venv/bin/python
 test -x "$python"
 cd /opt/ehf/current
+if [ "$source" = 'OPENALEX' ]; then
+  test -r /etc/ehf/openalex-api-key
+  . /etc/ehf/openalex-api-key
+  test -n "${OPENALEX_API_KEY:-}"
+fi
 PYTHONPATH=/opt/ehf/current "$python" -m app.importer.collect_open_citations \
-  --manifest "$manifest" --output "$snapshot"
+  --manifest "$manifest" --output "$snapshot" --source "$source"
+/usr/bin/chown aag:aag -- "$snapshot"
 chmod 600 -- "$snapshot"
 test "$(/usr/bin/stat -c '%U:%G:%a' "$snapshot")" = 'aag:aag:600'
 '@
-    $EncodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteScript))
-    & ssh.exe -o BatchMode=yes $Target "printf %s '$EncodedScript' | /usr/bin/base64 --decode | /bin/sh -s -- '$RemoteManifest' '$RemoteSnapshot'"
+    $EncodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteScript.Replace("`r`n", "`n")))
+    & ssh.exe -o BatchMode=yes $Target "printf %s '$EncodedScript' | /usr/bin/base64 --decode | sudo -n /bin/sh -s -- '$RemoteManifest' '$RemoteSnapshot' '$Source'"
     if ($LASTEXITCODE -ne 0) { throw 'The the EHF VM open-citation collection failed.' }
 
     & scp.exe -- "$($Target):$RemoteSnapshot" $TemporaryOutput

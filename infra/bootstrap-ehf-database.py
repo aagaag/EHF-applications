@@ -132,7 +132,14 @@ def run_validators(connection) -> None:
         "022_validate_applicant_publication_preview.sql",
         "023_validate_open_citation_sources.sql",
         "024_validate_applicant_citation_profiles.sql",
-        "025_validate_applicant_review_documents.sql",
+        "025_validate_publication_review_workflow.sql",
+        "026_validate_internal_document_access.sql",
+        "027_validate_internal_document_audit_payload.sql",
+        "028_validate_openalex_work_cutoff_metrics.sql",
+        "029_validate_openalex_missing_observation_guard.sql",
+        "030_validate_applicant_detail_author_roles.sql",
+        "031_validate_citation_metric_cutoff_runs.sql",
+        "032_validate_cutoff_activation_permissions.sql",
     ]:
         raise BootstrapError("The EHF validator set is incomplete or unexpected.")
     try:

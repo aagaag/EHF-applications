@@ -141,6 +141,11 @@ class SecurityMiddleware:
                     return
                 response_status = int(message["status"])
                 raw_headers = list(message.get("headers", []))
+                is_pdf = any(
+                    key.lower() == b"content-type"
+                    and value.lower().startswith(b"application/pdf")
+                    for key, value in raw_headers
+                )
                 response_headers = [
                     (key, value)
                     for key, value in raw_headers
@@ -150,7 +155,7 @@ class SecurityMiddleware:
                 response_headers.append((b"x-request-id", request_id.encode("latin-1")))
                 response_headers.extend(
                     (name.lower().encode("latin-1"), value.encode("latin-1"))
-                    for name, value in security_headers(private=private).items()
+                    for name, value in security_headers(private=private, pdf=is_pdf).items()
                 )
                 message = {
                     **message,

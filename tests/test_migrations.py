@@ -243,7 +243,7 @@ def test_published_003_migration_and_current_validator_are_byte_stable() -> None
     assert hashlib.sha256(validator_payload).digest() == CURRENT_003_VALIDATOR_SHA256
 
 
-def test_original_003_prefix_upgrades_through_applicant_review_documents() -> None:
+def test_original_003_prefix_upgrades_through_applicant_publication_preview() -> None:
     """Break caught: an original-003 database could skip the current security release."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_review_documents() -> No
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 22
-    assert sorted(connection.records) == list(range(1, 26))
+    assert applied == 29
+    assert sorted(connection.records) == list(range(1, 33))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,7 +290,7 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_twenty_five_migrations() -> None:
+def test_fresh_repository_run_applies_all_thirty_two_migrations() -> None:
     """Break caught: a new database could omit the synthetic-session boundary."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_twenty_five_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 26))
-    assert applied == 25
+    assert [migration.version for migration in migrations] == list(range(1, 33))
+    assert applied == 32
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -311,12 +311,19 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     """Break caught: a later metrics filter could remove the authoritative academic-age derivation."""
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
-    assert [migration.path.name for migration in migrations[-5:]] == [
+    assert [migration.path.name for migration in migrations[-12:]] == [
         "021_application_publications.sql",
         "022_applicant_publication_preview.sql",
         "023_open_citation_sources.sql",
         "024_applicant_citation_profiles.sql",
-        "025_applicant_review_documents.sql",
+        "025_publication_review_workflow.sql",
+        "026_internal_document_access.sql",
+        "027_internal_document_audit_payload.sql",
+        "028_openalex_work_cutoff_metrics.sql",
+        "029_openalex_missing_observation_guard.sql",
+        "030_applicant_detail_author_roles.sql",
+        "031_citation_metric_cutoff_runs.sql",
+        "032_revoke_cutoff_activation_runtime.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -499,7 +506,14 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "022_applicant_publication_preview.sql",
         "023_open_citation_sources.sql",
         "024_applicant_citation_profiles.sql",
-        "025_applicant_review_documents.sql",
+        "025_publication_review_workflow.sql",
+        "026_internal_document_access.sql",
+        "027_internal_document_audit_payload.sql",
+        "028_openalex_work_cutoff_metrics.sql",
+        "029_openalex_missing_observation_guard.sql",
+        "030_applicant_detail_author_roles.sql",
+        "031_citation_metric_cutoff_runs.sql",
+        "032_revoke_cutoff_activation_runtime.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -526,7 +540,14 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "022_validate_applicant_publication_preview.sql",
         "023_validate_open_citation_sources.sql",
         "024_validate_applicant_citation_profiles.sql",
-        "025_validate_applicant_review_documents.sql",
+        "025_validate_publication_review_workflow.sql",
+        "026_validate_internal_document_access.sql",
+        "027_validate_internal_document_audit_payload.sql",
+        "028_validate_openalex_work_cutoff_metrics.sql",
+        "029_validate_openalex_missing_observation_guard.sql",
+        "030_validate_applicant_detail_author_roles.sql",
+        "031_validate_citation_metric_cutoff_runs.sql",
+        "032_validate_cutoff_activation_permissions.sql",
     ]
 
 
@@ -582,6 +603,8 @@ def test_every_table_has_a_primary_key_and_database_generated_utc_timestamp() ->
         "PublicationMetadataObservation",
         "PublicationCitationObservation",
         "ApplicantCitationProfileObservation",
+            "ApplicationPublicationReview",
+            "CitationMetricCutoffRun",
     }
     for table_name, block in blocks.items():
         assert re.search(r"\bPRIMARY KEY\b", block, flags=re.IGNORECASE), table_name
@@ -827,9 +850,13 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "023_validate_open_citation_sources.sql" in script
     assert "024_applicant_citation_profiles.sql" in script
     assert "024_validate_applicant_citation_profiles.sql" in script
-    assert "025_applicant_review_documents.sql" in script
-    assert "025_validate_applicant_review_documents.sql" in script
-    assert "Applied 25 migration\\(s\\)\\." in script
+    assert "025_publication_review_workflow.sql" in script
+    assert "025_validate_publication_review_workflow.sql" in script
+    assert "026_internal_document_access.sql" in script
+    assert "026_validate_internal_document_access.sql" in script
+    assert "027_internal_document_audit_payload.sql" in script
+    assert "027_validate_internal_document_audit_payload.sql" in script
+    assert "Applied 32 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1148,8 +1175,9 @@ def test_validator_004_isolates_expected_failures_and_cleans_up_successful_write
         validator, "-- SUCCESSFUL VALIDATOR WRITES (ROLLED BACK)"
     )
     assert re.search(r"BEGIN TRANSACTION;.*?ROLLBACK TRANSACTION;", successful_writes, re.DOTALL)
-    assert "COMMIT TRANSACTION" not in validator
+    assert "IF @@TRANCOUNT > 0 COMMIT TRANSACTION;" in validator
     assert "DROP USER EHFPreferenceDmlValidator" in validator
+    assert "DATABASE_PRINCIPAL_ID(N'EHFPreferenceDmlValidator') IS NOT NULL" in validator
 
 
 def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None:
@@ -1192,14 +1220,59 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_twenty_five() -> None:
+def test_database_contract_validator_reports_version_thirty_two() -> None:
     """Break caught: post-upgrade validation could still require the old schema tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 25" in validator
-    assert "WHERE MigrationCount = 25 AND CurrentVersion = 25" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 32" in validator
+    assert "WHERE MigrationCount = 32 AND CurrentVersion = 32" in validator
+
+
+def test_citation_cutoff_migration_requires_a_complete_single_source_import_run() -> None:
+    """Break caught: incomplete or mixed-source evidence could become a comparative metric."""
+    migration = (
+        MIGRATION_DIRECTORY / "031_citation_metric_cutoff_runs.sql"
+    ).read_text(encoding="utf-8")
+    validator = (
+        VALIDATION_DIRECTORY / "031_validate_citation_metric_cutoff_runs.sql"
+    ).read_text(encoding="utf-8")
+
+    for fragment in (
+        "CREATE TABLE dbo.CitationMetricCutoffRun",
+        "CREATE PROCEDURE dbo.ActivateCitationMetricCutoffRun",
+        "COUNT(CASE WHEN observation.CitationStatus=''OBSERVED'' THEN 1 END)",
+        "COUNT(DISTINCT observation.SourceCode)",
+        "THROW",
+        "ALTER PROCEDURE dbo.GetInternalApplicationMetrics",
+        "CitationMetricCutoffRun",
+    ):
+        assert fragment in migration
+    assert "TR_CitationMetricCutoffRun_AppendOnly" in migration
+    assert "incomplete" in validator.casefold()
+    assert "mixed" in validator.casefold()
+
+
+def test_openalex_cutoff_validator_accepts_the_audited_active_cutoff_contract() -> None:
+    """Break caught: release 28 validation could reject the stricter release 31 metric path."""
+    validator = (
+        VALIDATION_DIRECTORY / "028_validate_openalex_work_cutoff_metrics.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "OPENALEX_WORK_CUTOFF" in validator
+    assert "CitationMetricCutoffRun" in validator
+    assert "PublicationCitationObservation" in validator
+
+
+def test_synthetic_validator_captures_the_current_metric_result_shape() -> None:
+    """Break caught: migration 019's runtime probe could lag the metrics procedure shape."""
+    validator = (
+        VALIDATION_DIRECTORY / "019_validate_synthetic_applicant_workspace.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "ApplicationId varchar(36)" in validator
+    assert "ApplicationNumber nvarchar(20)" in validator
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell controller contract")

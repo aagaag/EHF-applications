@@ -206,7 +206,7 @@ def test_confirmation_procedures_are_session_scoped_and_finalization_is_atomic()
     assert "INSERT dbo.AuditEvent" in submit
 
 
-def test_isolated_database_harness_applies_and_validates_release_twenty_two() -> None:
+def test_isolated_database_harness_applies_and_validates_release_thirty_two() -> None:
     script = DATABASE_SCRIPT.read_text(encoding="utf-8")
     contract = (VALIDATORS / "001_validate_database_contract.sql").read_text(
         encoding="utf-8"
@@ -241,10 +241,24 @@ def test_isolated_database_harness_applies_and_validates_release_twenty_two() ->
             "023_validate_open_citation_sources.sql",
             "024_applicant_citation_profiles.sql",
             "024_validate_applicant_citation_profiles.sql",
-            "025_applicant_review_documents.sql",
-            "025_validate_applicant_review_documents.sql",
+            "025_publication_review_workflow.sql",
+            "025_validate_publication_review_workflow.sql",
+            "026_internal_document_access.sql",
+            "026_validate_internal_document_access.sql",
+            "027_internal_document_audit_payload.sql",
+            "027_validate_internal_document_audit_payload.sql",
+            "028_openalex_work_cutoff_metrics.sql",
+            "028_validate_openalex_work_cutoff_metrics.sql",
+            "029_openalex_missing_observation_guard.sql",
+            "029_validate_openalex_missing_observation_guard.sql",
+            "030_applicant_detail_author_roles.sql",
+            "030_validate_applicant_detail_author_roles.sql",
+            "031_citation_metric_cutoff_runs.sql",
+            "031_validate_citation_metric_cutoff_runs.sql",
+            "032_revoke_cutoff_activation_runtime.sql",
+            "032_validate_cutoff_activation_permissions.sql",
         ):
             assert name in script
-    assert "Applied 25 migration\\(s\\)\\." in script
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 25" in contract
-    assert "WHERE MigrationCount = 25 AND CurrentVersion = 25" in contract
+    assert "Applied 32 migration\\(s\\)\\." in script
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 32" in contract
+    assert "WHERE MigrationCount = 32 AND CurrentVersion = 32" in contract

@@ -9,7 +9,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi.testclient import TestClient
-from pypdf import PdfWriter
+from pypdf import PdfReader, PdfWriter
 
 from app.applicant.documents import ApplicantDocumentService, DocumentSlotRepository
 from app.auth.applicant import (
@@ -152,5 +152,49 @@ def test_guessed_other_applicant_slot_has_neutral_not_found_response(tmp_path: P
 
         assert response.status_code == 404
         assert response.json() == {"message": "The document slot is unavailable."}
+    finally:
+        client.close()
+
+
+def test_applicant_can_view_download_and_package_only_an_accepted_visible_pdf(
+    tmp_path: Path,
+) -> None:
+    """Break caught: original PDFs could be forced-download only or packaged before acceptance."""
+    client, slots, slot, other_slot = _client(tmp_path)
+    try:
+        uploaded = client.post(
+            f"/api/applicant/documents/{slot.slot_id}/upload",
+            data={"expectedRowVersion": str(slot.row_version)},
+            files={"file": ("cv.pdf", _pdf(), "application/pdf")},
+            headers={"x-csrf-token": client.cookies.get("__Host-ehf_applicant_csrf")},
+        )
+        assert uploaded.status_code == 202
+        version = slots.versions(slot.slot_id)[0]
+        slots.accept(version.version_id, "administrator")
+
+        viewed = client.get(f"/api/applicant/documents/{slot.slot_id}/view")
+        downloaded = client.get(f"/api/applicant/documents/{slot.slot_id}/download")
+        package = client.get("/api/applicant/documents/package/view")
+        package_download = client.get("/api/applicant/documents/package/download")
+        guessed = client.get(f"/api/applicant/documents/{other_slot.slot_id}/view")
+
+        assert viewed.status_code == 200
+        assert viewed.headers["content-disposition"] == 'inline; filename="document.pdf"'
+        assert viewed.headers["content-security-policy"] == (
+            "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'"
+        )
+        assert viewed.headers["cache-control"] == "private, no-store"
+        assert viewed.headers["x-content-type-options"] == "nosniff"
+        assert downloaded.headers["content-disposition"] == 'attachment; filename="document.pdf"'
+        assert package.status_code == 200
+        assert package.headers["content-disposition"] == (
+            'inline; filename="application-document-package.pdf"'
+        )
+        assert len(PdfReader(io.BytesIO(package.content)).pages) == 1
+        assert package_download.headers["content-disposition"] == (
+            'attachment; filename="application-document-package.pdf"'
+        )
+        assert guessed.status_code == 404
+        assert guessed.json() == {"message": "The document slot is unavailable."}
     finally:
         client.close()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from html import escape
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.applicant.approval import ApplicantPreviewBundle
 from app.applicant.fields import FIELD_INVENTORY, FieldDefinition, upgrade_legacy_applicant, upgrade_legacy_section
@@ -19,7 +20,14 @@ _SECTIONS = (
 )
 
 
-def render_applicant_preview(bundle: ApplicantPreviewBundle) -> str:
+def render_applicant_preview(
+    bundle: ApplicantPreviewBundle,
+    *,
+    primary_navigation: str | None = None,
+    help_navigation: str | None = None,
+    authorization_pills: str | None = None,
+    back_href: str | None = None,
+) -> str:
     values = _section_values(bundle)
     navigation = "".join(
         f'<button class="app-nav-link review-nav-link" type="button" data-section-target="{code}">{escape(title)}</button>'
@@ -38,22 +46,53 @@ def render_applicant_preview(bundle: ApplicantPreviewBundle) -> str:
         )
         for index, (code, title, description) in enumerate(_SECTIONS)
     )
-    administrator_group = escape(INTERNAL_GROUPS.administrators)
+    if primary_navigation is None:
+        from app.identity import AuthenticatedIdentity
+        from app.internal_shell import (
+            authorization_pills as render_authorization_pills,
+            help_navigation as render_help_navigation,
+            primary_navigation as render_primary_navigation,
+        )
+        from app.preferences import Identity
+
+        principal = AuthenticatedIdentity(
+            Identity("preview:administrator", "preview@example.invalid", "Administrator"),
+            frozenset({INTERNAL_GROUPS.administrators}),
+        )
+        primary_navigation = render_primary_navigation(principal)
+        help_navigation = render_help_navigation(principal)
+        authorization_pills = render_authorization_pills(principal)
+    assert help_navigation is not None and authorization_pills is not None
+    safe_back_href = _safe_back_href(back_href)
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>EHF Fellowships — applicant viewpoint</title><link rel="stylesheet" href="/assets/site.css"></head>
 <body data-shell><a class="skip-link" href="#main-content">Skip to main content</a>
 <button class="app-nav-toggle" type="button" aria-controls="application-navigation" aria-expanded="false" aria-label="Open application navigation"><span aria-hidden="true">☰</span> Menu</button><div class="app-nav-backdrop" hidden></div>
 <aside class="app-nav" id="application-navigation" aria-label="Application navigation" data-open="false" inert>
-<div class="app-nav-top"><a class="app-nav-home" href="/internal/applicant-review"><img src="/assets/ehf-logo.svg" alt="Ernst Hadorn Foundation"><span class="app-nav-title">EHF Fellowships</span></a><span class="app-nav-domain">ehf.isab.science</span><span class="app-nav-purpose">Inspect an existing application as the applicant would see it.</span></div>
-<div class="app-nav-scroll"><nav class="app-nav-list" aria-label="Application sections"><a class="app-nav-link" href="/internal/applicant-review#viewpoints">Back to applicant review</a>{navigation}</nav></div>
-<nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation"><span class="app-nav-heading">Settings</span><a class="app-nav-link" href="#appearance">Appearance</a><a class="app-nav-link" href="#help">Help</a><div class="app-nav-authorizations"><strong>Authorizations:</strong><span class="app-nav-authorization-pills"><span class="app-nav-authorization-pill group-pill-1">{administrator_group}</span></span></div></nav></aside>
+<div class="app-nav-top"><a class="app-nav-home" href="/internal/"><img src="/assets/ehf-logo.svg" alt="Ernst Hadorn Foundation"><span class="app-nav-title">EHF Fellowships</span></a><span class="app-nav-domain">ehf.isab.science</span><span class="app-nav-purpose">Review fellowship applications in one secure workspace.</span></div>
+<div class="app-nav-scroll"><nav class="app-nav-list" aria-label="Primary navigation">{primary_navigation}</nav></div>
+<nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation"><span class="app-nav-heading">Settings</span><a class="app-nav-link" href="#appearance">Appearance</a><button class="app-nav-disclosure" type="button" data-disclosure aria-expanded="false" aria-controls="help-links">Help</button><div class="app-nav-submenu" id="help-links" hidden>{help_navigation}</div>{authorization_pills}</nav></aside>
 <main class="site-main applicant-review-main" id="main-content" tabindex="-1">
 <header class="site-hero"><h1>{escape(bundle.applicant_name)}</h1><p>Application status: {escape(bundle.application_status)}</p></header>
 <div class="preview-notice" role="status"><strong>Read-only administrator preview</strong><span>This displays the saved application through the applicant form. It does not sign you in as the applicant and nothing on this page can change the record.</span></div>
-{sections}
+<nav class="applicant-detail-tabs" aria-label="Applicant details"><a href="#summary">Summary</a><a href="#applicant-information">Applicant information</a><a href="#documents">Documents</a><a href="#access-identity">Access &amp; identity</a><a href="#internal-audit">Internal audit</a></nav>
+<section id="summary" class="section-heading"><h2>Summary</h2><p><a href="{escape(safe_back_href, quote=True)}">Back to applicants</a>. Use the sections below to inspect this record without entering the applicant session.</p></section>
+<section id="applicant-information" aria-labelledby="applicant-information-heading"><div class="section-heading"><h2 id="applicant-information-heading">Applicant information</h2><p>Saved form values and independently reviewed publication evidence.</p></div><nav class="applicant-section-tabs" aria-label="Application information sections">{navigation}</nav>{sections}</section>
+<section id="documents" class="section-heading"><h2>Documents</h2><p>Study each original approved submission or open one freshly rebuilt PDF package containing all approved applicant-visible documents.</p><div class="internal-document-list" data-internal-documents data-application-id="{bundle.application_id}"><p role="status">Loading submitted documents…</p></div></section>
+<section id="access-identity" class="section-heading"><h2>Access &amp; identity</h2><p>Identity provisioning and access decisions remain in the review queue.</p></section>
+<section id="internal-audit" class="section-heading"><h2>Internal audit</h2><p>Opening this applicant workspace is recorded in the append-only audit log.</p></section>
 <section id="help" class="section-heading"><h2>Help</h2><p>Use the section controls to inspect the complete saved form. Applicant edits, document uploads, confirmations, and final submission remain available only through the applicant's own Entra-scoped session.</p></section>
 <section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance</h2><p>Choose the display that is most comfortable for you. Your preference is stored securely for your administrator identity.</p></div>{_appearance_controls()}</section>
 </main><script src="/assets/theme.js"></script><script src="/assets/shell.js"></script><script src="/assets/applicant-preview.js"></script></body></html>"""
+
+
+def _safe_back_href(value: str | None) -> str:
+    if not value or len(value) > 2048:
+        return "/internal/applicants"
+    parsed = urlsplit(value)
+    if parsed.scheme or parsed.netloc or parsed.fragment or parsed.path != "/internal/applicants":
+        return "/internal/applicants"
+    return value
 
 
 def _section_values(bundle: ApplicantPreviewBundle) -> dict[str, dict[str, Any]]:
@@ -186,26 +225,29 @@ def _publication_records(records: tuple[Any, ...]) -> str:
             "Authors",
             "Title",
             "Journal, volume and pages",
+            "Resolution and review",
             "Citations by source",
         )
     )
     return (
         '<fieldset class="repeatable-field review-field-wide publication-records-field">'
         '<legend>Publication records</legend>'
-        '<p class="field-help publication-record-help">Double-click a paper to open it in Google Scholar. The complete row is also keyboard accessible.</p>'
+        '<p class="field-help publication-record-help">Double-click a paper to open its DOI record. The complete row is also keyboard accessible.</p>'
         f'<div class="publication-records"><div class="publication-records-header" aria-hidden="true">{headings}</div>{rows}</div>'
         '</fieldset>'
     )
 
 
 def _publication_record(record: Any) -> str:
-    authors = _optional_display(getattr(record, "authors_text", None))
+    resolved = getattr(record, "resolution_status", None) == "RESOLVED"
+    absent_metadata = "Not resolved" if not resolved else "Not recorded"
+    authors = _publication_metadata_display(getattr(record, "authors_text", None), absent_metadata)
     first_author = _first_author(authors)
-    title = _optional_display(getattr(record, "title", None))
+    title = _publication_metadata_display(getattr(record, "title", None), absent_metadata)
     citation = _scientific_citation(record)
     citation_count = _citation_counts(record)
-    scholar_url = str(getattr(record, "google_scholar_url", ""))
-    label = f"Open {title} in Google Scholar"
+    publication_url = str(getattr(record, "publication_url", "") or "")
+    review = _publication_review(record)
     fields = "".join(
         _publication_record_field(field_label, value)
         for field_label, value in (
@@ -213,14 +255,21 @@ def _publication_record(record: Any) -> str:
             ("Authors", authors),
             ("Title", title),
             ("Journal, volume and pages", citation),
+            ("Resolution and review", review),
             ("Citations by source", citation_count),
         )
     )
+    interactive = ""
+    if publication_url:
+        label = f"Open {title} publication"
+        interactive = (
+            f'data-publication-url="{escape(publication_url, quote=True)}" '
+            f'role="link" tabindex="0" aria-label="{escape(label, quote=True)}" '
+            'title="Double-click to open this publication"'
+        )
     return (
         '<div class="publication-record" data-publication-record '
-        f'data-google-scholar-url="{escape(scholar_url, quote=True)}" '
-        f'role="link" tabindex="0" aria-label="{escape(label, quote=True)}" '
-        'title="Double-click to open this paper in Google Scholar">'
+        f"{interactive}>"
         f"{fields}</div>"
     )
 
@@ -239,8 +288,14 @@ def _optional_display(value: Any) -> str:
     return str(value).strip()
 
 
+def _publication_metadata_display(value: Any, absent: str) -> str:
+    if value is None or not str(value).strip():
+        return absent
+    return str(value).strip()
+
+
 def _first_author(authors: str) -> str:
-    if authors == "Missing":
+    if authors in {"Missing", "Not resolved", "Not recorded"}:
         return authors
     return authors.split(";", 1)[0].strip() or "Missing"
 
@@ -257,7 +312,27 @@ def _scientific_citation(record: Any) -> str:
     if pages:
         locus += (":" if locus else "") + pages
     parts = [part for part in (journal, locus) if part]
-    return ". ".join(parts) + ("." if parts else "Missing")
+    if parts:
+        return ". ".join(parts) + "."
+    return "Not resolved" if getattr(record, "resolution_status", None) != "RESOLVED" else "Not recorded"
+
+
+def _publication_review(record: Any) -> str:
+    resolution = str(getattr(record, "resolution_status", None) or "UNRESOLVED")
+    disposition = str(getattr(record, "review_disposition", None) or "PENDING_REVIEW")
+    disposition_label = {
+        "ACCEPTED_PREPRINT": "ACCEPTED / PREPRINT",
+    }.get(disposition, disposition.replace("_", " "))
+    summary = f"{resolution.replace('_', ' ')} · {disposition_label}"
+    reason = _optional_value(getattr(record, "review_reason", None))
+    evidence = _optional_value(getattr(record, "review_evidence", None))
+    source = _optional_value(getattr(record, "source_citation", None))
+    page = getattr(record, "source_page", None)
+    detail_parts = [part for part in (reason, evidence) if part]
+    if source:
+        locator = f"Dossier page {page}: " if page is not None else "Source record: "
+        detail_parts.append(locator + source)
+    return summary + (" — " + " ".join(detail_parts) if detail_parts else "")
 
 
 def _scholar_citation_count(record: Any) -> str:
@@ -270,23 +345,11 @@ def _scholar_citation_count(record: Any) -> str:
 
 
 def _citation_counts(record: Any) -> str:
-    if hasattr(record, "openalex_citation_status") or hasattr(
-        record, "semantic_scholar_citation_status"
-    ):
-        openalex_count = getattr(record, "openalex_citation_count", None)
-        openalex_status = getattr(record, "openalex_citation_status", None)
-        semantic_scholar = _citation_source_value(
-            getattr(record, "semantic_scholar_citation_count", None),
-            getattr(record, "semantic_scholar_citation_status", None),
-        )
-        google_scholar = _scholar_citation_count(record)
-        parts = [f"Google Scholar: {google_scholar}"]
-        if openalex_count is not None or openalex_status is not None:
-            openalex = _citation_source_value(openalex_count, openalex_status)
-            parts.append(f"OpenAlex: {openalex}")
-        parts.append(f"Semantic Scholar: {semantic_scholar}")
-        return "; ".join(parts)
-    return f"Google Scholar: {_scholar_citation_count(record)}"
+    openalex = _citation_source_value(
+        getattr(record, "openalex_citation_count", None),
+        getattr(record, "openalex_citation_status", None),
+    )
+    return f"OpenAlex: {openalex}"
 
 
 def _citation_source_value(count: Any, status: Any) -> str:

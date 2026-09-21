@@ -289,10 +289,12 @@ def test_simplified_form_uses_repeatable_degrees_conditional_scholar_and_doi_con
 
             page.set_viewport_size({"width": 390, "height": 844})
             page.get_by_role("button", name="UZH employment and eligibility").click(force=True)
-            mobile_columns = page.locator('[data-generated-fields="employment"]').evaluate(
-                "node => getComputedStyle(node).gridTemplateColumns.split(' ').length"
+            mobile_layout = page.locator('[data-generated-fields="employment"]').evaluate(
+                "node => ({ columns: getComputedStyle(node).gridTemplateColumns.split(' ').length, "
+                "grid: getComputedStyle(node).gridTemplateColumns, width: innerWidth, "
+                "mobile: matchMedia('(max-width: 720px)').matches })"
             )
-            assert mobile_columns == 1, mobile_columns
+            assert mobile_layout["grid"] == "minmax(0px, 1fr)", mobile_layout
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
             assert Axe().run(page).violations_count == 0
 

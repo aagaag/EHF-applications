@@ -18,6 +18,7 @@ from app.applicant.documents import (
 )
 from app.auth.applicant import ApplicantAuthService, ApplicantSessionContext
 from app.routes.applicant_auth import CSRF_COOKIE, SESSION_COOKIE
+from app.routes.documents import pdf_response
 
 
 MAX_UPLOAD_READ_BYTES = 25 * 1024 * 1024 + 1
@@ -123,6 +124,29 @@ def register_applicant_document_routes(
             content={"status": "PENDING", "message": "Uploaded for Foundation review."},
         )
 
+    @application.get("/api/applicant/documents/package/view")
+    def view_applicant_document_package(request: Request) -> Response:
+        return _document_package_response(auth, documents, request, disposition="inline")
+
+    @application.get("/api/applicant/documents/package/download")
+    def download_applicant_document_package(request: Request) -> Response:
+        return _document_package_response(auth, documents, request, disposition="attachment")
+
+    @application.get("/api/applicant/documents/{slot_id}/view")
+    def view_applicant_document(slot_id: UUID, request: Request) -> Response:
+        session = _session(auth, request)
+        if session is None:
+            return _unauthorized()
+        if session.synthetic_actor_identity is not None:
+            return _unavailable()
+        payload = documents.download(session, slot_id)
+        if payload is None:
+            return JSONResponse(
+                status_code=404,
+                content={"message": "The document slot is unavailable."},
+            )
+        return pdf_response(payload, disposition="inline", filename="document.pdf")
+
     @application.get("/api/applicant/documents/{slot_id}/download")
     def download_applicant_document(slot_id: UUID, request: Request) -> Response:
         session = _session(auth, request)
@@ -136,11 +160,32 @@ def register_applicant_document_routes(
                 status_code=404,
                 content={"message": "The document slot is unavailable."},
             )
-        return Response(
-            payload,
-            media_type="application/pdf",
-            headers={"Content-Disposition": 'attachment; filename="document.pdf"'},
+        return pdf_response(payload, disposition="attachment", filename="document.pdf")
+
+
+def _document_package_response(
+    auth: ApplicantAuthService,
+    documents: ApplicantDocumentService,
+    request: Request,
+    *,
+    disposition: str,
+) -> Response:
+    session = _session(auth, request)
+    if session is None:
+        return _unauthorized()
+    if session.synthetic_actor_identity is not None:
+        return _unavailable()
+    payload = documents.package(session)
+    if payload is None:
+        return JSONResponse(
+            status_code=404,
+            content={"message": "The document package is unavailable."},
         )
+    return pdf_response(
+        payload,
+        disposition=disposition,
+        filename="application-document-package.pdf",
+    )
 
 
 def _session(

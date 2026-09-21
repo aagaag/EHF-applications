@@ -224,7 +224,9 @@ DECLARE @Metrics TABLE
     FirstAuthorPaperCount int, LastAuthorPaperCount int, TotalPaperCount int, HIndex int,
     TotalCitations bigint, Orcid nvarchar(200), GoogleScholarCitationCount bigint,
     IdentityCertainty nvarchar(200), VerifiedCitationCount bigint,
-    VerifiedCitationSource varchar(40), VerifiedCitationProfileUrl nvarchar(1000)
+    VerifiedCitationSource varchar(40), VerifiedCitationProfileUrl nvarchar(1000),
+    ValidatedPublishedPaperCount int, ApplicationId varchar(36),
+    ApplicationNumber nvarchar(20)
 );
 EXECUTE AS USER = N'ehf_app';
 INSERT @Previews EXEC dbo.ListApplicantPreviews @ActorGroup=N'EHF-Administrators';

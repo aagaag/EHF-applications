@@ -1,4 +1,4 @@
-"""Collect a private reviewed Semantic Scholar citation snapshot."""
+"""Collect a private reviewed OpenAlex citation snapshot."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from app.importer.open_citation_collector import (
     OfficialCitationApiClient,
     OpenCitationCollectionError,
     collect_open_citation_rows,
+    collect_semantic_scholar_rows,
     write_open_citation_snapshot,
 )
 from app.importer.publications import (
@@ -21,10 +22,15 @@ from app.importer.publications import (
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Collect citation counts from the official Semantic Scholar API."
+        description="Collect citation counts from an official citation API."
     )
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--source",
+        choices=("OPENALEX", "SEMANTIC_SCHOLAR"),
+        default="OPENALEX",
+    )
     parser.add_argument(
         "--user-agent",
         default="EHF-applications/2026.4 open-citation-collector",
@@ -57,22 +63,34 @@ def main(argv: Sequence[str] | None = None) -> int:
                 arguments.expected_citation_statuses,
             ),
         )
-        client = OfficialCitationApiClient(user_agent=arguments.user_agent)
+        client = OfficialCitationApiClient(
+            user_agent=arguments.user_agent,
+            source_code=arguments.source,
+        )
         try:
             def progress(current: int, total: int, source: str) -> None:
                 if current == total or current % 25 == 0:
                     print(f"{source}: {current}/{total}", flush=True)
 
-            rows = collect_open_citation_rows(manifest, client, progress=progress)
+            collector = (
+                collect_open_citation_rows
+                if arguments.source == "OPENALEX"
+                else collect_semantic_scholar_rows
+            )
+            rows = collector(manifest, client, progress=progress)
         finally:
             client.close()
         write_open_citation_snapshot(output, rows)
     except (OSError, PublicationImportError, OpenCitationCollectionError, ValueError) as error:
         print(f"EHF_OPEN_CITATION_COLLECTION_ERROR: {error}")
         return 2
-    semantic = sum(row["citation_status"] == "OBSERVED" and row["source_code"] == "SEMANTIC_SCHOLAR" for row in rows)
+    observed = sum(
+        row["citation_status"] == "OBSERVED"
+        and row["source_code"] == arguments.source
+        for row in rows
+    )
     print(f"Snapshot rows: {len(rows)}")
-    print(f"Semantic Scholar observed: {semantic}")
+    print(f"{arguments.source} observed: {observed}")
     print(f"Output: {output}")
     return 0
 

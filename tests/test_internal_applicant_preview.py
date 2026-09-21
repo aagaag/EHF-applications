@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from uuid import UUID
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,7 +19,7 @@ from app.preferences import Identity
 APPLICATION_ID = UUID("a7000000-0000-4000-8000-000000000001")
 
 
-def test_preview_omits_openalex_when_no_openalex_observation_exists() -> None:
+def test_preview_uses_only_openalex_when_no_observation_exists() -> None:
     value = _citation_counts(
         SimpleNamespace(
             citation_count=None,
@@ -30,7 +31,7 @@ def test_preview_omits_openalex_when_no_openalex_observation_exists() -> None:
         )
     )
 
-    assert value == "Google Scholar: Not available; Semantic Scholar: 35"
+    assert value == "OpenAlex: Not available"
 
 
 def test_preview_shows_a_recovered_phd_conferral_year_without_inventing_a_date() -> None:
@@ -101,6 +102,26 @@ def test_preview_preserves_an_exact_phd_conferral_date() -> None:
     assert "year recorded; full date unavailable" not in page
 
 
+def test_preview_uses_a_validated_return_link_for_filtered_applicant_lists() -> None:
+    bundle = ApplicantPreviewBundle(
+        APPLICATION_ID,
+        "Synthetic Preview Applicant",
+        "IMPORTED",
+        {"applicant": {"fullName": "Synthetic Preview Applicant"}},
+        {},
+    )
+
+    preserved = render_applicant_preview(
+        bundle, back_href="/internal/applicants?q=Synthetic&status=IMPORTED"
+    )
+    unsafe = render_applicant_preview(
+        bundle, back_href="https://attacker.example/collect"
+    )
+
+    assert 'href="/internal/applicants?q=Synthetic&amp;status=IMPORTED"' in preserved
+    assert 'href="/internal/applicants">Back to applicants</a>' in unsafe
+
+
 class PreviewApprovalService(ApplicantApprovalService):
     def previews(self, actor_group: str):  # type: ignore[no-untyped-def]
         if actor_group != INTERNAL_GROUPS.administrators:
@@ -162,9 +183,7 @@ class PreviewApprovalService(ApplicantApprovalService):
                     openalex_citation_status="OBSERVED",
                     semantic_scholar_citation_count=35,
                     semantic_scholar_citation_status="OBSERVED",
-                    google_scholar_url=(
-                        "https://scholar.google.com/scholar?q=10.1000%2Fexample"
-                    ),
+                    publication_url="https://doi.org/10.1000/example",
                 ),
                 SimpleNamespace(
                     application_publication_id=UUID(
@@ -182,9 +201,7 @@ class PreviewApprovalService(ApplicantApprovalService):
                     openalex_citation_status="NOT_FOUND",
                     semantic_scholar_citation_count=None,
                     semantic_scholar_citation_status="NOT_FOUND",
-                    google_scholar_url=(
-                        "https://scholar.google.com/scholar?q=Awaiting+review"
-                    ),
+                    publication_url=None,
                 ),
             ),
         )
@@ -242,17 +259,7 @@ def test_administrator_can_open_every_existing_application_in_the_read_only_appl
                 "applicationId": str(APPLICATION_ID),
                 "applicantName": "Synthetic Preview Applicant",
                 "applicationStatus": "IMPORTED",
-                "academicAgeYears": None,
-                "hIndex": None,
-                "citationCount": None,
-                "citationSource": None,
-                "citationProfileUrl": None,
-                "researchArea": None,
-                "documentCount": 0,
-                "href": f"/internal/applicant-previews/{APPLICATION_ID}",
-                "documentsHref": (
-                    f"/internal/applicant-previews/{APPLICATION_ID}/documents"
-                ),
+                "href": f"/internal/applicants/{APPLICATION_ID}",
             }
         ]
     }
@@ -270,21 +277,46 @@ def test_administrator_can_open_every_existing_application_in_the_read_only_appl
     assert "A &lt;Synthetic&gt; Publication" in page.text
     assert "Journal of Synthetic Results. 2025;12:101-109." in page.text
     assert "Citations by source" in page.text
-    assert "Google Scholar: 37" in page.text
     assert "OpenAlex: 39" in page.text
-    assert "Semantic Scholar: 35" in page.text
+    assert "Google Scholar:" not in page.text
+    assert "Semantic Scholar:" not in page.text
     assert "OpenAlex: Not found" in page.text
-    assert "Semantic Scholar: Not found" in page.text
+    assert 'data-publication-url="https://doi.org/10.1000/example"' in page.text
     assert 'data-publication-record' in page.text
     assert 'role="link"' in page.text
     assert 'tabindex="0"' in page.text
-    assert (
-        'data-google-scholar-url="https://scholar.google.com/scholar?q=10.1000%2Fexample"'
-        in page.text
-    )
     assert "Save changes" not in page.text
     assert "Confirm this information" not in page.text
     assert "readonly" in page.text
+
+
+def test_internal_surfaces_keep_the_same_primary_navigation_while_details_use_local_tabs() -> None:
+    """Break caught: opening an applicant could replace global navigation with form sections."""
+    with TestClient(_app(INTERNAL_GROUPS.administrators), base_url="https://localhost") as client:
+        overview = client.get("/internal/")
+        applicants = client.get("/internal/applicants")
+        detail = client.get(f"/internal/applicants/{APPLICATION_ID}")
+
+    def labels(source: str) -> list[str]:
+        match = re.search(
+            r'<nav class="app-nav-list" aria-label="Primary navigation">(.*?)</nav>',
+            source,
+            flags=re.DOTALL,
+        )
+        assert match is not None
+        return re.findall(r'<a[^>]*>([^<]+)</a>', match.group(1))
+
+    expected = ["Overview", "Applicants", "Review queue", "Reports", "Operations"]
+    assert labels(overview.text) == expected
+    assert labels(applicants.text) == expected
+    assert labels(detail.text) == expected
+    assert 'aria-label="Applicant details"' in detail.text
+    assert "Summary" in detail.text
+    assert "Applicant information" in detail.text
+    assert "Documents" in detail.text
+    assert "Access &amp; identity" in detail.text
+    assert "Internal audit" in detail.text
+    assert 'aria-label="Application sections"' not in detail.text
 
 
 def test_administrator_applicant_previews_are_sorted_by_name_with_deterministic_ties() -> None:

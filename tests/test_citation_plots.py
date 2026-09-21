@@ -19,22 +19,21 @@ def test_surname_labels_keep_only_the_identifying_last_name() -> None:
     assert applicant_surname("Cher") == "Cher"
 
 
-def test_plot_points_preserve_citation_fallback_and_exclude_incomplete_axes() -> None:
+def test_plot_points_use_only_the_openalex_cutoff_and_exclude_incomplete_axes() -> None:
     """Break caught: labels could rank a fallback incorrectly or include unplottable data."""
     records = (
         PreviewApplicantMetric(
             applicant="Total Preferred",
             age=30,
-            total_citations=10,
-            google_scholar_citations=999,
+                verified_citations=10,
         ),
         PreviewApplicantMetric(
             applicant="Scholar Fallback",
             age=31,
-            google_scholar_citations=20,
+                verified_citations=20,
         ),
         PreviewApplicantMetric(applicant="Missing Citations", age=32),
-        PreviewApplicantMetric(applicant="Missing Age", total_citations=30),
+        PreviewApplicantMetric(applicant="Missing Age", verified_citations=30),
     )
 
     points = citation_plot_points(records, "age")
@@ -51,7 +50,6 @@ def test_plot_points_prefer_a_verified_profile_total_over_self_report() -> None:
         PreviewApplicantMetric(
             applicant="Profile Preferred",
             age=30,
-            total_citations=10,
             google_scholar_citations=20,
             verified_citations=30,
             verified_citation_source="OpenAlex",
@@ -72,7 +70,7 @@ def test_each_record_has_a_unique_color_shared_by_both_age_plots() -> None:
             applicant=f"Applicant Surname{index:02d}",
             age=30 + index,
             academic_age=3 + index,
-            total_citations=100 + index,
+                verified_citations=100 + index,
         )
         for index in range(18)
     )
@@ -94,7 +92,7 @@ def test_only_the_15_highest_citation_totals_receive_callouts() -> None:
         PreviewApplicantMetric(
             applicant=f"Given Surname{index:02d}",
             age=30 + index,
-            total_citations=index,
+            verified_citations=index,
         )
         for index in range(18)
     )
@@ -111,9 +109,9 @@ def test_only_the_15_highest_citation_totals_receive_callouts() -> None:
 def test_callout_ranking_breaks_citation_ties_by_name_then_source_order() -> None:
     """Break caught: equal citation totals could produce unstable call-out identities."""
     records = (
-        PreviewApplicantMetric(applicant="Given Zulu", age=30, total_citations=100),
-        PreviewApplicantMetric(applicant="Given Alpha", age=31, total_citations=100),
-        PreviewApplicantMetric(applicant="Given Alpha", age=32, total_citations=100),
+        PreviewApplicantMetric(applicant="Given Zulu", age=30, verified_citations=100),
+        PreviewApplicantMetric(applicant="Given Alpha", age=31, verified_citations=100),
+        PreviewApplicantMetric(applicant="Given Alpha", age=32, verified_citations=100),
     )
 
     points = citation_plot_points(records, "age", label_limit=2)

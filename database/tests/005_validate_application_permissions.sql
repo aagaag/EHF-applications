@@ -13,8 +13,16 @@ IF OBJECT_ID(N'dbo.ValidateApplicationInvitation', N'P') IS NULL
     THROW 51518, 'The invitation-validation procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.GetInternalApplicationMetrics', N'P') IS NULL
     THROW 51519, 'The internal-metrics procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.GetInternalApplicantMetricDetail', N'P') IS NULL
+    THROW 51524, 'The internal applicant-metric detail procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.RecordReportExportAudit', N'P') IS NULL
     THROW 51520, 'The report-export audit procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.ListInternalApplicantDocuments', N'P') IS NULL
+    THROW 51521, 'The internal document-list procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.GetInternalApplicantDocument', N'P') IS NULL
+    THROW 51522, 'The internal document-read procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.RecordInternalDocumentAccessOutcome', N'P') IS NULL
+    THROW 51523, 'The internal document-audit procedure is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'EHFApplicationRuntime') IS NULL
     THROW 51503, 'The EHF runtime role is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'ehf_app') IS NULL
@@ -26,7 +34,10 @@ DECLARE @ApprovedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
 INSERT @ApprovedProcedures VALUES
     (N'RuntimeHealth'), (N'SetUserPreference'), (N'GetUserPreference'),
     (N'SetApplicationStatus'), (N'ValidateApplicationInvitation'),
-    (N'GetInternalApplicationMetrics'), (N'RecordReportExportAudit'),
+    (N'GetInternalApplicationMetrics'), (N'GetInternalApplicantMetricDetail'),
+    (N'RecordReportExportAudit'),
+    (N'ListInternalApplicantDocuments'), (N'GetInternalApplicantDocument'),
+    (N'RecordInternalDocumentAccessOutcome'),
     (N'SaveApplicantSectionDraft'), (N'ConfirmApplicantSection'),
     (N'SubmitApplicantFinalConfirmation'), (N'GetApplicantFacingApplication'),
     (N'ValidateApplicantUploadSlot'), (N'GetApplicantDocumentSlots'),
@@ -44,8 +55,7 @@ INSERT @ApprovedProcedures VALUES
     (N'ReviewApplicantDocumentSubmission'), (N'ListPendingApplicantSubmissions'),
     (N'GetApplicantSubmissionReview'), (N'ApproveApplicantSubmission'),
     (N'ReturnApplicantSubmissionForCorrection'),
-    (N'ListApplicantPreviews'), (N'GetApplicantPreview'),
-    (N'ListApplicantPreviewDocuments'), (N'GetApplicantPreviewDocument');
+    (N'ListApplicantPreviews'), (N'GetApplicantPreview');
 DECLARE @DeniedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
 INSERT @DeniedProcedures VALUES (N'ReopenApplicantScope');
 DECLARE @ProtectedTables TABLE (TableName sysname NOT NULL PRIMARY KEY);
@@ -67,7 +77,8 @@ INSERT @ProtectedTables VALUES
     (N'ApplicantEntraIdentity'), (N'ApplicantPortalBaseline'),
     (N'ApplicantFinalReviewDecision'), (N'ApplicantDocumentReviewDecision'),
     (N'ApplicationPublication'), (N'ApplicationPublicationSourceOccurrence'),
-    (N'PublicationMetadataObservation'), (N'PublicationCitationObservation');
+    (N'ApplicationPublicationReview'), (N'PublicationMetadataObservation'),
+    (N'PublicationCitationObservation'), (N'CitationMetricCutoffRun');
 DECLARE @RequiredDmlDenies TABLE (TableName sysname NOT NULL, PermissionName sysname NOT NULL, PRIMARY KEY (TableName, PermissionName));
 INSERT @RequiredDmlDenies
 SELECT TableName, PermissionName

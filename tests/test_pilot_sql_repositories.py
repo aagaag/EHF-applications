@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from uuid import UUID
 
 import pytest
@@ -11,13 +10,14 @@ from app.applicant.sql_pilot import (
     ApplicantSqlSessionScope,
     SqlApplicantApprovalService,
     SqlApplicantDocumentRepository,
+    SqlApplicantDocumentService,
     SqlApplicantFinalizationService,
     SqlSectionConfirmationService,
     SqlSyntheticDraftRepository,
     SqlSyntheticProjectionRepository,
 )
+from app.applicant.documents import InternalDocumentSummary
 from app.applicant.approval import ApplicantApprovalBlocked
-from app.documents.store import DocumentStoreError
 from app.applicant.confirmations import SectionConfirmation, _canonical_hash
 from app.applicant.drafts import (
     CorrectionRequired,
@@ -30,6 +30,7 @@ from app.applicant.finalize import (
     FinalizationSessionUnavailable,
     REQUIRED_SECTIONS,
 )
+from app.documents.store import ObjectBinding, StoredObjectRecord
 import pyodbc
 
 
@@ -250,6 +251,142 @@ def test_document_slot_lookup_is_session_scoped_and_excludes_other_records() -> 
     assert APPLICATION_A not in parameters
 
 
+def test_internal_document_repository_uses_role_checked_procedures_and_maps_bindings() -> None:
+    """Break caught: production could expose internal objects without the SQL authorization boundary."""
+    slot_id = UUID("92000000-0000-4000-8000-000000000011")
+    version_id = UUID("92000000-0000-4000-8000-000000000012")
+    document_id = UUID("92000000-0000-4000-8000-000000000013")
+    object_id = UUID("92000000-0000-4000-8000-000000000014")
+    list_connection = Connection(
+        [(str(slot_id), str(version_id), "CV", "Curriculum vitae", 2, "ACCEPTED")]
+    )
+    download_connection = Connection(
+        [(
+            str(APPLICATION_A), str(document_id), str(version_id), str(object_id),
+            "0" * 32, 1, 1, b"n" * 12, b"p" * 32, b"c" * 32, 123,
+        )]
+    )
+    outcome_connection = Connection([])
+    available = iter((list_connection, download_connection, outcome_connection))
+
+    @contextmanager
+    def connections():
+        yield next(available)
+
+    repository = SqlApplicantDocumentRepository(connections, ApplicantSqlSessionScope())
+
+    listed = repository.internal_documents(
+        APPLICATION_A,
+        actor="cloudflare:reviewer",
+        actor_group="EHF-Trustees",
+    )
+    record = repository.internal_download_record(
+        APPLICATION_A,
+        version_id,
+        actor="cloudflare:reviewer",
+        actor_group="EHF-Trustees",
+        purpose="VIEW",
+    )
+    repository.record_internal_access_outcome(
+        APPLICATION_A,
+        version_id,
+        actor="cloudflare:reviewer",
+        actor_group="EHF-Trustees",
+        purpose="VIEW",
+        outcome="SUCCEEDED",
+    )
+
+    assert listed == (
+        InternalDocumentSummary(slot_id, version_id, "CV", "Curriculum vitae", 2, "ACCEPTED"),
+    )
+    assert record is not None
+    stored, binding = record
+    assert stored.object_key == "0" * 32
+    assert binding == ObjectBinding(APPLICATION_A, document_id, version_id, object_id)
+    assert "ListInternalApplicantDocuments" in list_connection.cursor.calls[0][0]
+    assert list_connection.cursor.calls[0][1] == (
+        APPLICATION_A, "cloudflare:reviewer", "EHF-Trustees"
+    )
+    assert "GetInternalApplicantDocument" in download_connection.cursor.calls[0][0]
+    assert "RecordInternalDocumentAccessOutcome" in outcome_connection.cursor.calls[0][0]
+    assert download_connection.commits == 1
+    assert outcome_connection.commits == 1
+
+
+def test_sql_internal_document_service_records_decryption_outcome() -> None:
+    """Break caught: database-backed viewing could decrypt without a success/failure audit."""
+    version_id = UUID("92000000-0000-4000-8000-000000000022")
+    binding = ObjectBinding(
+        APPLICATION_A,
+        UUID("92000000-0000-4000-8000-000000000023"),
+        version_id,
+        UUID("92000000-0000-4000-8000-000000000024"),
+    )
+    record = StoredObjectRecord("0" * 32, 1, 1, b"n" * 12, b"p" * 32, b"c" * 32, 3)
+
+    class Repository:
+        def __init__(self):
+            self.outcomes = []
+
+        def internal_download_record(self, *args, **kwargs):
+            return record, binding
+
+        def record_internal_access_outcome(self, *args, **kwargs):
+            self.outcomes.append(kwargs["outcome"])
+
+    class Objects:
+        def decrypt_bytes(self, stored, stored_binding):
+            assert stored is record and stored_binding is binding
+            return b"pdf"
+
+    repository = Repository()
+    service = SqlApplicantDocumentService(repository, Objects(), object())  # type: ignore[arg-type]
+
+    payload = service.internal_download(
+        APPLICATION_A,
+        version_id,
+        actor="cloudflare:reviewer",
+        actor_group="EHF-Administrators",
+        purpose="DOWNLOAD",
+    )
+
+    assert payload == b"pdf"
+    assert repository.outcomes == ["SUCCEEDED"]
+
+
+def test_sql_internal_document_service_records_denied_lookup_as_failed() -> None:
+    """Break caught: SQL denials could leave a REQUESTED audit without its outcome."""
+    version_id = UUID("92000000-0000-4000-8000-000000000025")
+
+    class Repository:
+        def __init__(self):
+            self.outcomes = []
+
+        def internal_download_record(self, *args, **kwargs):
+            return None
+
+        def record_internal_access_outcome(self, *args, **kwargs):
+            self.outcomes.append(kwargs["outcome"])
+
+    class Objects:
+        def decrypt_bytes(self, *_args):
+            raise AssertionError("a denied record must never be decrypted")
+
+    repository = Repository()
+    service = SqlApplicantDocumentService(repository, Objects(), object())  # type: ignore[arg-type]
+
+    payload = service.internal_download(
+        APPLICATION_A,
+        version_id,
+        actor="cloudflare:reviewer",
+        actor_group="EHF-Administrators",
+        purpose="VIEW",
+    )
+
+    assert payload is None
+    assert repository.outcomes == ["FAILED"]
+
+
 def test_draft_sql_conflict_and_lock_are_translated_to_workflow_exceptions() -> None:
     scope = ApplicantSqlSessionScope()
     scope.bind(SESSION_HASH)
@@ -403,6 +540,12 @@ def test_administrator_preview_repository_lists_and_loads_saved_applicant_form()
                     "OBSERVED",
                     35,
                     "OBSERVED",
+                    "RESOLVED",
+                    "PUBLISHED",
+                    "Verified against the DOI landing page.",
+                    '{"doi":"10.1000/example","source":"Crossref"}',
+                    "A fixture publication.",
+                    3,
                 )
             ],
         ]
@@ -431,9 +574,12 @@ def test_administrator_preview_repository_lists_and_loads_saved_applicant_form()
     assert publication.openalex_citation_status == "OBSERVED"
     assert publication.semantic_scholar_citation_count == 35
     assert publication.semantic_scholar_citation_status == "OBSERVED"
-    assert publication.google_scholar_url == (
-        "https://scholar.google.com/scholar?q=10.1000%2Fexample"
-    )
+    assert publication.resolution_status == "RESOLVED"
+    assert publication.review_disposition == "PUBLISHED"
+    assert publication.review_reason == "Verified against the DOI landing page."
+    assert publication.source_citation == "A fixture publication."
+    assert publication.source_page == 3
+    assert publication.publication_url == "https://doi.org/10.1000/example"
     assert detail_connection.cursor.calls[0][1] == (
         APPLICATION_A,
         "cloudflare:administrator",
@@ -581,252 +727,3 @@ def test_returned_section_must_be_saved_before_sql_reconfirmation() -> None:
     )
     with pytest.raises(CorrectionRequired):
         unchanged.confirm(APPLICATION_A, "employment", snapshot)
-
-
-APPLICATION_PREVIEW_DOCUMENT = UUID("91000000-0000-4000-8000-000000000031")
-APPLICATION_PREVIEW_DOCUMENT_ID = UUID("91000000-0000-4000-8000-000000000032")
-APPLICATION_PREVIEW_OBJECT = UUID("91000000-0000-4000-8000-000000000033")
-APPLICATION_PREVIEW_OBJECT_KEY = "0123456789abcdef0123456789abcdef"
-
-
-class FakeObjectStore:
-    """Object store double that records the exact envelope and binding it was asked for."""
-
-    def __init__(self, content: bytes = b"%PDF-1.7 synthetic proposal") -> None:
-        self.content = content
-        self.calls: list[tuple[object, object]] = []
-
-    def decrypt_bytes(self, record: object, binding: object) -> bytes:
-        self.calls.append((record, binding))
-        return self.content
-
-
-def test_applicant_review_cards_map_the_release_25_metrics() -> None:
-    """Break caught: a card could show the wrong applicant's citation or academic-age source."""
-    connection = Connection(
-        [
-            (
-                str(APPLICATION_A),
-                "Synthetic Applicant",
-                "IMPORTED",
-                Decimal("4.50"),
-                12,
-                734,
-                "OPENALEX",
-                "https://openalex.org/A123",
-                "Synthetic neurodegeneration",
-                2,
-            )
-        ]
-    )
-    service = SqlApplicantApprovalService(factory(connection))
-
-    summaries = service.previews("EHF-Administrators")
-
-    card = summaries[0]
-    assert card.application_id == APPLICATION_A
-    assert card.academic_age_years == 4.5
-    assert card.h_index == 12
-    assert card.citation_count == 734
-    assert card.citation_source == "OPENALEX"
-    assert card.citation_profile_url == "https://openalex.org/A123"
-    assert card.research_area == "Synthetic neurodegeneration"
-    assert card.document_count == 2
-    assert "ListApplicantPreviews" in connection.cursor.calls[0][0]
-    assert connection.cursor.calls[0][1] == ("EHF-Administrators",)
-
-
-def test_applicant_review_card_survives_a_database_without_the_metric_columns() -> None:
-    """Break caught: a release ahead of its migration could break the whole review page."""
-    connection = Connection([(str(APPLICATION_A), "Synthetic Applicant", "IMPORTED")])
-    service = SqlApplicantApprovalService(factory(connection))
-
-    card = service.previews("EHF-Administrators")[0]
-
-    assert card.applicant_name == "Synthetic Applicant"
-    assert card.academic_age_years is None
-    assert card.document_count == 0
-
-
-def test_applicant_preview_documents_are_administrator_only_and_exact() -> None:
-    """Break caught: a trustee request or missing actor could list a dossier's documents."""
-    connection = MultiResultConnection(
-        [
-            [(str(APPLICATION_A), "Synthetic Applicant", "IMPORTED")],
-            [
-                (
-                    str(APPLICATION_PREVIEW_DOCUMENT),
-                    "import-3c5d91b88145",
-                    "Research plan",
-                    "RESEARCH_PLAN",
-                    "UNREVIEWED",
-                    19,
-                    1115189,
-                    "application/pdf",
-                )
-            ],
-        ]
-    )
-    service = SqlApplicantApprovalService(factory(connection))
-
-    bundle = service.preview_documents(
-        APPLICATION_A, actor="cloudflare:administrator", actor_group="EHF-Administrators"
-    )
-
-    assert bundle.application_id == APPLICATION_A
-    assert bundle.applicant_name == "Synthetic Applicant"
-    assert bundle.application_status == "IMPORTED"
-    document = bundle.documents[0]
-    assert document.document_version_id == APPLICATION_PREVIEW_DOCUMENT
-    assert document.document_type == "RESEARCH_PLAN"
-    assert document.page_count == 19
-    assert document.byte_size == 1115189
-    assert document.classification == "UNREVIEWED"
-    assert connection.cursor.calls[0][1] == (
-        APPLICATION_A,
-        "cloudflare:administrator",
-        "EHF-Administrators",
-    )
-    assert "ListApplicantPreviewDocuments" in connection.cursor.calls[0][0]
-    assert connection.commits == 1
-
-    with pytest.raises(PermissionError):
-        service.preview_documents(
-            APPLICATION_A, actor="cloudflare:trustee", actor_group="EHF-Trustees"
-        )
-    with pytest.raises(PermissionError):
-        service.preview_documents(
-            APPLICATION_A, actor="   ", actor_group="EHF-Administrators"
-        )
-
-
-def test_unknown_sql_applicant_documents_are_a_neutral_lookup_error() -> None:
-    """Break caught: a guessed application ID could report a distinguishable SQL error."""
-    service = SqlApplicantApprovalService(
-        factory(ErrorConnection("[52921] The applicant documents are unavailable."))
-    )
-
-    with pytest.raises(LookupError):
-        service.preview_documents(
-            APPLICATION_A, actor="cloudflare:administrator", actor_group="EHF-Administrators"
-        )
-
-
-def test_applicant_preview_document_decrypts_only_the_authorized_envelope() -> None:
-    """Break caught: the wrong dossier PDF, or an unbound one, could be decrypted and served."""
-    store = FakeObjectStore()
-    connection = Connection(
-        [
-            (
-                str(APPLICATION_A),
-                str(APPLICATION_PREVIEW_DOCUMENT_ID),
-                str(APPLICATION_PREVIEW_DOCUMENT),
-                str(APPLICATION_PREVIEW_OBJECT),
-                APPLICATION_PREVIEW_OBJECT_KEY,
-                1,
-                1,
-                b"n" * 12,
-                b"p" * 32,
-                b"c" * 32,
-                1024,
-                "application/pdf",
-                3,
-                "import-3c5d91b88145",
-                "RESEARCH_PLAN",
-            )
-        ]
-    )
-    service = SqlApplicantApprovalService(factory(connection), store)  # type: ignore[arg-type]
-
-    payload = service.preview_document(
-        APPLICATION_PREVIEW_DOCUMENT,
-        actor="cloudflare:administrator",
-        actor_group="EHF-Administrators",
-    )
-
-    assert payload.content == b"%PDF-1.7 synthetic proposal"
-    assert payload.media_type == "application/pdf"
-    assert payload.display_name == "research-plan-3c5d91b88145.pdf"
-    record, binding = store.calls[0]
-    assert record.object_key == APPLICATION_PREVIEW_OBJECT_KEY  # type: ignore[attr-defined]
-    assert record.byte_size == 1024  # type: ignore[attr-defined]
-    assert binding.application_id == APPLICATION_A  # type: ignore[attr-defined]
-    assert binding.version_id == APPLICATION_PREVIEW_DOCUMENT  # type: ignore[attr-defined]
-    assert "GetApplicantPreviewDocument" in connection.cursor.calls[0][0]
-    assert connection.cursor.calls[0][1] == (
-        APPLICATION_PREVIEW_DOCUMENT,
-        "cloudflare:administrator",
-        "EHF-Administrators",
-    )
-
-    with pytest.raises(PermissionError):
-        service.preview_document(
-            APPLICATION_PREVIEW_DOCUMENT,
-            actor="cloudflare:trustee",
-            actor_group="EHF-Trustees",
-        )
-
-
-def test_applicant_preview_document_requires_a_store_and_rejects_a_failed_envelope() -> None:
-    """Break caught: an unwired or corrupt object store could surface an internal failure."""
-    storeless = SqlApplicantApprovalService(
-        factory(ErrorConnection("an unwired store must fail before the database is read"))
-    )
-
-    with pytest.raises(LookupError):
-        storeless.preview_document(
-            APPLICATION_PREVIEW_DOCUMENT,
-            actor="cloudflare:administrator",
-            actor_group="EHF-Administrators",
-        )
-
-    connection = Connection(
-        [
-            (
-                str(APPLICATION_A),
-                str(APPLICATION_PREVIEW_DOCUMENT_ID),
-                str(APPLICATION_PREVIEW_DOCUMENT),
-                str(APPLICATION_PREVIEW_OBJECT),
-                APPLICATION_PREVIEW_OBJECT_KEY,
-                1,
-                1,
-                b"n" * 12,
-                b"p" * 32,
-                b"c" * 32,
-                1024,
-                "application/pdf",
-                3,
-                "import-3c5d91b88145",
-                "RESEARCH_PLAN",
-            )
-        ]
-    )
-
-    class FailingStore:
-        def decrypt_bytes(self, record: object, binding: object) -> bytes:
-            raise DocumentStoreError(
-                "The encrypted document object failed integrity validation."
-            )
-
-    failing = SqlApplicantApprovalService(factory(connection), FailingStore())  # type: ignore[arg-type]
-    with pytest.raises(LookupError):
-        failing.preview_document(
-            APPLICATION_PREVIEW_DOCUMENT,
-            actor="cloudflare:administrator",
-            actor_group="EHF-Administrators",
-        )
-
-
-def test_unknown_sql_applicant_preview_document_is_a_neutral_lookup_error() -> None:
-    """Break caught: a stale or foreign document version could report a SQL error."""
-    service = SqlApplicantApprovalService(
-        factory(ErrorConnection("[52921] The applicant document is unavailable.")),
-        FakeObjectStore(),  # type: ignore[arg-type]
-    )
-
-    with pytest.raises(LookupError):
-        service.preview_document(
-            APPLICATION_PREVIEW_DOCUMENT,
-            actor="cloudflare:administrator",
-            actor_group="EHF-Administrators",
-        )
