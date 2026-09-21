@@ -123,9 +123,10 @@ def test_report_h_index_uses_the_candidate_relative_blue_heat_scale() -> None:
     html = render_internal_preview(_administrator(), simulation=True, records=records)
 
     assert re.findall(
-        r'data-label="h-index" data-h-index-heat style="--h-index-saturation: (\d+)%">(\d+)',
+        r'data-label="h-index" data-h-index-heat class="h-index-heat-(\d+)">(\d+)',
         html,
     ) == [("10", "4"), ("50", "14"), ("90", "24")]
+    assert 'style="--h-index-saturation:' not in html
     assert 'data-label="h-index"><strong class="missing-value">Missing</strong>' in html
 
 

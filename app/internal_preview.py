@@ -241,7 +241,7 @@ def _report_cell(
         else ""
     )
     heat_attribute = (
-        f' data-h-index-heat style="--h-index-saturation: {h_index_saturation}%"'
+        f' data-h-index-heat class="h-index-heat-{h_index_saturation}"'
         if h_index_saturation is not None
         else ""
     )
@@ -255,7 +255,8 @@ def _h_index_saturation(
         return None
     if low == high:
         return 50
-    return round(10 + (h_index - low) * 80 / (high - low))
+    saturation = 10 + (h_index - low) * 80 / (high - low)
+    return min(90, max(10, round(saturation / 10) * 10))
 
 
 def _combined_metric_markup(first: int | None, last: int | None) -> str:

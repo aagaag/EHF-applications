@@ -201,6 +201,37 @@ def test_internal_document_routes_offer_view_download_and_package_with_neutral_d
     assert guessed.json() == {"message": "The document is unavailable."}
 
 
+def test_imported_internal_source_documents_are_available_to_the_internal_package() -> None:
+    """Break caught: imported application PDFs could be omitted because they are not applicant-visible."""
+    migration = (ROOT / "database" / "migrations" / "035_internal_import_package.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "ALTER PROCEDURE dbo.ListInternalApplicantDocuments" in migration
+    assert "ALTER PROCEDURE dbo.GetInternalApplicantDocument" in migration
+    assert migration.count("slot_row.CreatedByIdentity = N''ISAB01_IMPORT''") == 2
+    assert migration.count("version_row.CreatedByIdentity = N''ISAB01_IMPORT''") == 2
+    assert (
+        migration.count(
+            "latest_decision.Classification = ''CONFIDENTIAL_RECOMMENDATION''"
+        )
+        == 2
+    )
+    assert "slot_row.CreatedByIdentity = N''ISAB01_IMPORT''" in migration
+
+    validator = (
+        ROOT / "database" / "tests" / "035_validate_imported_application_bundle.sql"
+    ).read_text(encoding="utf-8")
+    assert "The imported application document was not listed." in validator
+    assert "The imported application document could not be opened." in validator
+    assert "A confidential imported document was listed." in validator
+    assert "A confidential imported document could be opened." in validator
+    assert "version_row.Classification = ''UNREVIEWED''" in migration
+    assert "document_row.DocumentType <> ''RECOMMENDATION_LETTER''" in migration
+    assert "NOT EXISTS" in migration
+    assert "FROM dbo.Recommendation AS recommendation_row" in migration
+
+
 def test_internal_review_artifact_is_category_scoped_allowlisted_and_audited(
     tmp_path: Path,
 ) -> None:
