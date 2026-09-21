@@ -83,11 +83,11 @@ def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_ov
                     "nodes => nodes.map(node => node.getBoundingClientRect().top)"
                 )
                 assert max(top_edges) - min(top_edges) < 1
-                assert page.locator(".report-header [role='columnheader']").count() == 9
+                assert page.locator(".report-header [role='columnheader']").count() == 13
                 header_columns = page.locator(".report-header").evaluate(
                     "node => getComputedStyle(node).gridTemplateColumns.split(' ').length"
                 )
-                assert header_columns == 9
+                assert header_columns == 12
 
             if viewport[0] <= 720:
                 assert page.evaluate("matchMedia('(max-width: 720px)').matches")

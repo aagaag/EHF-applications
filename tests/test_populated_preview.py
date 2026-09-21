@@ -206,6 +206,45 @@ def test_report_plots_render_linear_value_axes_and_a_citation_scaled_age_bubble_
     assert bubble_radii[0] == 3.0
 
 
+def test_every_overview_graph_explains_its_axes_and_encodings() -> None:
+    records = (
+        PreviewApplicantMetric(
+            applicant="Lowest Person", age=30, academic_age=4,
+            verified_citations=10, h_index=2,
+        ),
+        PreviewApplicantMetric(
+            applicant="Highest Person", age=40, academic_age=12,
+            verified_citations=100, h_index=22,
+        ),
+    )
+
+    html = render_internal_preview(_administrator(), simulation=True, records=records)
+
+    assert html.count('class="chart-legend report-plot-legend"') == 3
+    assert html.count("Horizontal axis:") == 3
+    assert html.count("Vertical axis:") == 3
+    assert html.count("Equal-sized circles represent candidates") == 2
+    assert "Bubble area represents OpenAlex citations" in html
+    assert "Surname labels mark the 15 candidates with the most citations" in html
+    assert html.count("Light blue: h-index 2") == 3
+    assert html.count("Deep blue: h-index 22") == 3
+    assert html.count("Red: h-index unavailable") == 3
+    assert html.count("Focus a point to read its exact values") == 3
+
+
+def test_graph_legends_use_the_full_candidate_h_index_range() -> None:
+    records = (
+        PreviewApplicantMetric(applicant="Plotted", age=35, academic_age=8, verified_citations=20, h_index=12),
+        PreviewApplicantMetric(applicant="Low without age", verified_citations=5, h_index=2),
+        PreviewApplicantMetric(applicant="High without age", verified_citations=50, h_index=32),
+    )
+
+    html = render_internal_preview(_administrator(), simulation=True, records=records)
+
+    assert html.count("Light blue: h-index 2") == 3
+    assert html.count("Deep blue: h-index 32") == 3
+
+
 def test_age_comparison_callouts_rank_only_records_that_can_be_plotted() -> None:
     """Break caught: excluded high-citation records could consume bubble-chart labels."""
     records = tuple(

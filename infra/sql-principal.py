@@ -95,6 +95,7 @@ MIGRATIONS = {
     "034_applicant_journal_metrics.sql": (34, "applicant_journal_metrics"),
     "035_internal_import_package.sql": (35, "internal_import_package"),
     "036_verified_h_index_metrics.sql": (36, "verified_h_index_metrics"),
+    "037_trustee_shortlist.sql": (37, "trustee_shortlist"),
 }
 COMMANDS = (
     "inspect-production",
@@ -155,6 +156,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "034_validate_applicant_journal_metrics.sql",
         "035_validate_imported_application_bundle.sql",
         "036_validate_verified_h_index_metrics.sql",
+        "037_validate_trustee_shortlist.sql",
     }
 )
 

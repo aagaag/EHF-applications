@@ -69,7 +69,13 @@ from app.routes.applicant_entra import register_applicant_entra_routes
 from app.routes.internal_approval import register_internal_approval_routes
 from app.routes.internal_synthetic import register_internal_synthetic_routes
 from app.routes.applicant_access import register_applicant_access_routes
-from app.http import SecurityMiddleware
+from app.http import SecurityMiddleware, is_same_origin_write
+from app.shortlist import (
+    EmptyShortlistRepository,
+    ShortlistRepository,
+    SqlShortlistRepository,
+    editable_trustee,
+)
 
 
 Probe = Callable[[float], None]
@@ -142,6 +148,7 @@ def create_app(
     identity_resolver: IdentityResolver | None = None,
     preference_repository: PreferenceRepository | None = None,
     metric_repository: MetricRepository | None = None,
+    shortlist_repository: ShortlistRepository | None = None,
     report_audit_repository: ReportAuditRepository | None = None,
     applicant_auth_service: ApplicantAuthService | None = None,
     applicant_turnstile: TurnstileVerifier | None = None,
@@ -193,6 +200,11 @@ def create_app(
         SqlMetricRepository(lambda: connect(resolved_settings))
         if resolved_settings.environment == "production"
         else EmptyMetricRepository()
+    )
+    shortlists = shortlist_repository or (
+        SqlShortlistRepository(lambda: connect(resolved_settings))
+        if resolved_settings.environment == "production"
+        else EmptyShortlistRepository()
     )
     report_audits = report_audit_repository or (
         SqlReportAuditRepository(lambda: connect(resolved_settings))
@@ -328,7 +340,52 @@ def create_app(
             if INTERNAL_GROUPS.administrators in principal.groups
             else INTERNAL_GROUPS.trustees
         )
-        return HTMLResponse(render_internal_preview(principal, records=metrics.load(role)))
+        shortlist = shortlists.load(
+            principal.identity.key, role, principal.entra_object_id
+        )
+        return HTMLResponse(
+            render_internal_preview(principal, records=metrics.load(role), shortlist=shortlist)
+        )
+
+    @application.post("/api/internal/applicants/{application_id}/shortlist/{trustee_code}")
+    async def set_internal_shortlist(
+        application_id: UUID, trustee_code: str, request: Request
+    ) -> JSONResponse:
+        principal = authenticated(request)
+        if not principal.groups & {INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}:
+            raise HTTPException(status_code=404)
+        if not is_same_origin_write(request):
+            raise HTTPException(status_code=404)
+        owner = editable_trustee(principal.entra_object_id)
+        if owner is None or trustee_code != owner:
+            raise HTTPException(status_code=404)
+        try:
+            payload = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=422) from None
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"selected"}
+            or type(payload["selected"]) is not bool
+        ):
+            raise HTTPException(status_code=422)
+        role = (
+            INTERNAL_GROUPS.administrators
+            if INTERNAL_GROUPS.administrators in principal.groups
+            else INTERNAL_GROUPS.trustees
+        )
+        try:
+            selected = shortlists.set(
+                application_id,
+                trustee_code,
+                payload["selected"],
+                principal.identity.key,
+                role,
+                principal.entra_object_id,
+            )
+        except (LookupError, PermissionError):
+            raise HTTPException(status_code=404) from None
+        return JSONResponse({"selected": selected})
 
     @application.get(
         "/api/internal/applicants/{application_id}/metrics-detail",

@@ -142,7 +142,7 @@
     }
   };
   const fallbackReportDetails = (row) => {
-    const cells = [...row.querySelectorAll('[role="cell"]')];
+    const cells = [...row.querySelectorAll('[role="cell"]:not(.report-shortlist-cell)')];
     const list = document.createElement("dl");
     list.className = "report-details-list";
     list.append(...cells.map((cell) => {
@@ -238,11 +238,46 @@
     }
   };
   document.querySelectorAll("[data-report-row]").forEach((row) => {
-    row.addEventListener("dblclick", () => openReportDetails(row));
+    row.addEventListener("dblclick", (event) => {
+      if (event.target.closest("input, button, a, select, textarea")) return;
+      openReportDetails(row);
+    });
     row.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
+      if (event.target.closest("input, button, a, select, textarea")) return;
       event.preventDefault();
       openReportDetails(row);
+    });
+  });
+  const shortlistStatus = document.querySelector("[data-shortlist-status]");
+  document.querySelectorAll("[data-shortlist-checkbox]").forEach((checkbox) => {
+    checkbox.addEventListener("click", (event) => event.stopPropagation());
+    checkbox.addEventListener("keydown", (event) => event.stopPropagation());
+    checkbox.addEventListener("change", async (event) => {
+      event.stopPropagation();
+      const previous = !checkbox.checked;
+      const columnOwner = checkbox.dataset.shortlistOwner;
+      const applicationId = checkbox.dataset.applicationId;
+      const name = columnOwner ? columnOwner.charAt(0).toUpperCase() + columnOwner.slice(1) : "Reviewer";
+      checkbox.disabled = true;
+      try {
+        const response = await fetch(`/api/internal/applicants/${encodeURIComponent(applicationId)}/shortlist/${encodeURIComponent(columnOwner)}`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected: checkbox.checked }),
+        });
+        if (!response.ok) throw new Error("Shortlist save failed");
+        const saved = await response.json();
+        if (typeof saved.selected !== "boolean") throw new Error("Shortlist response invalid");
+        checkbox.checked = saved.selected;
+        if (shortlistStatus) shortlistStatus.textContent = `${name} shortlist saved.`;
+      } catch (_error) {
+        checkbox.checked = previous;
+        if (shortlistStatus) shortlistStatus.textContent = `${name} shortlist could not be saved; the previous value was restored.`;
+      } finally {
+        checkbox.disabled = false;
+      }
     });
   });
   reportModal?.querySelector("[data-report-modal-close]")?.addEventListener("click", () => reportModal.close());

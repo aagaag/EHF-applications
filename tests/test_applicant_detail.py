@@ -82,6 +82,41 @@ def test_render_detail_exposes_labeled_vertical_axes_in_a_single_chart_row() -> 
     assert '>5</text>' in html
 
 
+def test_every_modal_graph_explains_axes_size_color_and_unavailable_values() -> None:
+    detail = ApplicantDetail(
+        application_number="EHF-2026-007",
+        name="Ada Researcher",
+        publications=(
+            Publication(
+                title="Lead work", year=2024, citation_count=8,
+                citations_by_year=((2025, 3),),
+                authors_text="Ada Researcher; Ben Biologist",
+                journal_two_year_mean_citedness=4.0,
+            ),
+            Publication(
+                title="Middle work", year=2025, citation_count=None,
+                authors_text="Ben Biologist; Ada Researcher; Cara Chemist",
+                journal_two_year_mean_citedness=None,
+            ),
+        ),
+    )
+
+    html = render_applicant_detail(detail, current_year=2025)
+
+    assert html.count('class="chart-legend"') == 3
+    assert "Horizontal axis: publication year" in html
+    assert "Vertical axis: number of papers" in html
+    assert "Bar height is the paper count" in html
+    assert "Horizontal axis: citation year" in html
+    assert "Vertical axis: citations received in that year" in html
+    assert "Bar height is the total received by all candidate papers" in html
+    assert "Vertical axis: OpenAlex 2-year journal citedness" in html
+    assert "N/A lane: journal citedness unavailable" in html
+    assert "Bubble area represents OpenAlex citations" in html
+    assert "Red: first, sole, or last author. Blue: neither first nor last author." in html
+    assert "Dashed outline: citation count unavailable" in html
+
+
 def test_render_detail_marks_confident_first_and_last_author_publications() -> None:
     """Break caught: applicant lead-author publications could be indistinguishable in review."""
     detail = ApplicantDetail(

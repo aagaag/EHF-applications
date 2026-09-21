@@ -15,6 +15,7 @@ from app.navigation import (
     help_entries,
     navigation_entries,
 )
+from app.shortlist import ShortlistState, editable_trustee
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +47,7 @@ def render_internal_preview(
     *,
     simulation: bool = False,
     records: tuple[PreviewApplicantMetric, ...] = (),
+    shortlist: ShortlistState | None = None,
 ) -> str:
     """Render every visible internal element from one group-filtered inventory."""
     entries = filtered_inventory(principal.groups)
@@ -63,6 +65,7 @@ def render_internal_preview(
         if records
         else "No application records are loaded."
     )
+    shortlist_state = shortlist or ShortlistState({}, editable_trustee(principal.entra_object_id))
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EHF Fellowships — internal preview</title><link rel="stylesheet" href="/assets/site.css"></head>
@@ -74,7 +77,7 @@ def render_internal_preview(
 <nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation"><span class="app-nav-heading">Settings</span><a class="app-nav-link" href="#appearance">Appearance</a><button class="app-nav-disclosure" type="button" data-disclosure aria-expanded="false" aria-controls="help-links">Help</button><div class="app-nav-submenu" id="help-links" hidden>{_help_links(help_items)}</div>{_authorization_pills(pills)}</nav></aside>
 <main class="site-main" id="main-content" tabindex="-1"><header class="site-hero" id="overview"><h1>Charles Weissmann Fellowships</h1><p>Internal workspace preview for the Ernst Hadorn Foundation.</p></header>
 <div class="preview-notice" role="status">Preview only<span>{escape(notice)} Submission is not active. Communication sending is not active. {escape(record_notice)}</span></div>
-{_report_section(records)}{_sections(entries, include=frozenset({"operations"}))}<section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance preview</h2><p>Preferences load and save server-side only after secure sign-in is active.</p></div>{_appearance_controls()}</section></main>
+{_report_section(records, shortlist_state)}{_sections(entries, include=frozenset({"operations"}))}<section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance preview</h2><p>Preferences load and save server-side only after secure sign-in is active.</p></div>{_appearance_controls()}</section></main>
 <footer class="site-footer">EHF Fellowships · internal preview · Page last modified: <time data-last-modified></time></footer><script src="/assets/theme.js"></script><script src="/assets/shell.js"></script></body></html>"""
 
 
@@ -102,7 +105,7 @@ def _sections(
     )
 
 
-def _report_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
+def _report_section(records: tuple[PreviewApplicantMetric, ...], shortlist: ShortlistState) -> str:
     return (
         '<section id="reports" aria-labelledby="reports-heading"><div class="section-heading">'
         '<h2 id="reports-heading">Reports</h2><p>OpenAlex citations are calculated from each applicant’s verified published works at the 20 September 2026 cutoff; validated publication counts use the same verified set. Applicant-reported publication totals remain separate, while unmatched and non-publication records are excluded from validated statistics and retained for audit.</p><p class="report-interaction-hint">Use the triangles beside any field title to sort ascending or descending. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
@@ -117,11 +120,11 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...]) -> str:
         '<option value="completed">Completed applications</option>'
         '<option value="missing">Applications where anything is missing</option>'
         '</select></label><a class="report-download" href="/internal/reports/metrics.xlsx">Download Excel</a></div>'
-        f'{_report_table(records)}</section>'
+        f'{_report_table(records, shortlist)}</section>'
     )
 
 
-def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
+def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: ShortlistState) -> str:
     headers = (
         ("Applicant", "text"), ("Degree", "text"), ("Age", "number"),
         ("Academic age (years)", "number"), ("Gender", "text"),
@@ -131,15 +134,22 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
         ("OpenAlex citations (20 Sep 2026)", "number"),
     )
     labels = tuple(label for label, _kind in headers)
-    header = "".join(
+    metric_header = "".join(
         _report_header(index, label, kind)
         for index, (label, kind) in enumerate(headers)
+    )
+    shortlist_header = (
+        '<span class="report-shortlist-group" role="columnheader" aria-colspan="3">Shortlist</span>'
+        + "".join(
+            f'<span class="report-shortlist-heading" role="columnheader">{name}</span>'
+            for name in ("Ricky", "Magda", "Adriano")
+        )
     )
     h_indices = tuple(record.h_index for record in records if record.h_index is not None)
     h_index_low = min(h_indices, default=None)
     h_index_high = max(h_indices, default=None)
     rows = "".join(
-        _report_row(record, labels, _h_index_saturation(record.h_index, h_index_low, h_index_high))
+        _report_row(record, labels, _h_index_saturation(record.h_index, h_index_low, h_index_high), shortlist)
         for record in records
     )
     empty = (
@@ -148,7 +158,7 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
     )
     return (
         '<div class="report-table" role="table" aria-label="2026 applicant metrics">'
-        f'<div class="report-header" role="row">{header}</div>'
+        f'<div class="report-header" role="row">{metric_header}{shortlist_header}</div>'
         f'<div class="report-data" role="rowgroup">{rows}</div></div>{empty}'
         '<p class="report-filter-empty" data-report-filter-empty role="status" hidden>No applications match the selected filter.</p>'
         '<dialog class="report-details-modal" data-report-modal aria-labelledby="report-details-title" aria-modal="true">'
@@ -161,7 +171,7 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
         '<a class="report-document-action" data-report-artifact="publications" target="_blank" rel="noopener noreferrer" aria-disabled="true">Publication list</a>'
         '</nav><p class="report-document-status" data-report-artifact-status role="status">Document availability loads when an applicant is opened.</p>'
         '<section aria-label="Track record"><div class="report-details-content" data-report-details></div></section>'
-        '</div></dialog>'
+        '</div></dialog><p class="report-shortlist-status" data-shortlist-status role="status" aria-live="polite"></p>'
     )
 
 
@@ -185,6 +195,7 @@ def _report_row(
     record: PreviewApplicantMetric,
     headers: tuple[str, ...],
     h_index_saturation: int | None,
+    shortlist: ShortlistState,
 ) -> str:
     values = (
         (record.applicant, _display_markup(record.applicant), None, None),
@@ -212,6 +223,17 @@ def _report_row(
     cells = "".join(
         _report_cell(label, markup, sort_value=sort_value, h_index_saturation=heat)
         for label, (_raw, markup, sort_value, heat) in zip(headers, values, strict=True)
+    )
+    application_id_value = record.application_id or ""
+    cells += "".join(
+        _shortlist_cell(
+            application_id_value,
+            code,
+            name,
+            shortlist.selected(application_id_value, code),
+            shortlist.editable_trustee == code and bool(application_id_value),
+        )
+        for code, name in (("ricky", "Ricky"), ("magda", "Magda"), ("adriano", "Adriano"))
     )
     status_values = tuple(value[0] for value in values)
     status = "missing" if any(value in (None, "") or (isinstance(value, tuple) and any(part in (None, "") for part in value)) for value in status_values) else "completed"
@@ -248,6 +270,17 @@ def _report_cell(
     return f'<span role="cell" data-label="{escape(label)}"{heat_attribute}{sort_attribute}>{markup}</span>'
 
 
+def _shortlist_cell(application_id: str, trustee_code: str, name: str, selected: bool, editable: bool) -> str:
+    checked = " checked" if selected else ""
+    disabled = "" if editable else " disabled"
+    return (
+        f'<span class="report-shortlist-cell" role="cell" data-label="Shortlist — {name}">'
+        f'<input type="checkbox" data-shortlist-checkbox data-application-id="{escape(application_id, quote=True)}" '
+        f'data-shortlist-owner="{trustee_code}"{checked}{disabled} '
+        f'aria-label="Shortlist {escape(name)}: {escape(application_id)}"></span>'
+    )
+
+
 def _h_index_saturation(
     h_index: int | None, low: int | None, high: int | None
 ) -> int | None:
@@ -281,6 +314,7 @@ def _scatterplot(
             ),
             x_label=f"{age_label} (years)",
             y_label="Total citations",
+            h_index_range=_h_index_range(records),
         )
     return f'<article class="report-card"><h3>{escape(title)}</h3>{plot}</article>'
 
@@ -303,6 +337,7 @@ def _age_comparison_plot(records: tuple[PreviewApplicantMetric, ...]) -> str:
             x_label="Anagraphic age (years)",
             y_label="Academic age (years)",
             bubbles=True,
+            h_index_range=_h_index_range(records),
         )
     return f'<article class="report-card"><h3>{title}</h3>{plot}</article>'
 
@@ -314,6 +349,7 @@ def _value_plot(
     x_label: str,
     y_label: str,
     bubbles: bool = False,
+    h_index_range: tuple[int, int] | None = None,
 ) -> str:
     x_low, x_high, x_ticks = _axis_domain(tuple(point[1] for point in points))
     y_low, y_high, y_ticks = _axis_domain(
@@ -346,14 +382,46 @@ def _value_plot(
         )
         for (point, x_value, y_value, citations), x, y in positioned
     )
+    h_indices = tuple(point[0].h_index for point in points if point[0].h_index is not None)
+    h_low = h_index_range[0] if h_index_range is not None else min(h_indices, default=None)
+    h_high = h_index_range[1] if h_index_range is not None else max(h_indices, default=None)
+    size_explanation = (
+        "Bubble area represents OpenAlex citations."
+        if bubbles
+        else "Equal-sized circles represent candidates."
+    )
+    callout_explanation = (
+        '<li><span class="legend-callout" aria-hidden="true">Aa</span>'
+        "Surname labels mark the 15 candidates with the most citations.</li>"
+        if bubbles
+        else ""
+    )
+    h_low_text = _number(h_low) if h_low is not None else "unavailable"
+    h_high_text = _number(h_high) if h_high is not None else "unavailable"
+    legend = (
+        '<ul class="chart-legend report-plot-legend" aria-label="Graph legend">'
+        f'<li><strong>Horizontal axis:</strong> {escape(x_label)}.</li>'
+        f'<li><strong>Vertical axis:</strong> {escape(y_label)}.</li>'
+        f'<li><span class="legend-point legend-point--size" aria-hidden="true"></span>{size_explanation}</li>'
+        f'<li><span class="legend-swatch legend-swatch--h-low" aria-hidden="true"></span>Light blue: h-index {h_low_text}.</li>'
+        f'<li><span class="legend-swatch legend-swatch--h-high" aria-hidden="true"></span>Deep blue: h-index {h_high_text}.</li>'
+        '<li><span class="legend-swatch legend-swatch--missing" aria-hidden="true"></span>Red: h-index unavailable.</li>'
+        f'{callout_explanation}'
+        '<li>Focus a point to read its exact values.</li></ul>'
+    )
     return (
         f'<svg viewBox="0 0 640 410" role="img" aria-label="{escape(title)}; {len(points)} candidates">'
         f'{_plot_grid(x_ticks, y_ticks, x_low, x_high, y_low, y_high)}'
         '<path class="plot-axis" d="M78 34V344H558" />'
         f'{circles}{_plot_callouts(positioned, _callout_source_indices(points))}'
         f'<text class="plot-axis-label" x="318" y="398">{escape(x_label)}</text>'
-        f'<text class="plot-axis-label" x="19" y="189" transform="rotate(-90 19 189)">{escape(y_label)}</text></svg>'
+        f'<text class="plot-axis-label" x="19" y="189" transform="rotate(-90 19 189)">{escape(y_label)}</text></svg>{legend}'
     )
+
+
+def _h_index_range(records: tuple[PreviewApplicantMetric, ...]) -> tuple[int, int] | None:
+    values = tuple(record.h_index for record in records if record.h_index is not None)
+    return (min(values), max(values)) if values else None
 
 
 def _axis_domain(

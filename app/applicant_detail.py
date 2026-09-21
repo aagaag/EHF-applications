@@ -128,6 +128,18 @@ def _bar_chart(
         for value in ticks
     )
     label = f'{title}, {start_year} through {end_year}'
+    if title == "Papers by year":
+        legend = _chart_legend(
+            "Horizontal axis: publication year.",
+            "Vertical axis: number of papers.",
+            "Bar height is the paper count for that publication year.",
+        )
+    else:
+        legend = _chart_legend(
+            "Horizontal axis: citation year.",
+            "Vertical axis: citations received in that year.",
+            "Bar height is the total received by all candidate papers in that year.",
+        )
     return (
         f'<figure class="applicant-detail-chart" data-full-page-chart role="link" tabindex="0" aria-label="Open full-page graph: {_text(label)}">'
         f'<figcaption>{_text(title)}</figcaption>'
@@ -135,7 +147,15 @@ def _bar_chart(
         f'xmlns="http://www.w3.org/2000/svg"><line x1="{left}" y1="{top}" x2="{left}" y2="{baseline}" />'
         f'<line x1="{left}" y1="{baseline}" x2="{right}" y2="{baseline}" />'
         f'{tick_markup}<text class="chart-y-axis-label" x="15" y="82" text-anchor="middle" '
-        f'transform="rotate(-90 15 82)">{_text(axis_label)}</text>{"".join(bars)}{labels}</svg></figure>'
+        f'transform="rotate(-90 15 82)">{_text(axis_label)}</text>{"".join(bars)}{labels}</svg>{legend}</figure>'
+    )
+
+
+def _chart_legend(*items: str) -> str:
+    return (
+        '<ul class="chart-legend" aria-label="Graph legend">'
+        + "".join(f"<li>{_text(item)}</li>" for item in items)
+        + "</ul>"
     )
 
 
@@ -165,6 +185,7 @@ def _journal_scatter_chart(
             '<figure class="applicant-detail-chart applicant-detail-chart--journal-scatter" '
             f'data-full-page-chart role="link" tabindex="0" aria-label="Open full-page graph: {_text(title)}"><figcaption>{_text(title)}</figcaption>'
             '<p class="journal-scatter-empty">No publications have a valid publication year for this chart.</p>'
+            f'{_journal_scatter_legend()}'
             f'<ul class="journal-scatter-omitted">{omitted_markup}</ul></figure>'
         )
 
@@ -294,8 +315,7 @@ def _journal_scatter_chart(
     return (
         '<figure class="applicant-detail-chart applicant-detail-chart--journal-scatter" '
         f'data-full-page-chart role="link" tabindex="0" aria-label="Open full-page graph: {_text(title)}"><figcaption>{_text(title)}</figcaption>'
-        '<p class="journal-scatter-legend">Bubble area represents OpenAlex citations. '
-        'Red: first, sole, or last author. Blue: neither first nor last author.</p>'
+        f'{_journal_scatter_legend()}'
         f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{_text(title)}" '
         'xmlns="http://www.w3.org/2000/svg">'
         f'<line x1="{left}" y1="{top}" x2="{left}" y2="{numeric_bottom}" />'
@@ -308,6 +328,17 @@ def _journal_scatter_chart(
         f'<p class="journal-scatter-summary">{_text(omitted_summary)}</p>{snapshot}'
         f'<ul class="journal-scatter-accessible-list">{accessible_list}</ul>'
         f'<ul class="journal-scatter-omitted">{omitted_markup}</ul></figure>'
+    )
+
+
+def _journal_scatter_legend() -> str:
+    return _chart_legend(
+        "Horizontal axis: publication year.",
+        "Vertical axis: OpenAlex 2-year journal citedness.",
+        "N/A lane: journal citedness unavailable.",
+        "Bubble area represents OpenAlex citations.",
+        "Red: first, sole, or last author. Blue: neither first nor last author.",
+        "Dashed outline: citation count unavailable.",
     )
 
 
