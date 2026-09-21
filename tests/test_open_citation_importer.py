@@ -39,6 +39,7 @@ FIELDS = (
     "observed_at_utc",
     "reviewer",
     "match_method",
+    "annual_citation_counts",
 )
 
 
@@ -65,6 +66,7 @@ def _snapshot_bytes(**changes: str) -> bytes:
             "observed_at_utc": "2026-08-23T15:00:01Z",
             "reviewer": "EHF open citation collector",
             "match_method": "DOI_EXACT",
+            "annual_citation_counts": "{}",
         },
     ]
     if "source_code" in changes:
@@ -129,6 +131,21 @@ def test_snapshot_plan_validates_every_work_without_constructing_a_repository() 
     assert result.source_code == "SEMANTIC_SCHOLAR"
     assert result.eligible_count == 1
     assert result.run_id is None
+
+
+def test_openalex_doi_exact_observation_does_not_require_authors() -> None:
+    reviews = load_open_citation_reviews(
+        _snapshot_bytes(
+            source_code="OPENALEX",
+            source_identifier="https://openalex.org/W123456789",
+            result_url="https://openalex.org/W123456789",
+            matched_authors="",
+        ),
+        _manifest(),
+    )
+
+    assert reviews[0].match_method == "DOI_EXACT"
+    assert reviews[0].matched_authors == ""
 
 
 @pytest.mark.parametrize(
