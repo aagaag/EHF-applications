@@ -98,6 +98,7 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/035_internal_import_package.sql",
     "database/migrations/036_verified_h_index_metrics.sql",
     "database/migrations/037_trustee_shortlist.sql",
+    "database/migrations/038_trustee_shortlist_groups.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -135,6 +136,7 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/035_validate_imported_application_bundle.sql",
     "database/tests/036_validate_verified_h_index_metrics.sql",
     "database/tests/037_validate_trustee_shortlist.sql",
+    "database/tests/038_validate_trustee_shortlist_groups.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",

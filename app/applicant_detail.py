@@ -200,28 +200,44 @@ def _journal_scatter_chart(
     publications: tuple[Publication, ...], applicant_name: str
 ) -> str:
     title = "Papers by year and journal citedness"
-    plotted = [publication for publication in publications if _valid_year(publication.year)]
-    omitted = [publication for publication in publications if not _valid_year(publication.year)]
+    year_omitted = [publication for publication in publications if not _valid_year(publication.year)]
+    metric_omitted = [
+        publication
+        for publication in publications
+        if _valid_year(publication.year)
+        and _journal_metric(publication.journal_two_year_mean_citedness) is None
+    ]
+    plotted = [
+        publication
+        for publication in publications
+        if _valid_year(publication.year)
+        and _journal_metric(publication.journal_two_year_mean_citedness) is not None
+    ]
     omitted_markup = "".join(
         f'<li>{_text(publication.title)}: omitted because its publication year is unavailable.</li>'
-        for publication in omitted
+        for publication in year_omitted
     )
-    omitted_summary = (
-        f"{len(plotted)} papers plotted; {len(omitted)} omitted because its publication year is unavailable."
-        if omitted
-        else f"{len(plotted)} papers plotted."
-    )
+    summary_parts = [f"{len(plotted)} papers plotted"]
+    if year_omitted:
+        summary_parts.append(
+            f"{len(year_omitted)} omitted because its publication year is unavailable"
+        )
+    if metric_omitted:
+        summary_parts.append(
+            f"{len(metric_omitted)} omitted because its journal citedness is unavailable"
+        )
+    omitted_summary = "; ".join(summary_parts) + "."
     if not plotted:
         return (
             '<figure class="applicant-detail-chart applicant-detail-chart--journal-scatter" '
             f'data-full-page-chart role="link" tabindex="0" aria-label="Open full-page graph: {_text(title)}"><figcaption>{_text(title)}</figcaption>'
-            '<p class="journal-scatter-empty">No publications have a valid publication year for this chart.</p>'
+            '<p class="journal-scatter-empty">No publications have both a valid publication year and journal citedness value for this chart.</p>'
             f'{_journal_scatter_legend()}'
             f'<ul class="journal-scatter-omitted">{omitted_markup}</ul></figure>'
         )
 
-    width, height = 720, 220
-    left, right, top, numeric_bottom, na_y = 62, 700, 18, 138, 184
+    width, height = 720, 180
+    left, right, top, numeric_bottom = 62, 700, 18, 138
     years = [publication.year for publication in plotted if publication.year is not None]
     first_year, last_year = min(years), max(years)
     metrics = [_journal_metric(publication.journal_two_year_mean_citedness) for publication in plotted]
@@ -257,16 +273,11 @@ def _journal_scatter_chart(
             else left + (year - first_year) / (last_year - first_year) * (right - left),
             2,
         )
-        y = na_y if citedness is None else round(
-            numeric_bottom - (citedness / scale_maximum) * (numeric_bottom - top), 2
-        )
+        assert citedness is not None
+        y = round(numeric_bottom - (citedness / scale_maximum) * (numeric_bottom - top), 2)
         position = _author_position(publication.authors_text, applicant_name)
         source_name = publication.journal_openalex_name or publication.journal or "Journal unavailable"
-        citedness_text = (
-            "OpenAlex 2-year journal citedness unavailable"
-            if citedness is None
-            else f"OpenAlex 2-year journal citedness {_display_number(citedness)}"
-        )
+        citedness_text = f"OpenAlex 2-year journal citedness {_display_number(citedness)}"
         citation_text = (
             "citation data unavailable"
             if citation_count is None
@@ -325,12 +336,6 @@ def _journal_scatter_chart(
         f'text-anchor="end">{_display_number(value)}</text>'
         for value in y_ticks
     )
-    na_lane = (
-        f'<line class="journal-scatter-na-lane" x1="{left}" y1="{na_y}" x2="{right}" y2="{na_y}" />'
-        f'<text class="journal-scatter-na-label" x="{left - 8}" y="{na_y + 3}" text-anchor="end">N/A</text>'
-        if any(point["citedness"] is None for point in points)
-        else ""
-    )
     snapshot_dates = sorted(
         {
             publication.journal_metric_observed_at_utc[:10]
@@ -351,7 +356,7 @@ def _journal_scatter_chart(
         'xmlns="http://www.w3.org/2000/svg">'
         f'<line x1="{left}" y1="{top}" x2="{left}" y2="{numeric_bottom}" />'
         f'<line x1="{left}" y1="{numeric_bottom}" x2="{right}" y2="{numeric_bottom}" />'
-        f'{y_tick_markup}{na_lane}'
+        f'{y_tick_markup}'
         f'<text class="chart-y-axis-label" x="15" y="87" text-anchor="middle" '
         f'transform="rotate(-90 15 87)">OpenAlex 2-year journal citedness</text>'
         f'<text class="journal-scatter-x-label" x="{(left + right) / 2}" y="177" text-anchor="middle">Publication year</text>'
@@ -366,7 +371,6 @@ def _journal_scatter_legend() -> str:
     return _chart_legend(
         "Horizontal axis: publication year.",
         "Vertical axis: OpenAlex 2-year journal citedness.",
-        "N/A lane: journal citedness unavailable.",
         "Bubble area represents OpenAlex citations.",
         "Red: first, sole, or last author. Blue: neither first nor last author.",
         "Dashed outline: citation count unavailable.",
@@ -385,8 +389,6 @@ def _journal_scatter_point(point: dict[str, object]) -> str:
         classes.append("journal-scatter-point--lead-author")
     else:
         classes.append("journal-scatter-point--other-author")
-    if citedness is None:
-        classes.append("journal-scatter-point--metric-unavailable")
     if citation_count is None:
         classes.append("journal-scatter-point--citation-unavailable")
     author_markup = f' data-author-position="{position}"' if position is not None else ""

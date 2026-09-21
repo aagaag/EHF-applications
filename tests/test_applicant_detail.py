@@ -111,7 +111,7 @@ def test_every_modal_graph_explains_axes_size_color_and_unavailable_values() -> 
     assert "Vertical axis: citations received in that year" in html
     assert "Bar height is the total received by all candidate papers" in html
     assert "Vertical axis: OpenAlex 2-year journal citedness" in html
-    assert "N/A lane: journal citedness unavailable" in html
+    assert "N/A lane: journal citedness unavailable" not in html
     assert "Bubble area represents OpenAlex citations" in html
     assert "Red: first, sole, or last author. Blue: neither first nor last author." in html
     assert "Dashed outline: citation count unavailable" in html
@@ -186,7 +186,7 @@ def test_render_detail_escapes_text_and_rejects_unsafe_links() -> None:
     assert 'aria-label="Papers by year, 2025 through 2025"' in html
 
 
-def test_render_detail_adds_an_accessible_journal_citedness_scatter_with_honest_bubbles() -> None:
+def test_render_detail_omits_publications_without_journal_citedness_from_the_scatter() -> None:
     detail = ApplicantDetail(
         application_number="EHF-2026-007",
         name="Ada Researcher",
@@ -234,23 +234,25 @@ def test_render_detail_adds_an_accessible_journal_citedness_scatter_with_honest_
     assert "Bubble area represents OpenAlex citations" in html
     assert "Red: first, sole, or last author. Blue: neither first nor last author." in html
     assert "2026-09-21" in html
-    assert "3 papers plotted; 1 omitted because its publication year is unavailable." in html
-    assert html.count('data-journal-scatter-list-item') == 3
+    assert "2 papers plotted; 1 omitted because its publication year is unavailable; 1 omitted because its journal citedness is unavailable." in html
+    assert html.count('data-journal-scatter-list-item') == 2
     assert 'data-author-position="first"' in html
     assert 'data-author-position="last"' in html
     assert 'journal-scatter-point--lead-author' in html
     assert 'journal-scatter-point--other-author' in html
-    assert 'journal-scatter-point--metric-unavailable' in html
-    assert 'journal-scatter-point--citation-unavailable' in html
+    assert 'journal-scatter-point--metric-unavailable' not in html
+    assert 'journal-scatter-na-lane' not in html
+    assert 'journal-scatter-na-label' not in html
     assert "Journal &lt;A&gt;" in html
+    assert "Missing metric last-author work" not in html.split('<section class="applicant-publications"', 1)[0]
     assert "No year &lt;omitted&gt;" in html
 
     circles = re.findall(
         r'<circle[^>]*data-journal-scatter-point[^>]*data-citation-count="([^"]*)"[^>]*data-publication-year="([^"]+)"[^>]*cx="([^"]+)"[^>]*r="([^"]+)"',
         html,
     )
-    assert len(circles) == 3
-    assert [count for count, _year, _x, _radius in circles] == ["10", "0", ""]
+    assert len(circles) == 2
+    assert [count for count, _year, _x, _radius in circles] == ["10", "0"]
     assert circles[0][1] == circles[1][1] == "2024"
     assert circles[0][2] == circles[1][2]
     largest_area = math.pi * float(circles[0][3]) ** 2
@@ -269,5 +271,5 @@ def test_render_detail_uses_a_compact_journal_scatter_empty_state_when_years_are
     )
 
     assert "Papers by year and journal citedness" in html
-    assert "No publications have a valid publication year for this chart." in html
+    assert "No publications have both a valid publication year and journal citedness value for this chart." in html
     assert "<circle" not in html

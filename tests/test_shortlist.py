@@ -25,16 +25,16 @@ APPLICATION_ID = UUID("a7000000-0000-4000-8000-000000000001")
 
 class MemoryShortlistRepository:
     def __init__(self) -> None:
-        self.state = ShortlistState({str(APPLICATION_ID): frozenset({"ricky"})}, "adriano")
+        self.state = ShortlistState({str(APPLICATION_ID): {"ricky": "B"}}, "adriano")
         self.writes: list[tuple[object, ...]] = []
 
     def load(self, actor_identity: str, actor_group: str, entra_object_id: UUID | None) -> ShortlistState:
         del actor_identity, actor_group, entra_object_id
         return self.state
 
-    def set(self, application_id: UUID, trustee_code: str, selected: bool, actor_identity: str, actor_group: str, entra_object_id: UUID | None) -> bool:
-        self.writes.append((application_id, trustee_code, selected, actor_identity, actor_group, entra_object_id))
-        return selected
+    def set(self, application_id: UUID, trustee_code: str, group: str, actor_identity: str, actor_group: str, entra_object_id: UUID | None) -> str:
+        self.writes.append((application_id, trustee_code, group, actor_identity, actor_group, entra_object_id))
+        return group
 
 
 def _principal(oid: UUID, *groups: str) -> AuthenticatedIdentity:
@@ -61,11 +61,11 @@ def _client(principal: AuthenticatedIdentity, shortlist: object) -> TestClient:
     )
 
 
-def test_report_renders_grouped_shortlist_columns_and_only_identity_owned_checkbox() -> None:
+def test_report_renders_each_reviewers_group_and_only_their_own_segmented_control() -> None:
     record = PreviewApplicantMetric(
         applicant="Ada Researcher", application_id=str(APPLICATION_ID), h_index=4
     )
-    state = ShortlistState({str(APPLICATION_ID): frozenset({"ricky"})}, "adriano")
+    state = ShortlistState({str(APPLICATION_ID): {"ricky": "B"}}, "adriano")
 
     html = render_internal_preview(
         _principal(ADRIANO_ENTRA_OBJECT_ID, INTERNAL_GROUPS.administrators),
@@ -77,29 +77,30 @@ def test_report_renders_grouped_shortlist_columns_and_only_identity_owned_checkb
     for trustee in ("Ricky", "Magda", "Adriano"):
         assert f'role="columnheader">{trustee}</span>' in html
         assert f'data-label="Shortlist — {trustee}"' in html
-    assert 'data-shortlist-owner="ricky" checked disabled' in html
-    assert 'data-shortlist-owner="magda" disabled' in html
-    assert 'data-shortlist-owner="adriano"' in html
-    assert 'data-shortlist-owner="adriano" disabled' not in html
+    assert 'data-shortlist-owner="ricky" data-shortlist-assignment="B"' in html
+    assert 'data-shortlist-owner="magda" data-shortlist-assignment="unassigned"' in html
+    for group in ("A", "B", "C"):
+        assert f'data-shortlist-grade data-application-id="{APPLICATION_ID}" data-shortlist-owner="adriano" data-shortlist-group="{group}"' in html
+    assert 'data-shortlist-checkbox' not in html
     assert 'data-shortlist-status role="status" aria-live="polite"' in html
 
 
-def test_adriano_admin_login_can_save_only_adriano_column_and_requires_same_origin() -> None:
+def test_adriano_admin_login_can_assign_a_group_only_in_adrianos_column_and_requires_same_origin() -> None:
     repository = MemoryShortlistRepository()
     client = _client(
         _principal(ADRIANO_ENTRA_OBJECT_ID, INTERNAL_GROUPS.administrators), repository
     )
     path = f"/api/internal/applicants/{APPLICATION_ID}/shortlist/adriano"
 
-    assert client.post(path, json={"selected": True}).status_code == 404
-    saved = client.post(path, json={"selected": True}, headers={"Origin": "http://localhost"})
+    assert client.post(path, json={"group": "B"}).status_code == 404
+    saved = client.post(path, json={"group": "B"}, headers={"Origin": "http://localhost"})
     assert saved.status_code == 200
-    assert saved.json() == {"selected": True}
-    assert repository.writes[0][0:3] == (APPLICATION_ID, "adriano", True)
+    assert saved.json() == {"group": "B"}
+    assert repository.writes[0][0:3] == (APPLICATION_ID, "adriano", "B")
     assert repository.writes[0][-1] == ADRIANO_ENTRA_OBJECT_ID
 
 
-def test_route_rejects_another_column_and_non_boolean_or_extra_payload() -> None:
+def test_route_rejects_another_column_and_invalid_or_extra_group_payload() -> None:
     repository = MemoryShortlistRepository()
     client = _client(
         _principal(ADRIANO_ENTRA_OBJECT_ID, INTERNAL_GROUPS.trustees), repository
@@ -108,15 +109,15 @@ def test_route_rejects_another_column_and_non_boolean_or_extra_payload() -> None
 
     assert client.post(
         f"/api/internal/applicants/{APPLICATION_ID}/shortlist/ricky",
-        json={"selected": True}, headers=headers,
+        json={"group": "A"}, headers=headers,
     ).status_code == 404
     assert client.post(
         f"/api/internal/applicants/{APPLICATION_ID}/shortlist/adriano",
-        json={"selected": 1}, headers=headers,
+        json={"group": "D"}, headers=headers,
     ).status_code == 422
     assert client.post(
         f"/api/internal/applicants/{APPLICATION_ID}/shortlist/adriano",
-        json={"selected": True, "extra": 1}, headers=headers,
+        json={"group": "A", "extra": 1}, headers=headers,
     ).status_code == 422
     assert repository.writes == []
 
@@ -141,8 +142,8 @@ def test_sql_repository_uses_only_bounded_procedures_and_commits_writes() -> Non
         def execute(self, *arguments: object) -> Cursor:
             calls.append(arguments)
             if "GetInternal" in str(arguments[0]):
-                return Cursor([(str(APPLICATION_ID), "ricky", True)])
-            return Cursor([(True,)])
+                return Cursor([(str(APPLICATION_ID), "ricky", "C")])
+            return Cursor([("A",)])
 
         def commit(self) -> None:
             self.commits += 1
@@ -155,13 +156,13 @@ def test_sql_repository_uses_only_bounded_procedures_and_commits_writes() -> Non
     repository = SqlShortlistRepository(connection_factory)
     state = repository.load("entra:person", INTERNAL_GROUPS.trustees, RICKY_ENTRA_OBJECT_ID)
     result = repository.set(
-        APPLICATION_ID, "ricky", False, "entra:person",
+        APPLICATION_ID, "ricky", "A", "entra:person",
         INTERNAL_GROUPS.trustees, RICKY_ENTRA_OBJECT_ID,
     )
 
-    assert state.selected(str(APPLICATION_ID), "ricky") is True
+    assert state.group(str(APPLICATION_ID), "ricky") == "C"
     assert state.editable_trustee == "ricky"
-    assert result is True
+    assert result == "A"
     assert "dbo.GetInternalShortlistSelections" in str(calls[0][0])
     assert "dbo.SetInternalShortlistSelection" in str(calls[1][0])
     assert connection.commits == 1

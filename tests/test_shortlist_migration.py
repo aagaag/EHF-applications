@@ -41,3 +41,18 @@ def test_runtime_permission_validator_knows_the_shortlist_objects() -> None:
     assert "SetInternalShortlistSelection" in validator
     assert "ShortlistTrustee" in validator
     assert "TrusteeShortlistSelection" in validator
+
+
+def test_shortlist_group_migration_preserves_existing_selections_as_group_a() -> None:
+    migration = (ROOT / "database/migrations/038_trustee_shortlist_groups.sql").read_text(encoding="utf-8")
+    validator = (ROOT / "database/tests/038_validate_trustee_shortlist_groups.sql").read_text(encoding="utf-8")
+
+    assert "ADD GroupCode char(1) NULL" in migration
+    assert "GroupCode IN ('A', 'B', 'C')" in migration
+    assert "SET GroupCode = 'A'" in migration
+    assert "WHERE IsSelected = 1" in migration
+    assert "@GroupCode char(1)" in migration
+    assert "@GroupCode AS [group]" in migration
+    assert "group" in migration.casefold()
+    assert "GroupCode" in validator
+    assert "IsAuditPayloadKeyProhibited(N'group') <> 0" in validator

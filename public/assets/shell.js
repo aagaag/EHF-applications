@@ -249,33 +249,33 @@
     });
   });
   const shortlistStatus = document.querySelector("[data-shortlist-status]");
-  document.querySelectorAll("[data-shortlist-checkbox]").forEach((checkbox) => {
-    checkbox.addEventListener("click", (event) => event.stopPropagation());
-    checkbox.addEventListener("keydown", (event) => event.stopPropagation());
-    checkbox.addEventListener("change", async (event) => {
+  document.querySelectorAll("[data-shortlist-grade]").forEach((control) => {
+    control.addEventListener("click", async (event) => {
       event.stopPropagation();
-      const previous = !checkbox.checked;
-      const columnOwner = checkbox.dataset.shortlistOwner;
-      const applicationId = checkbox.dataset.applicationId;
+      const controls = [...control.closest(".report-shortlist-cell").querySelectorAll("[data-shortlist-grade]")];
+      const previous = controls.find((item) => item.getAttribute("aria-pressed") === "true")?.dataset.shortlistGroup;
+      const columnOwner = control.dataset.shortlistOwner;
+      const applicationId = control.dataset.applicationId;
+      const group = control.dataset.shortlistGroup;
       const name = columnOwner ? columnOwner.charAt(0).toUpperCase() + columnOwner.slice(1) : "Reviewer";
-      checkbox.disabled = true;
+      controls.forEach((item) => { item.disabled = true; });
       try {
         const response = await fetch(`/api/internal/applicants/${encodeURIComponent(applicationId)}/shortlist/${encodeURIComponent(columnOwner)}`, {
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ selected: checkbox.checked }),
+          body: JSON.stringify({ group }),
         });
         if (!response.ok) throw new Error("Shortlist save failed");
         const saved = await response.json();
-        if (typeof saved.selected !== "boolean") throw new Error("Shortlist response invalid");
-        checkbox.checked = saved.selected;
-        if (shortlistStatus) shortlistStatus.textContent = `${name} shortlist saved.`;
+        if (!["A", "B", "C"].includes(saved.group)) throw new Error("Shortlist response invalid");
+        controls.forEach((item) => item.setAttribute("aria-pressed", String(item.dataset.shortlistGroup === saved.group)));
+        if (shortlistStatus) shortlistStatus.textContent = `${name} group ${saved.group} saved.`;
       } catch (_error) {
-        checkbox.checked = previous;
-        if (shortlistStatus) shortlistStatus.textContent = `${name} shortlist could not be saved; the previous value was restored.`;
+        controls.forEach((item) => item.setAttribute("aria-pressed", String(item.dataset.shortlistGroup === previous)));
+        if (shortlistStatus) shortlistStatus.textContent = `${name} group ${group} could not be saved; the previous assignment was restored.`;
       } finally {
-        checkbox.disabled = false;
+        controls.forEach((item) => { item.disabled = false; });
       }
     });
   });

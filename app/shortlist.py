@@ -23,16 +23,16 @@ def editable_trustee(entra_object_id: UUID | None) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class ShortlistState:
-    selections: Mapping[str, frozenset[str]]
+    selections: Mapping[str, Mapping[str, str]]
     editable_trustee: str | None
 
-    def selected(self, application_id: str, trustee_code: str) -> bool:
-        return trustee_code in self.selections.get(application_id.casefold(), frozenset())
+    def group(self, application_id: str, trustee_code: str) -> str | None:
+        return self.selections.get(application_id.casefold(), {}).get(trustee_code)
 
 
 class ShortlistRepository(Protocol):
     def load(self, actor_identity: str, actor_group: str, entra_object_id: UUID | None) -> ShortlistState: ...
-    def set(self, application_id: UUID, trustee_code: str, selected: bool, actor_identity: str, actor_group: str, entra_object_id: UUID | None) -> bool: ...
+    def set(self, application_id: UUID, trustee_code: str, group: str, actor_identity: str, actor_group: str, entra_object_id: UUID | None) -> str: ...
 
 
 class EmptyShortlistRepository:
@@ -40,8 +40,8 @@ class EmptyShortlistRepository:
         del actor_identity, actor_group
         return ShortlistState({}, editable_trustee(entra_object_id))
 
-    def set(self, application_id: UUID, trustee_code: str, selected: bool, actor_identity: str, actor_group: str, entra_object_id: UUID | None) -> bool:
-        del application_id, trustee_code, selected, actor_identity, actor_group, entra_object_id
+    def set(self, application_id: UUID, trustee_code: str, group: str, actor_identity: str, actor_group: str, entra_object_id: UUID | None) -> str:
+        del application_id, trustee_code, group, actor_identity, actor_group, entra_object_id
         raise PermissionError("Shortlist persistence is unavailable.")
 
 
@@ -55,22 +55,22 @@ class SqlShortlistRepository:
                 "EXEC dbo.GetInternalShortlistSelections @ActorIdentity=?, @ActorGroup=?, @ActorEntraObjectId=?",
                 actor_identity, actor_group, entra_object_id,
             ).fetchall()
-        selections: dict[str, set[str]] = {}
-        for application_id, trustee_code, selected in rows:
-            if bool(selected):
-                selections.setdefault(str(application_id).casefold(), set()).add(str(trustee_code))
+        selections: dict[str, dict[str, str]] = {}
+        for application_id, trustee_code, group in rows:
+            if group in {"A", "B", "C"}:
+                selections.setdefault(str(application_id).casefold(), {})[str(trustee_code)] = group
         return ShortlistState(
-            {application_id: frozenset(codes) for application_id, codes in selections.items()},
+            selections,
             editable_trustee(entra_object_id),
         )
 
-    def set(self, application_id: UUID, trustee_code: str, selected: bool, actor_identity: str, actor_group: str, entra_object_id: UUID | None) -> bool:
+    def set(self, application_id: UUID, trustee_code: str, group: str, actor_identity: str, actor_group: str, entra_object_id: UUID | None) -> str:
         with self._connection_factory() as connection:
             row = connection.execute(
-                "EXEC dbo.SetInternalShortlistSelection @ApplicationId=?, @TrusteeCode=?, @IsSelected=?, @ActorIdentity=?, @ActorGroup=?, @ActorEntraObjectId=?",
-                application_id, trustee_code, selected, actor_identity, actor_group, entra_object_id,
+                "EXEC dbo.SetInternalShortlistSelection @ApplicationId=?, @TrusteeCode=?, @GroupCode=?, @ActorIdentity=?, @ActorGroup=?, @ActorEntraObjectId=?",
+                application_id, trustee_code, group, actor_identity, actor_group, entra_object_id,
             ).fetchone()
             if row is None:
                 raise LookupError("The shortlist selection was not saved.")
             connection.commit()
-        return bool(row[0])
+        return str(row[0])

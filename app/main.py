@@ -364,8 +364,8 @@ def create_app(
             raise HTTPException(status_code=422) from None
         if (
             not isinstance(payload, dict)
-            or set(payload) != {"selected"}
-            or type(payload["selected"]) is not bool
+            or set(payload) != {"group"}
+            or payload["group"] not in {"A", "B", "C"}
         ):
             raise HTTPException(status_code=422)
         role = (
@@ -374,17 +374,17 @@ def create_app(
             else INTERNAL_GROUPS.trustees
         )
         try:
-            selected = shortlists.set(
+            group = shortlists.set(
                 application_id,
                 trustee_code,
-                payload["selected"],
+                payload["group"],
                 principal.identity.key,
                 role,
                 principal.entra_object_id,
             )
         except (LookupError, PermissionError):
             raise HTTPException(status_code=404) from None
-        return JSONResponse({"selected": selected})
+        return JSONResponse({"group": group})
 
     @application.get(
         "/api/internal/applicants/{application_id}/metrics-detail",

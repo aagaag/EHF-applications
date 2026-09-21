@@ -87,7 +87,7 @@ def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_ov
                 header_columns = page.locator(".report-header").evaluate(
                     "node => getComputedStyle(node).gridTemplateColumns.split(' ').length"
                 )
-                assert header_columns == 12
+                assert header_columns == 4
 
             if viewport[0] <= 720:
                 assert page.evaluate("matchMedia('(max-width: 720px)').matches")
@@ -384,7 +384,8 @@ def test_journal_scatter_is_responsive_focusable_and_visible_in_every_skin(
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
             bubbles = page.locator("[data-journal-scatter-point]")
-            assert bubbles.count() == 2
+            assert bubbles.count() == 1
+            assert page.locator(".journal-scatter-na-lane").count() == 0
             for index in range(bubbles.count()):
                 assert bubbles.nth(index).evaluate(
                     "node => { node.focus(); return document.activeElement === node && node.getAttribute('aria-label').length > 20 }"

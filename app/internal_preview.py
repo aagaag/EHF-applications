@@ -230,7 +230,7 @@ def _report_row(
             application_id_value,
             code,
             name,
-            shortlist.selected(application_id_value, code),
+            shortlist.group(application_id_value, code),
             shortlist.editable_trustee == code and bool(application_id_value),
         )
         for code, name in (("ricky", "Ricky"), ("magda", "Magda"), ("adriano", "Adriano"))
@@ -270,14 +270,26 @@ def _report_cell(
     return f'<span role="cell" data-label="{escape(label)}"{heat_attribute}{sort_attribute}>{markup}</span>'
 
 
-def _shortlist_cell(application_id: str, trustee_code: str, name: str, selected: bool, editable: bool) -> str:
-    checked = " checked" if selected else ""
-    disabled = "" if editable else " disabled"
+def _shortlist_cell(application_id: str, trustee_code: str, name: str, group: str | None, editable: bool) -> str:
+    escaped_application_id = escape(application_id, quote=True)
+    if not editable:
+        assignment = group or "unassigned"
+        label = group or "—"
+        return (
+            f'<span class="report-shortlist-cell" role="cell" data-label="Shortlist — {name}">'
+            f'<span class="shortlist-grade-readonly" data-shortlist-owner="{trustee_code}" '
+            f'data-shortlist-assignment="{assignment}" aria-label="{escape(name)}: Group {label}">{label}</span></span>'
+        )
+    buttons = "".join(
+        f'<button type="button" class="shortlist-grade" data-shortlist-grade '
+        f'data-application-id="{escaped_application_id}" data-shortlist-owner="{trustee_code}" '
+        f'data-shortlist-group="{candidate_group}" aria-pressed="{str(group == candidate_group).lower()}" '
+        f'aria-label="Assign {escape(name)} to group {candidate_group}">{candidate_group}</button>'
+        for candidate_group in ("A", "B", "C")
+    )
     return (
         f'<span class="report-shortlist-cell" role="cell" data-label="Shortlist — {name}">'
-        f'<input type="checkbox" data-shortlist-checkbox data-application-id="{escape(application_id, quote=True)}" '
-        f'data-shortlist-owner="{trustee_code}"{checked}{disabled} '
-        f'aria-label="Shortlist {escape(name)}: {escape(application_id)}"></span>'
+        f'<span class="shortlist-grade-control" role="group" aria-label="Shortlist group for {escape(name)}: {escape(application_id)}">{buttons}</span></span>'
     )
 
 
