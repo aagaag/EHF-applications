@@ -30,7 +30,7 @@ _UNSAFE_PDF_KEYS = tuple(
 )
 
 
-def _remove_unsafe_entries(value: Any, seen: set[tuple[object, ...]]) -> None:
+def remove_unsafe_pdf_entries(value: Any, seen: set[tuple[object, ...]]) -> None:
     """Remove active or identifying objects before pypdf clones a page graph."""
     if isinstance(value, IndirectObject):
         marker = ("indirect", id(value.pdf), value.idnum, value.generation)
@@ -47,10 +47,10 @@ def _remove_unsafe_entries(value: Any, seen: set[tuple[object, ...]]) -> None:
             value.pop(key, None)
         for key, nested in tuple(value.items()):
             if key != "/Parent":
-                _remove_unsafe_entries(nested, seen)
+                remove_unsafe_pdf_entries(nested, seen)
     elif isinstance(value, ArrayObject):
         for nested in tuple(value):
-            _remove_unsafe_entries(nested, seen)
+            remove_unsafe_pdf_entries(nested, seen)
 
 
 def build_pdf_package(sources: tuple[bytes, ...]) -> bytes:
@@ -63,7 +63,7 @@ def build_pdf_package(sources: tuple[bytes, ...]) -> bytes:
             if reader.is_encrypted or not reader.pages:
                 raise PdfPackageError("The application document package is unavailable.")
             for page in reader.pages:
-                _remove_unsafe_entries(page, set())
+                remove_unsafe_pdf_entries(page, set())
                 writer.add_page(page, excluded_keys=_UNSAFE_PDF_KEYS)
         writer.add_metadata(
             {
