@@ -269,7 +269,7 @@ class SqlReviewArtifactRepository:
             "JOIN dbo.StoredObject AS object_row ON object_row.StoredObjectId=version_row.StoredObjectId "
             "WHERE slot_row.ApplicationId=? AND version_row.DocumentVersionId=? "
             "AND slot_row.ActiveDocumentVersionId=version_row.DocumentVersionId "
-            "AND version_row.Classification='APPLICANT_VISIBLE' "
+            "AND version_row.Classification IN ('UNREVIEWED','APPLICANT_VISIBLE') "
             "AND document_row.DocumentType<>'RECOMMENDATION_LETTER' "
             "AND object_row.ScanResult='CLEAN' "
             "AND NOT EXISTS (SELECT 1 FROM dbo.Recommendation AS recommendation_row "

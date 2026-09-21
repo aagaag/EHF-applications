@@ -228,3 +228,10 @@ def test_private_review_artifact_manifests_are_ignored_by_git() -> None:
     source = (ROOT / ".gitignore").read_text(encoding="utf-8")
     assert "review-artifact-manifest*.json" in source
     assert "ehf-review-artifacts*.json" in source
+
+
+def test_database_sources_allow_legacy_unreviewed_but_not_confidential_material() -> None:
+    source = (ROOT / "app" / "importer" / "review_artifacts.py").read_text(encoding="utf-8")
+
+    assert "version_row.Classification IN ('UNREVIEWED','APPLICANT_VISIBLE')" in source
+    assert "CONFIDENTIAL_RECOMMENDATION" not in source
