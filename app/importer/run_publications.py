@@ -81,14 +81,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _validate_publication_credential(path: Path) -> None:
-    approved_parent = Path("/root/.config/finances2")
+    approved_path = Path("/etc/ehf/sql-admin-password")
     if path.is_symlink() or not path.is_file():
         raise PublicationImportError("The SQL administrator credential path is unsafe.")
     details = path.stat()
     if details.st_uid != 0 or stat.S_IMODE(details.st_mode) != 0o600:
         raise PublicationImportError("The SQL administrator credential file is not root-owned mode 0600.")
-    if path.parent.resolve() != approved_parent:
-        raise PublicationImportError("The SQL administrator credential path is outside the approved directory.")
+    if path.resolve() != approved_path:
+        raise PublicationImportError("The SQL administrator credential path is not approved.")
 
 
 if __name__ == "__main__":

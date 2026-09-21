@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "app" / "importer" / "run_open_citations.py"
+PUBLICATION_CLI = ROOT / "app" / "importer" / "run_publications.py"
 COLLECTOR = ROOT / "app" / "importer" / "collect_open_citations.py"
 COLLECT_SCRIPT = ROOT / "scripts" / "collect-open-citations-2026.ps1"
 IMPORT_SCRIPT = ROOT / "scripts" / "import-open-citations-2026.ps1"
@@ -33,6 +34,17 @@ def test_collector_and_import_cli_are_separate_and_apply_is_root_mediated() -> N
     assert "ImportMode.PLAN_ONLY" in cli
     assert "os.geteuid() != 0" in cli
     assert "--sql-admin-credential-file" in cli
+
+
+def test_open_citation_operations_pin_the_production_sql_credential_path() -> None:
+    credential_validator = PUBLICATION_CLI.read_text(encoding="utf-8")
+    verifier = VERIFY_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'Path("/etc/ehf/sql-admin-password")' in credential_validator
+    assert "/etc/ehf/sql-admin-password" in verifier
+    assert "/root/.config/finances2" not in verifier
+    assert "2026.7-source-cutoff" in verifier
+    assert "2026.6-openalex-cutoff" not in verifier
 
 
 def test_collection_wrapper_sources_the_root_only_openalex_key_and_cleans_private_staging() -> None:

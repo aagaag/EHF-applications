@@ -170,7 +170,7 @@ def _validated_match_evidence(
         raise OpenCitationImportError(
             f"source_identifier is invalid for {source}."
         )
-    if not matched_title or not matched_authors:
+    if not matched_title or (match_method != "DOI_EXACT" and not matched_authors):
         raise OpenCitationImportError(
             "OBSERVED rows require matched title and authors evidence."
         )
@@ -287,7 +287,7 @@ def load_open_citation_reviews(
             row["matched_authors"],
             "matched_authors",
             8000,
-            required=status == "OBSERVED",
+            required=status == "OBSERVED" and row["match_method"] != "DOI_EXACT",
         )
         matched_doi = normalize_doi(row["matched_doi"]) if row["matched_doi"] else ""
         match_method = row["match_method"]
