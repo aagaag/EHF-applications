@@ -127,6 +127,13 @@ def test_isolated_sql_validator_failure_identifies_the_safe_artifact_name() -> N
     )
 
 
+def test_isolated_sql_workflow_lists_every_repository_migration_and_validator() -> None:
+    source = SQL_LOGIN_TEST.read_text(encoding="utf-8")
+    for directory in (ROOT / "database" / "migrations", ROOT / "database" / "tests"):
+        for path in directory.glob("*.sql"):
+            assert source.count(path.name) == 1
+
+
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell deployment contracts run on the Windows controller")
 def test_deploy_whatif_names_the_exact_commit_without_starting_remote_mutation() -> None:
     """Break caught: a dry run could connect to the EHF VM or hide the release revision it would deploy."""

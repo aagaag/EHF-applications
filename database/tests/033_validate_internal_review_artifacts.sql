@@ -7,6 +7,7 @@ IF OBJECT_ID(N'dbo.TR_InternalReviewArtifactProvenance_AppendOnly', N'TR') IS NU
     THROW 54131, 'The internal review artifact append-only trigger is missing.', 1;
 IF OBJECT_ID(N'dbo.ListInternalReviewArtifacts', N'P') IS NULL
    OR OBJECT_ID(N'dbo.GetInternalReviewArtifact', N'P') IS NULL
+   OR OBJECT_ID(N'dbo.RecordInternalReviewArtifactFailure', N'P') IS NULL
     THROW 54132, 'The internal review artifact procedures are missing.', 1;
 
 IF EXISTS

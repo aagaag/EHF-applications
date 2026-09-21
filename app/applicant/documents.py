@@ -102,7 +102,7 @@ class InternalReviewArtifactSummary:
 @dataclass(frozen=True, slots=True)
 class DocumentAccessEvent:
     application_id: UUID
-    version_id: UUID
+    version_id: UUID | None
     actor: str
     actor_group: str
     purpose: str
@@ -474,7 +474,12 @@ class ApplicantDocumentService:
         actor: str,
         actor_group: str,
     ) -> bytes | None:
-        normalized = _review_artifact_category(category)
+        _authorize_internal_document_access(actor, actor_group)
+        try:
+            normalized = _review_artifact_category(category)
+        except ValueError:
+            self._record_missing_review_artifact(application_id, actor, actor_group)
+            raise
         summary = next(
             (
                 item
@@ -486,6 +491,7 @@ class ApplicantDocumentService:
             None,
         )
         if summary is None:
+            self._record_missing_review_artifact(application_id, actor, actor_group)
             return None
         return self.internal_download(
             application_id,
@@ -494,6 +500,14 @@ class ApplicantDocumentService:
             actor_group=actor_group,
             purpose="VIEW",
         )
+
+    def _record_missing_review_artifact(
+        self, application_id: UUID, actor: str, actor_group: str
+    ) -> None:
+        event = DocumentAccessEvent(
+            application_id, None, actor.strip(), actor_group, "VIEW", "REQUESTED"
+        )
+        self._access_events.extend((event, replace(event, outcome="FAILED")))
 
     def internal_download(
         self,

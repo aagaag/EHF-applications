@@ -19,6 +19,15 @@ def load_helper():
     return module
 
 
+def test_privileged_sql_artifact_inventory_matches_repository() -> None:
+    helper = load_helper()
+    migrations = {path.name for path in (ROOT / "database" / "migrations").glob("*.sql")}
+    validators = {path.name for path in (ROOT / "database" / "tests").glob("*.sql")}
+
+    assert set(helper.MIGRATIONS) == migrations
+    assert helper.SQLCMD_ARTIFACTS == migrations | validators
+
+
 class FakeCursor:
     def __init__(self, rows=(), error: Exception | None = None):
         self.rows = list(rows)

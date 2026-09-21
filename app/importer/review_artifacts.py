@@ -300,7 +300,8 @@ class SqlReviewArtifactRepository:
                 payload_hash = hashlib.sha256(artifact.payload).digest()
                 existing = self._connection.execute(
                     "SELECT slot_row.DocumentSlotId, document_row.DocumentId, "
-                    "version_row.VersionNumber, object_row.PlaintextSha256 "
+                    "version_row.VersionNumber, object_row.PlaintextSha256, "
+                    "version_row.DocumentVersionId "
                     "FROM dbo.DocumentSlot AS slot_row "
                     "JOIN dbo.Document AS document_row ON document_row.DocumentSlotId=slot_row.DocumentSlotId "
                     "LEFT JOIN dbo.DocumentVersion AS version_row "
@@ -312,7 +313,14 @@ class SqlReviewArtifactRepository:
                     _slot_code(artifact.category),
                 ).fetchone()
                 if existing is not None and existing[3] is not None and bytes(existing[3]) == payload_hash:
-                    continue
+                    provenance = self._connection.execute(
+                        "SELECT SourceDocumentVersionId, SegmentOrder, FirstPage, LastPage, "
+                        "SourcePlaintextSha256 FROM dbo.InternalReviewArtifactProvenance "
+                        "WHERE ArtifactDocumentVersionId=? ORDER BY SegmentOrder",
+                        existing[4],
+                    ).fetchall()
+                    if _matches_provenance(provenance, artifact.segments):
+                        continue
                 slot_id = UUID(str(existing[0])) if existing is not None else uuid4()
                 document_id = UUID(str(existing[1])) if existing is not None else uuid4()
                 version_number = (int(existing[2] or 0) + 1) if existing is not None else 1
@@ -410,3 +418,21 @@ def _document_type(category: str) -> str:
         "CURRICULUM": "CV",
         "PUBLICATIONS": "PUBLICATION_LIST",
     }[category]
+
+
+def _matches_provenance(rows: Any, segments: tuple[ReviewArtifactSegment, ...]) -> bool:
+    actual = tuple(
+        (UUID(str(row[0])), int(row[1]), int(row[2]), int(row[3]), bytes(row[4]))
+        for row in rows
+    )
+    expected = tuple(
+        (
+            segment.source_version_id,
+            order,
+            segment.first_page,
+            segment.last_page,
+            segment.source_sha256,
+        )
+        for order, segment in enumerate(segments, start=1)
+    )
+    return actual == expected

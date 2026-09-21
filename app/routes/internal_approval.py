@@ -291,10 +291,11 @@ def register_internal_approval_routes(
             return _internal_document_unavailable()
         if payload is None:
             return _internal_document_unavailable()
+        normalized_category = category.strip().lower()
         return pdf_response(
             payload,
             disposition="inline",
-            filename=f"{category.lower()}-review.pdf",
+            filename=f"{normalized_category}-review.pdf",
         )
 
     @application.get("/api/internal/applicants/{application_id}/documents/package/view")

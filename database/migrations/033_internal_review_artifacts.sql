@@ -72,6 +72,14 @@ BEGIN
     WHERE provenance_row.ApplicationId = @ApplicationId
       AND slot_row.ApplicationId = @ApplicationId
       AND slot_row.ApplicantVisible = 0
+      AND slot_row.SlotCode = CASE provenance_row.Category
+          WHEN ''APPLICATION'' THEN ''REVIEW-ARTIFACT-APPLICATION''
+          WHEN ''CURRICULUM'' THEN ''REVIEW-ARTIFACT-CURRICULUM''
+          WHEN ''PUBLICATIONS'' THEN ''REVIEW-ARTIFACT-PUBLICATIONS'' END
+      AND document_row.DocumentType = CASE provenance_row.Category
+          WHEN ''APPLICATION'' THEN ''RESEARCH_PLAN''
+          WHEN ''CURRICULUM'' THEN ''CV''
+          WHEN ''PUBLICATIONS'' THEN ''PUBLICATION_LIST'' END
       AND version_row.Classification = ''INTERNAL_ADMINISTRATIVE''
       AND document_row.DocumentType <> ''RECOMMENDATION_LETTER''
       AND object_row.ScanResult = ''CLEAN''
@@ -113,6 +121,14 @@ BEGIN
       AND provenance_row.Category = @Category
       AND slot_row.ApplicationId = @ApplicationId
       AND slot_row.ApplicantVisible = 0
+      AND slot_row.SlotCode = CASE provenance_row.Category
+          WHEN ''APPLICATION'' THEN ''REVIEW-ARTIFACT-APPLICATION''
+          WHEN ''CURRICULUM'' THEN ''REVIEW-ARTIFACT-CURRICULUM''
+          WHEN ''PUBLICATIONS'' THEN ''REVIEW-ARTIFACT-PUBLICATIONS'' END
+      AND document_row.DocumentType = CASE provenance_row.Category
+          WHEN ''APPLICATION'' THEN ''RESEARCH_PLAN''
+          WHEN ''CURRICULUM'' THEN ''CV''
+          WHEN ''PUBLICATIONS'' THEN ''PUBLICATION_LIST'' END
       AND version_row.Classification = ''INTERNAL_ADMINISTRATIVE''
       AND document_row.DocumentType <> ''RECOMMENDATION_LETTER''
       AND object_row.ScanResult = ''CLEAN''
@@ -144,6 +160,35 @@ BEGIN
 END;
 ');
 
+EXEC(N'
+CREATE PROCEDURE dbo.RecordInternalReviewArtifactFailure
+    @ApplicationId uniqueidentifier,
+    @Category varchar(20),
+    @ActorIdentity nvarchar(255),
+    @ActorGroup nvarchar(128)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF @ActorGroup NOT IN (N''EHF-Administrators'', N''EHF-Trustees'')
+       OR NULLIF(LTRIM(RTRIM(@ActorIdentity)), N'''') IS NULL
+       OR @Category NOT IN (''APPLICATION'', ''CURRICULUM'', ''PUBLICATIONS'', ''INVALID'')
+        THROW 54110, ''Administrator or trustee authorization is required.'', 1;
+
+    IF EXISTS (SELECT 1 FROM dbo.Application WHERE ApplicationId=@ApplicationId)
+    BEGIN
+        INSERT dbo.AuditEvent
+            (ApplicationId, EventType, ActorIdentity, EntityType, EntityId, PayloadJson)
+        SELECT @ApplicationId, event_row.EventType, LTRIM(RTRIM(@ActorIdentity)),
+               ''Application'', @ApplicationId,
+               (SELECT @ActorGroup AS actorGroup, ''VIEW'' AS purpose,
+                       @Category AS category FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+        FROM (VALUES (''INTERNAL_DOCUMENT_ACCESS_REQUESTED''),
+                     (''INTERNAL_DOCUMENT_ACCESS_FAILED'')) AS event_row(EventType);
+    END;
+END;
+');
+
 GRANT EXECUTE ON dbo.ListInternalReviewArtifacts TO EHFApplicationRuntime;
 GRANT EXECUTE ON dbo.GetInternalReviewArtifact TO EHFApplicationRuntime;
+GRANT EXECUTE ON dbo.RecordInternalReviewArtifactFailure TO EHFApplicationRuntime;
 DENY SELECT, INSERT, UPDATE, DELETE ON dbo.InternalReviewArtifactProvenance TO EHFApplicationRuntime;

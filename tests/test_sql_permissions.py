@@ -245,6 +245,7 @@ def test_permission_validator_includes_the_complete_applicant_runtime_surface() 
         "RecordInternalDocumentAccessOutcome",
         "ListInternalReviewArtifacts",
         "GetInternalReviewArtifact",
+        "RecordInternalReviewArtifactFailure",
     ):
         assert f"(N'{procedure}')" in validator
     for table in (

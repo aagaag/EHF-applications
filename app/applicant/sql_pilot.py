@@ -697,6 +697,29 @@ class SqlApplicantDocumentRepository:
             )
             connection.commit()
 
+    def record_internal_review_artifact_failure(
+        self,
+        application_id: UUID,
+        category: str,
+        *,
+        actor: str,
+        actor_group: str,
+    ) -> None:
+        _require_internal_document_actor(actor, actor_group)
+        normalized = category.strip().upper()
+        if normalized not in {"APPLICATION", "CURRICULUM", "PUBLICATIONS", "INVALID"}:
+            raise ValueError("A valid review-artifact category is required.")
+        with self._connections() as connection:
+            connection.execute(
+                "EXEC dbo.RecordInternalReviewArtifactFailure "
+                "@ApplicationId=?, @Category=?, @ActorIdentity=?, @ActorGroup=?",
+                application_id,
+                normalized,
+                actor.strip(),
+                actor_group,
+            )
+            connection.commit()
+
     def final_documents(self) -> tuple[dict[str, Any], ...]:
         with self._connections() as connection:
             rows = connection.execute(
@@ -960,7 +983,13 @@ class SqlApplicantDocumentService:
         actor: str,
         actor_group: str,
     ) -> bytes | None:
-        normalized = _review_artifact_category(category)
+        try:
+            normalized = _review_artifact_category(category)
+        except ValueError:
+            self._repository.record_internal_review_artifact_failure(
+                application_id, "INVALID", actor=actor, actor_group=actor_group
+            )
+            raise
         item = self._repository.internal_review_artifact_record(
             application_id,
             normalized,
@@ -968,6 +997,9 @@ class SqlApplicantDocumentService:
             actor_group=actor_group,
         )
         if item is None:
+            self._repository.record_internal_review_artifact_failure(
+                application_id, normalized, actor=actor, actor_group=actor_group
+            )
             return None
         record, binding = item
         try:

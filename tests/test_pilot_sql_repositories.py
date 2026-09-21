@@ -323,7 +323,8 @@ def test_internal_review_artifact_repository_uses_category_scoped_procedures() -
         str(APPLICATION_A), str(document_id), str(version_id), str(object_id),
         "1" * 32, 1, 1, b"n" * 12, b"p" * 32, b"c" * 32, 321,
     )])
-    available = iter((list_connection, artifact_connection))
+    failure_connection = Connection([])
+    available = iter((list_connection, artifact_connection, failure_connection))
 
     @contextmanager
     def connections():
@@ -335,6 +336,10 @@ def test_internal_review_artifact_repository_uses_category_scoped_procedures() -
     )
     record = repository.internal_review_artifact_record(
         APPLICATION_A, "application",
+        actor="cloudflare:reviewer", actor_group="EHF-Trustees",
+    )
+    repository.record_internal_review_artifact_failure(
+        APPLICATION_A, "curriculum",
         actor="cloudflare:reviewer", actor_group="EHF-Trustees",
     )
 
@@ -351,6 +356,11 @@ def test_internal_review_artifact_repository_uses_category_scoped_procedures() -
         APPLICATION_A, "APPLICATION", "cloudflare:reviewer", "EHF-Trustees"
     )
     assert artifact_connection.commits == 1
+    assert "RecordInternalReviewArtifactFailure" in failure_connection.cursor.calls[0][0]
+    assert failure_connection.cursor.calls[0][1] == (
+        APPLICATION_A, "CURRICULUM", "cloudflare:reviewer", "EHF-Trustees"
+    )
+    assert failure_connection.commits == 1
 
 
 def test_sql_internal_document_service_records_decryption_outcome() -> None:
@@ -425,6 +435,33 @@ def test_sql_internal_document_service_records_denied_lookup_as_failed() -> None
 
     assert payload is None
     assert repository.outcomes == ["FAILED"]
+
+
+def test_sql_review_artifact_service_audits_missing_and_invalid_categories() -> None:
+    class Repository:
+        def __init__(self):
+            self.failures = []
+
+        def internal_review_artifact_record(self, *args, **kwargs):
+            return None
+
+        def record_internal_review_artifact_failure(self, _application_id, category, **_kwargs):
+            self.failures.append(category)
+
+    repository = Repository()
+    service = SqlApplicantDocumentService(repository, object(), object())  # type: ignore[arg-type]
+
+    assert service.internal_review_artifact(
+        APPLICATION_A, "curriculum",
+        actor="cloudflare:reviewer", actor_group="EHF-Administrators",
+    ) is None
+    with pytest.raises(ValueError, match="category"):
+        service.internal_review_artifact(
+            APPLICATION_A, "recommendations",
+            actor="cloudflare:reviewer", actor_group="EHF-Administrators",
+        )
+
+    assert repository.failures == ["curriculum", "INVALID"]
 
 
 def test_draft_sql_conflict_and_lock_are_translated_to_workflow_exceptions() -> None:

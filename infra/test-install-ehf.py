@@ -72,33 +72,19 @@ def test_release_bundle_requires_the_scoped_sql_bootstrap_and_every_migration_ar
 
     assert "infra/sql-principal.py" in installer.REQUIRED_RELEASE_FILES
     assert "infra/bootstrap-ehf-database.py" in installer.REQUIRED_RELEASE_FILES
-    for name in (
-        "001_database_contract.sql",
-        "002_application_core.sql",
-        "003_audit_and_preferences.sql",
-        "004_audit_and_preference_hardening.sql",
-        "005_application_permissions.sql",
-        "006_user_preference_read.sql",
-        "007_document_store.sql",
-        "008_import_provenance.sql",
-        "009_document_permissions.sql",
-        "010_report_export_audit.sql",
-        "011_applicant_access.sql",
-        "012_applicant_drafts.sql",
-        "013_applicant_confirmations.sql",
-        "014_applicant_projection.sql",
-        "015_applicant_document_slots.sql",
-        "016_entra_applicant_workflow.sql",
-        "017_applicant_form_simplification.sql",
-        "018_applicant_admin_preview.sql",
-        "019_synthetic_applicant_workspace.sql",
-        "020_synthetic_metrics_academic_age.sql",
-        "021_application_publications.sql",
-        "022_applicant_publication_preview.sql",
-        "023_open_citation_sources.sql",
-    ):
-        assert f"database/migrations/{name}" in installer.REQUIRED_RELEASE_FILES
-        assert f"database/tests/{name.replace('_', '_validate_', 1)}" in installer.REQUIRED_RELEASE_FILES
+    expected_migrations = {path.name for path in (ROOT / "database" / "migrations").glob("*.sql")}
+    expected_validators = {path.name for path in (ROOT / "database" / "tests").glob("*.sql")}
+    bundled_migrations = {
+        Path(item).name for item in installer.REQUIRED_RELEASE_FILES
+        if item.startswith("database/migrations/")
+    }
+    bundled_validators = {
+        Path(item).name for item in installer.REQUIRED_RELEASE_FILES
+        if item.startswith("database/tests/")
+    }
+
+    assert bundled_migrations == expected_migrations
+    assert bundled_validators == expected_validators
 
 
 def test_prepare_release_is_idempotent_and_rejects_a_conflicting_commit(tmp_path: Path) -> None:

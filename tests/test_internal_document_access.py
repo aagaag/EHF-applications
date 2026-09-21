@@ -242,11 +242,19 @@ def test_internal_review_artifact_is_category_scoped_allowlisted_and_audited(
         ("VIEW", "REQUESTED"),
         ("VIEW", "SUCCEEDED"),
     ]
+    assert service.internal_review_artifact(
+        APPLICATION_A, "curriculum",
+        actor="cloudflare:reviewer", actor_group=INTERNAL_GROUPS.trustees,
+    ) is None
     with pytest.raises(ValueError, match="category"):
         service.internal_review_artifact(
             APPLICATION_A, "recommendations",
             actor="cloudflare:reviewer", actor_group=INTERNAL_GROUPS.trustees,
         )
+    assert [(event.version_id, event.outcome) for event in service.access_events[-4:]] == [
+        (None, "REQUESTED"), (None, "FAILED"),
+        (None, "REQUESTED"), (None, "FAILED"),
+    ]
 
 
 def test_internal_review_artifact_route_lists_availability_and_serves_only_category_pdf(
@@ -344,7 +352,11 @@ def test_internal_review_artifact_sql_release_is_append_only_and_procedure_scope
     assert "INSTEAD OF UPDATE, DELETE" in migration
     for category in ("APPLICATION", "CURRICULUM", "PUBLICATIONS"):
         assert category in migration
-    for procedure in ("ListInternalReviewArtifacts", "GetInternalReviewArtifact"):
+    for procedure in (
+        "ListInternalReviewArtifacts",
+        "GetInternalReviewArtifact",
+        "RecordInternalReviewArtifactFailure",
+    ):
         assert f"PROCEDURE dbo.{procedure}" in migration
         assert f"GRANT EXECUTE ON dbo.{procedure} TO EHFApplicationRuntime" in migration
     assert (
@@ -352,6 +364,8 @@ def test_internal_review_artifact_sql_release_is_append_only_and_procedure_scope
         "TO EHFApplicationRuntime"
     ) in migration
     assert "DocumentType <> ''RECOMMENDATION_LETTER''" in migration
+    assert migration.count("slot_row.SlotCode = CASE provenance_row.Category") == 2
+    assert migration.count("document_row.DocumentType = CASE provenance_row.Category") == 2
     assert "SourcePlaintextSha256 binary(32) NOT NULL" in migration
     assert "FirstPage int NOT NULL" in migration and "LastPage int NOT NULL" in migration
     assert "PASS 033 internal review artifacts" in validator

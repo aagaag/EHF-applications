@@ -17,6 +17,8 @@ credentials/
 imports/output/
 import-output/
 publication-import-manifest*.json
+review-artifact-manifest*.json
+ehf-review-artifacts*.json
 google-scholar-review*.csv
 
 *.log

@@ -15,8 +15,10 @@ from app.documents.keys import load_keyring
 from app.documents.store import EncryptedObjectStore, ObjectBinding
 from app.importer.review_artifacts import (
     ReviewArtifactImportError,
+    ReviewArtifactSegment,
     load_review_artifact_manifest,
     run_review_artifact_import,
+    _matches_provenance,
 )
 
 
@@ -210,3 +212,19 @@ def test_release_contains_review_artifact_import_modules() -> None:
 
     assert '"app/importer/review_artifacts.py"' in source
     assert '"app/importer/run_review_artifacts.py"' in source
+
+
+def test_idempotency_requires_the_same_ordered_source_provenance() -> None:
+    segment = ReviewArtifactSegment(UUID(VERSION), bytes.fromhex("11" * 32), "source.pdf", 2, 3)
+    same = [(UUID(VERSION), 1, 2, 3, bytes.fromhex("11" * 32))]
+    changed_range = [(UUID(VERSION), 1, 1, 3, bytes.fromhex("11" * 32))]
+
+    assert _matches_provenance(same, (segment,))
+    assert not _matches_provenance(changed_range, (segment,))
+    assert not _matches_provenance([], (segment,))
+
+
+def test_private_review_artifact_manifests_are_ignored_by_git() -> None:
+    source = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "review-artifact-manifest*.json" in source
+    assert "ehf-review-artifacts*.json" in source
