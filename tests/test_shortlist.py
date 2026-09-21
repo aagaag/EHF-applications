@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from contextlib import contextmanager
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -147,7 +148,11 @@ def test_sql_repository_uses_only_bounded_procedures_and_commits_writes() -> Non
             self.commits += 1
 
     connection = Connection()
-    repository = SqlShortlistRepository(lambda: connection)
+    @contextmanager
+    def connection_factory():
+        yield connection
+
+    repository = SqlShortlistRepository(connection_factory)
     state = repository.load("entra:person", INTERNAL_GROUPS.trustees, RICKY_ENTRA_OBJECT_ID)
     result = repository.set(
         APPLICATION_ID, "ricky", False, "entra:person",

@@ -50,11 +50,11 @@ class SqlShortlistRepository:
         self._connection_factory = connection_factory
 
     def load(self, actor_identity: str, actor_group: str, entra_object_id: UUID | None) -> ShortlistState:
-        connection = self._connection_factory()
-        rows = connection.execute(
-            "EXEC dbo.GetInternalShortlistSelections @ActorIdentity=?, @ActorGroup=?, @ActorEntraObjectId=?",
-            actor_identity, actor_group, entra_object_id,
-        ).fetchall()
+        with self._connection_factory() as connection:
+            rows = connection.execute(
+                "EXEC dbo.GetInternalShortlistSelections @ActorIdentity=?, @ActorGroup=?, @ActorEntraObjectId=?",
+                actor_identity, actor_group, entra_object_id,
+            ).fetchall()
         selections: dict[str, set[str]] = {}
         for application_id, trustee_code, selected in rows:
             if bool(selected):
@@ -65,12 +65,12 @@ class SqlShortlistRepository:
         )
 
     def set(self, application_id: UUID, trustee_code: str, selected: bool, actor_identity: str, actor_group: str, entra_object_id: UUID | None) -> bool:
-        connection = self._connection_factory()
-        row = connection.execute(
-            "EXEC dbo.SetInternalShortlistSelection @ApplicationId=?, @TrusteeCode=?, @IsSelected=?, @ActorIdentity=?, @ActorGroup=?, @ActorEntraObjectId=?",
-            application_id, trustee_code, selected, actor_identity, actor_group, entra_object_id,
-        ).fetchone()
-        if row is None:
-            raise LookupError("The shortlist selection was not saved.")
-        connection.commit()
+        with self._connection_factory() as connection:
+            row = connection.execute(
+                "EXEC dbo.SetInternalShortlistSelection @ApplicationId=?, @TrusteeCode=?, @IsSelected=?, @ActorIdentity=?, @ActorGroup=?, @ActorEntraObjectId=?",
+                application_id, trustee_code, selected, actor_identity, actor_group, entra_object_id,
+            ).fetchone()
+            if row is None:
+                raise LookupError("The shortlist selection was not saved.")
+            connection.commit()
         return bool(row[0])
