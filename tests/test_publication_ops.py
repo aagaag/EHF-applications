@@ -25,7 +25,7 @@ def test_publication_cli_is_plan_only_by_default_and_apply_is_root_mediated() ->
     assert "arguments.apply" in source
     assert "os.geteuid() != 0" in source
     assert "st_uid != 0" in source
-    assert 'Path("/root/.config/finances2")' in source
+    assert 'Path("/etc/ehf/sql-admin-password")' in source
     assert "--sql-admin-credential-file" in source
     assert "_open_import_connection" in source
     assert "write_google_scholar_queue" in source
