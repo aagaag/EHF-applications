@@ -173,9 +173,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .applicant-detail-chart .journal-scatter-x-label { fill: var(--text); font-size: 10px; font-weight: 800; }
 .applicant-detail-chart .journal-scatter-na-lane { stroke: var(--muted); stroke-dasharray: 4 3; }
 .applicant-detail-chart .journal-scatter-na-label { fill: var(--text); font-size: 9px; font-weight: 800; }
-.applicant-detail-chart .journal-scatter-point { fill: var(--accent); stroke: var(--accent-dark); stroke-width: 1; cursor: default; }
-.applicant-detail-chart .journal-scatter-point--metric-unavailable { fill: var(--surface); stroke: var(--muted); }
-.applicant-detail-chart .journal-scatter-point--lead-author { stroke: var(--missing); stroke-width: 2; }
+.applicant-detail-chart .journal-scatter-point { stroke-width: 1; cursor: default; }
+.applicant-detail-chart .journal-scatter-point--metric-unavailable { stroke: var(--muted); }
+.applicant-detail-chart .journal-scatter-point--lead-author { fill: var(--missing); stroke: var(--missing); }
+.applicant-detail-chart .journal-scatter-point--other-author { fill: #226fb5; stroke: #164f86; }
 .applicant-detail-chart .journal-scatter-point--citation-unavailable { stroke-dasharray: 3 2; }
 .applicant-detail-chart .journal-scatter-point:focus { outline: none; stroke: var(--focus); stroke-width: 3; }
 .journal-scatter-accessible-list { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }

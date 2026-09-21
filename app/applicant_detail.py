@@ -294,7 +294,8 @@ def _journal_scatter_chart(
     return (
         '<figure class="applicant-detail-chart applicant-detail-chart--journal-scatter" '
         f'data-full-page-chart role="link" tabindex="0" aria-label="Open full-page graph: {_text(title)}"><figcaption>{_text(title)}</figcaption>'
-        '<p class="journal-scatter-legend">Bubble area represents OpenAlex citations.</p>'
+        '<p class="journal-scatter-legend">Bubble area represents OpenAlex citations. '
+        'Red: first, sole, or last author. Blue: neither first nor last author.</p>'
         f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{_text(title)}" '
         'xmlns="http://www.w3.org/2000/svg">'
         f'<line x1="{left}" y1="{top}" x2="{left}" y2="{numeric_bottom}" />'
@@ -320,6 +321,8 @@ def _journal_scatter_point(point: dict[str, object]) -> str:
     classes = ["journal-scatter-point"]
     if position is not None:
         classes.append("journal-scatter-point--lead-author")
+    else:
+        classes.append("journal-scatter-point--other-author")
     if citedness is None:
         classes.append("journal-scatter-point--metric-unavailable")
     if citation_count is None:

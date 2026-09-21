@@ -197,12 +197,14 @@ def test_render_detail_adds_an_accessible_journal_citedness_scatter_with_honest_
     assert "Papers by year and journal citedness" in html
     assert "OpenAlex 2-year journal citedness" in html
     assert "Bubble area represents OpenAlex citations" in html
+    assert "Red: first, sole, or last author. Blue: neither first nor last author." in html
     assert "2026-09-21" in html
     assert "3 papers plotted; 1 omitted because its publication year is unavailable." in html
     assert html.count('data-journal-scatter-list-item') == 3
     assert 'data-author-position="first"' in html
     assert 'data-author-position="last"' in html
     assert 'journal-scatter-point--lead-author' in html
+    assert 'journal-scatter-point--other-author' in html
     assert 'journal-scatter-point--metric-unavailable' in html
     assert 'journal-scatter-point--citation-unavailable' in html
     assert "Journal &lt;A&gt;" in html

@@ -285,7 +285,7 @@ def test_applicant_detail_keeps_three_charts_side_by_side_and_colours_lead_autho
                     title="Collaborative work",
                     year=2024,
                     citation_count=2,
-                    authors_text="Ben Biologist; Cara Chemist; Ada Researcher",
+                    authors_text="Ben Biologist; Ada Researcher; Cara Chemist",
                     journal_openalex_name="Other Journal",
                     journal_two_year_mean_citedness=1.5,
                 ),
@@ -318,7 +318,10 @@ def test_applicant_detail_keeps_three_charts_side_by_side_and_colours_lead_autho
             lead = page.locator('[data-publication-row][data-author-position="first"]')
             assert lead.evaluate("node => getComputedStyle(node).color") == "rgb(180, 35, 24)"
             bubble = page.locator(".journal-scatter-point--lead-author").first
-            assert bubble.evaluate("node => getComputedStyle(node).stroke") == "rgb(180, 35, 24)"
+            assert bubble.evaluate("node => getComputedStyle(node).fill") == "rgb(180, 35, 24)"
+            assert page.locator(".journal-scatter-point--other-author").evaluate(
+                "node => getComputedStyle(node).fill"
+            ) == "rgb(34, 111, 181)"
             assert bubble.evaluate("node => { node.focus(); return document.activeElement === node }")
         finally:
             browser.close()
@@ -392,7 +395,7 @@ def test_journal_scatter_is_responsive_focusable_and_visible_in_every_skin(
                     skin,
                 )
                 assert page.locator(".journal-scatter-point--lead-author").evaluate(
-                    "node => getComputedStyle(node).stroke"
+                    "node => getComputedStyle(node).fill"
                 ) == "rgb(180, 35, 24)"
         finally:
             browser.close()
