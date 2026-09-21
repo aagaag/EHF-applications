@@ -27,7 +27,7 @@ details = credential_path.stat()
 if (credential_path.is_symlink() or not credential_path.is_file()
         or details.st_uid != 0
         or stat.S_IMODE(details.st_mode) != 0o600
-        or resolved.parent != Path('/root/.config/finances2')):
+        or resolved != Path('/etc/ehf/sql-admin-password')):
     raise RuntimeError('unsafe SQL administrator credential path')
 password = credential_path.read_text(encoding='utf-8').strip()
 connection = pyodbc.connect(
