@@ -65,6 +65,42 @@ class ApplicantPreviewSummary:
     application_id: UUID
     applicant_name: str
     application_status: str
+    academic_age_years: float | None = None
+    h_index: int | None = None
+    citation_count: int | None = None
+    citation_source: str | None = None
+    citation_profile_url: str | None = None
+    research_area: str | None = None
+    document_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ApplicantPreviewDocument:
+    """One active proposal document of an applicant dossier."""
+
+    document_version_id: UUID
+    slot_code: str
+    slot_label: str
+    document_type: str
+    classification: str
+    page_count: int | None
+    byte_size: int | None
+    media_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class ApplicantPreviewDocuments:
+    application_id: UUID
+    applicant_name: str
+    application_status: str
+    documents: tuple[ApplicantPreviewDocument, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ApplicantPreviewDocumentFile:
+    display_name: str
+    media_type: str
+    content: bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +176,20 @@ class ApplicantApprovalService:
         if actor_group != INTERNAL_GROUPS.administrators or not actor.strip():
             raise PermissionError("Administrator authorization is required.")
         raise LookupError("The applicant preview is unavailable.")
+
+    def preview_documents(
+        self, application_id: UUID, *, actor: str, actor_group: str
+    ) -> ApplicantPreviewDocuments:
+        if actor_group != INTERNAL_GROUPS.administrators or not actor.strip():
+            raise PermissionError("Administrator authorization is required.")
+        raise LookupError("The applicant documents are unavailable.")
+
+    def preview_document(
+        self, document_version_id: UUID, *, actor: str, actor_group: str
+    ) -> ApplicantPreviewDocumentFile:
+        if actor_group != INTERNAL_GROUPS.administrators or not actor.strip():
+            raise PermissionError("Administrator authorization is required.")
+        raise LookupError("The applicant document is unavailable.")
 
     def approve(
         self, confirmation_id: UUID, *, actor: str, actor_group: str

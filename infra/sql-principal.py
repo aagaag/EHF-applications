@@ -83,6 +83,7 @@ MIGRATIONS = {
     "022_applicant_publication_preview.sql": (22, "applicant_publication_preview"),
     "023_open_citation_sources.sql": (23, "open_citation_sources"),
     "024_applicant_citation_profiles.sql": (24, "applicant_citation_profiles"),
+    "025_applicant_review_documents.sql": (25, "applicant_review_documents"),
 }
 COMMANDS = (
     "inspect-production",
@@ -131,6 +132,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "022_validate_applicant_publication_preview.sql",
         "023_validate_open_citation_sources.sql",
         "024_validate_applicant_citation_profiles.sql",
+        "025_validate_applicant_review_documents.sql",
     }
 )
 

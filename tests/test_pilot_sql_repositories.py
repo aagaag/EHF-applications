@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from uuid import UUID
 
 import pytest
@@ -16,6 +17,7 @@ from app.applicant.sql_pilot import (
     SqlSyntheticProjectionRepository,
 )
 from app.applicant.approval import ApplicantApprovalBlocked
+from app.documents.store import DocumentStoreError
 from app.applicant.confirmations import SectionConfirmation, _canonical_hash
 from app.applicant.drafts import (
     CorrectionRequired,
@@ -579,3 +581,252 @@ def test_returned_section_must_be_saved_before_sql_reconfirmation() -> None:
     )
     with pytest.raises(CorrectionRequired):
         unchanged.confirm(APPLICATION_A, "employment", snapshot)
+
+
+APPLICATION_PREVIEW_DOCUMENT = UUID("91000000-0000-4000-8000-000000000031")
+APPLICATION_PREVIEW_DOCUMENT_ID = UUID("91000000-0000-4000-8000-000000000032")
+APPLICATION_PREVIEW_OBJECT = UUID("91000000-0000-4000-8000-000000000033")
+APPLICATION_PREVIEW_OBJECT_KEY = "0123456789abcdef0123456789abcdef"
+
+
+class FakeObjectStore:
+    """Object store double that records the exact envelope and binding it was asked for."""
+
+    def __init__(self, content: bytes = b"%PDF-1.7 synthetic proposal") -> None:
+        self.content = content
+        self.calls: list[tuple[object, object]] = []
+
+    def decrypt_bytes(self, record: object, binding: object) -> bytes:
+        self.calls.append((record, binding))
+        return self.content
+
+
+def test_applicant_review_cards_map_the_release_25_metrics() -> None:
+    """Break caught: a card could show the wrong applicant's citation or academic-age source."""
+    connection = Connection(
+        [
+            (
+                str(APPLICATION_A),
+                "Synthetic Applicant",
+                "IMPORTED",
+                Decimal("4.50"),
+                12,
+                734,
+                "OPENALEX",
+                "https://openalex.org/A123",
+                "Synthetic neurodegeneration",
+                2,
+            )
+        ]
+    )
+    service = SqlApplicantApprovalService(factory(connection))
+
+    summaries = service.previews("EHF-Administrators")
+
+    card = summaries[0]
+    assert card.application_id == APPLICATION_A
+    assert card.academic_age_years == 4.5
+    assert card.h_index == 12
+    assert card.citation_count == 734
+    assert card.citation_source == "OPENALEX"
+    assert card.citation_profile_url == "https://openalex.org/A123"
+    assert card.research_area == "Synthetic neurodegeneration"
+    assert card.document_count == 2
+    assert "ListApplicantPreviews" in connection.cursor.calls[0][0]
+    assert connection.cursor.calls[0][1] == ("EHF-Administrators",)
+
+
+def test_applicant_review_card_survives_a_database_without_the_metric_columns() -> None:
+    """Break caught: a release ahead of its migration could break the whole review page."""
+    connection = Connection([(str(APPLICATION_A), "Synthetic Applicant", "IMPORTED")])
+    service = SqlApplicantApprovalService(factory(connection))
+
+    card = service.previews("EHF-Administrators")[0]
+
+    assert card.applicant_name == "Synthetic Applicant"
+    assert card.academic_age_years is None
+    assert card.document_count == 0
+
+
+def test_applicant_preview_documents_are_administrator_only_and_exact() -> None:
+    """Break caught: a trustee request or missing actor could list a dossier's documents."""
+    connection = MultiResultConnection(
+        [
+            [(str(APPLICATION_A), "Synthetic Applicant", "IMPORTED")],
+            [
+                (
+                    str(APPLICATION_PREVIEW_DOCUMENT),
+                    "import-3c5d91b88145",
+                    "Research plan",
+                    "RESEARCH_PLAN",
+                    "UNREVIEWED",
+                    19,
+                    1115189,
+                    "application/pdf",
+                )
+            ],
+        ]
+    )
+    service = SqlApplicantApprovalService(factory(connection))
+
+    bundle = service.preview_documents(
+        APPLICATION_A, actor="cloudflare:administrator", actor_group="EHF-Administrators"
+    )
+
+    assert bundle.application_id == APPLICATION_A
+    assert bundle.applicant_name == "Synthetic Applicant"
+    assert bundle.application_status == "IMPORTED"
+    document = bundle.documents[0]
+    assert document.document_version_id == APPLICATION_PREVIEW_DOCUMENT
+    assert document.document_type == "RESEARCH_PLAN"
+    assert document.page_count == 19
+    assert document.byte_size == 1115189
+    assert document.classification == "UNREVIEWED"
+    assert connection.cursor.calls[0][1] == (
+        APPLICATION_A,
+        "cloudflare:administrator",
+        "EHF-Administrators",
+    )
+    assert "ListApplicantPreviewDocuments" in connection.cursor.calls[0][0]
+    assert connection.commits == 1
+
+    with pytest.raises(PermissionError):
+        service.preview_documents(
+            APPLICATION_A, actor="cloudflare:trustee", actor_group="EHF-Trustees"
+        )
+    with pytest.raises(PermissionError):
+        service.preview_documents(
+            APPLICATION_A, actor="   ", actor_group="EHF-Administrators"
+        )
+
+
+def test_unknown_sql_applicant_documents_are_a_neutral_lookup_error() -> None:
+    """Break caught: a guessed application ID could report a distinguishable SQL error."""
+    service = SqlApplicantApprovalService(
+        factory(ErrorConnection("[52921] The applicant documents are unavailable."))
+    )
+
+    with pytest.raises(LookupError):
+        service.preview_documents(
+            APPLICATION_A, actor="cloudflare:administrator", actor_group="EHF-Administrators"
+        )
+
+
+def test_applicant_preview_document_decrypts_only_the_authorized_envelope() -> None:
+    """Break caught: the wrong dossier PDF, or an unbound one, could be decrypted and served."""
+    store = FakeObjectStore()
+    connection = Connection(
+        [
+            (
+                str(APPLICATION_A),
+                str(APPLICATION_PREVIEW_DOCUMENT_ID),
+                str(APPLICATION_PREVIEW_DOCUMENT),
+                str(APPLICATION_PREVIEW_OBJECT),
+                APPLICATION_PREVIEW_OBJECT_KEY,
+                1,
+                1,
+                b"n" * 12,
+                b"p" * 32,
+                b"c" * 32,
+                1024,
+                "application/pdf",
+                3,
+                "import-3c5d91b88145",
+                "RESEARCH_PLAN",
+            )
+        ]
+    )
+    service = SqlApplicantApprovalService(factory(connection), store)  # type: ignore[arg-type]
+
+    payload = service.preview_document(
+        APPLICATION_PREVIEW_DOCUMENT,
+        actor="cloudflare:administrator",
+        actor_group="EHF-Administrators",
+    )
+
+    assert payload.content == b"%PDF-1.7 synthetic proposal"
+    assert payload.media_type == "application/pdf"
+    assert payload.display_name == "research-plan-3c5d91b88145.pdf"
+    record, binding = store.calls[0]
+    assert record.object_key == APPLICATION_PREVIEW_OBJECT_KEY  # type: ignore[attr-defined]
+    assert record.byte_size == 1024  # type: ignore[attr-defined]
+    assert binding.application_id == APPLICATION_A  # type: ignore[attr-defined]
+    assert binding.version_id == APPLICATION_PREVIEW_DOCUMENT  # type: ignore[attr-defined]
+    assert "GetApplicantPreviewDocument" in connection.cursor.calls[0][0]
+    assert connection.cursor.calls[0][1] == (
+        APPLICATION_PREVIEW_DOCUMENT,
+        "cloudflare:administrator",
+        "EHF-Administrators",
+    )
+
+    with pytest.raises(PermissionError):
+        service.preview_document(
+            APPLICATION_PREVIEW_DOCUMENT,
+            actor="cloudflare:trustee",
+            actor_group="EHF-Trustees",
+        )
+
+
+def test_applicant_preview_document_requires_a_store_and_rejects_a_failed_envelope() -> None:
+    """Break caught: an unwired or corrupt object store could surface an internal failure."""
+    storeless = SqlApplicantApprovalService(
+        factory(ErrorConnection("an unwired store must fail before the database is read"))
+    )
+
+    with pytest.raises(LookupError):
+        storeless.preview_document(
+            APPLICATION_PREVIEW_DOCUMENT,
+            actor="cloudflare:administrator",
+            actor_group="EHF-Administrators",
+        )
+
+    connection = Connection(
+        [
+            (
+                str(APPLICATION_A),
+                str(APPLICATION_PREVIEW_DOCUMENT_ID),
+                str(APPLICATION_PREVIEW_DOCUMENT),
+                str(APPLICATION_PREVIEW_OBJECT),
+                APPLICATION_PREVIEW_OBJECT_KEY,
+                1,
+                1,
+                b"n" * 12,
+                b"p" * 32,
+                b"c" * 32,
+                1024,
+                "application/pdf",
+                3,
+                "import-3c5d91b88145",
+                "RESEARCH_PLAN",
+            )
+        ]
+    )
+
+    class FailingStore:
+        def decrypt_bytes(self, record: object, binding: object) -> bytes:
+            raise DocumentStoreError(
+                "The encrypted document object failed integrity validation."
+            )
+
+    failing = SqlApplicantApprovalService(factory(connection), FailingStore())  # type: ignore[arg-type]
+    with pytest.raises(LookupError):
+        failing.preview_document(
+            APPLICATION_PREVIEW_DOCUMENT,
+            actor="cloudflare:administrator",
+            actor_group="EHF-Administrators",
+        )
+
+
+def test_unknown_sql_applicant_preview_document_is_a_neutral_lookup_error() -> None:
+    """Break caught: a stale or foreign document version could report a SQL error."""
+    service = SqlApplicantApprovalService(
+        factory(ErrorConnection("[52921] The applicant document is unavailable.")),
+        FakeObjectStore(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(LookupError):
+        service.preview_document(
+            APPLICATION_PREVIEW_DOCUMENT,
+            actor="cloudflare:administrator",
+            actor_group="EHF-Administrators",
+        )

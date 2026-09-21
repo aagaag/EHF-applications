@@ -242,7 +242,17 @@ def test_administrator_can_open_every_existing_application_in_the_read_only_appl
                 "applicationId": str(APPLICATION_ID),
                 "applicantName": "Synthetic Preview Applicant",
                 "applicationStatus": "IMPORTED",
+                "academicAgeYears": None,
+                "hIndex": None,
+                "citationCount": None,
+                "citationSource": None,
+                "citationProfileUrl": None,
+                "researchArea": None,
+                "documentCount": 0,
                 "href": f"/internal/applicant-previews/{APPLICATION_ID}",
+                "documentsHref": (
+                    f"/internal/applicant-previews/{APPLICATION_ID}/documents"
+                ),
             }
         ]
     }

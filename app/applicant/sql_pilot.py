@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 
 import pyodbc
 
+from app.applicant.admin_documents import document_preview_filename
 from app.applicant.drafts import (
     CorrectionRequired,
     DraftConflict,
@@ -43,6 +44,9 @@ from app.applicant.approval import (
     ApplicantDocumentReview,
     ApplicantPublicationPreview,
     ApplicantPreviewBundle,
+    ApplicantPreviewDocument,
+    ApplicantPreviewDocumentFile,
+    ApplicantPreviewDocuments,
     ApplicantPreviewSummary,
     ApplicantSubmissionBundle,
     ApplicantSubmissionReview,
@@ -111,6 +115,10 @@ def build_entra_applicant_services(settings: Settings) -> EntraApplicantServices
     drafts = SqlSyntheticDraftRepository(connections, scope)
     confirmations = SqlSectionConfirmationService(connections, scope)
     document_repository = SqlApplicantDocumentRepository(connections, scope)
+    object_store = EncryptedObjectStore(
+        Path(settings.document_root or ""),
+        load_keyring(Path(settings.document_encryption_keyring_path or "")),
+    )
     review = ApplicantReviewService(
         drafts,
         confirmations,
@@ -125,16 +133,13 @@ def build_entra_applicant_services(settings: Settings) -> EntraApplicantServices
         review=review,
         documents=SqlApplicantDocumentService(
             document_repository,
-            EncryptedObjectStore(
-                Path(settings.document_root or ""),
-                load_keyring(Path(settings.document_encryption_keyring_path or "")),
-            ),
+            object_store,
             ClamDScanner(Path(__file__).resolve().parents[2] / "infra" / "ehf-clamav.conf"),
         ),
         finalization=SqlApplicantFinalizationService(
             connections, scope, drafts, confirmations, document_repository
         ),
-        approval=SqlApplicantApprovalService(connections),
+        approval=SqlApplicantApprovalService(connections, object_store),
         access=ApplicantAccessService(SqlApplicantAccessRepository(connections)),
     )
 
@@ -834,8 +839,13 @@ class SqlApplicantFinalizationService:
 
 
 class SqlApplicantApprovalService:
-    def __init__(self, connections: ConnectionFactory) -> None:
+    def __init__(
+        self,
+        connections: ConnectionFactory,
+        object_store: EncryptedObjectStore | None = None,
+    ) -> None:
         self._connections = connections
+        self._object_store = object_store
 
     def pending(self) -> tuple[ApplicantSubmissionReview, ...]:
         with self._connections() as connection:
@@ -852,9 +862,94 @@ class SqlApplicantApprovalService:
             rows = connection.execute(
                 "EXEC dbo.ListApplicantPreviews @ActorGroup = ?", actor_group
             ).fetchall()
-        return tuple(
-            ApplicantPreviewSummary(UUID(str(row[0])), str(row[1]), str(row[2]))
-            for row in rows
+        return tuple(_preview_summary(row) for row in rows)
+
+    def preview_documents(
+        self, application_id: UUID, *, actor: str, actor_group: str
+    ) -> ApplicantPreviewDocuments:
+        if actor_group != INTERNAL_GROUPS.administrators or not actor.strip():
+            raise PermissionError("Administrator authorization is required.")
+        try:
+            with self._connections() as connection:
+                cursor = connection.execute(
+                    "EXEC dbo.ListApplicantPreviewDocuments "
+                    "@ApplicationId = ?, @ActorIdentity = ?, @ActorGroup = ?",
+                    application_id,
+                    actor.strip(),
+                    actor_group,
+                )
+                header = cursor.fetchone()
+                if header is None:
+                    raise LookupError("The applicant documents are unavailable.")
+                cursor.nextset()
+                rows = cursor.fetchall()
+                connection.commit()
+        except pyodbc.Error as error:
+            if _sql_error_has(error, "52921"):
+                raise LookupError("The applicant documents are unavailable.") from None
+            raise
+        return ApplicantPreviewDocuments(
+            UUID(str(header[0])),
+            str(header[1]),
+            str(header[2]),
+            tuple(
+                ApplicantPreviewDocument(
+                    UUID(str(row[0])),
+                    str(row[1]),
+                    str(row[2]),
+                    str(row[3]),
+                    str(row[4]),
+                    None if row[5] is None else int(row[5]),
+                    None if row[6] is None else int(row[6]),
+                    str(row[7]),
+                )
+                for row in rows
+            ),
+        )
+
+    def preview_document(
+        self, document_version_id: UUID, *, actor: str, actor_group: str
+    ) -> ApplicantPreviewDocumentFile:
+        if actor_group != INTERNAL_GROUPS.administrators or not actor.strip():
+            raise PermissionError("Administrator authorization is required.")
+        if self._object_store is None:
+            raise LookupError("The applicant document is unavailable.")
+        try:
+            with self._connections() as connection:
+                row = connection.execute(
+                    "EXEC dbo.GetApplicantPreviewDocument "
+                    "@DocumentVersionId = ?, @ActorIdentity = ?, @ActorGroup = ?",
+                    document_version_id,
+                    actor.strip(),
+                    actor_group,
+                ).fetchone()
+                connection.commit()
+        except pyodbc.Error as error:
+            if _sql_error_has(error, "52921"):
+                raise LookupError("The applicant document is unavailable.") from None
+            raise
+        if row is None:
+            raise LookupError("The applicant document is unavailable.")
+        record = StoredObjectRecord(
+            object_key=str(row[4]),
+            key_version=int(row[5]),
+            envelope_version=int(row[6]),
+            nonce=bytes(row[7]),
+            plaintext_sha256=bytes(row[8]),
+            ciphertext_sha256=bytes(row[9]),
+            byte_size=int(row[10]),
+        )
+        binding = ObjectBinding(
+            UUID(str(row[0])), UUID(str(row[1])), UUID(str(row[2])), UUID(str(row[3]))
+        )
+        try:
+            content = self._object_store.decrypt_bytes(record, binding)
+        except DocumentStoreError:
+            raise LookupError("The applicant document is unavailable.") from None
+        return ApplicantPreviewDocumentFile(
+            display_name=document_preview_filename(str(row[14]), str(row[13])),
+            media_type=str(row[11]),
+            content=content,
         )
 
     def preview(
@@ -1094,6 +1189,24 @@ def _sql_time(value: datetime) -> datetime:
 def _sql_error_has(error: pyodbc.Error, *codes: str) -> bool:
     message = " ".join(str(item) for item in error.args)
     return any(code in message for code in codes)
+
+
+def _preview_summary(row: Any) -> ApplicantPreviewSummary:
+    """Map one applicant-review card row, tolerating a database without release 25."""
+    if len(row) <= 3:
+        return ApplicantPreviewSummary(UUID(str(row[0])), str(row[1]), str(row[2]))
+    return ApplicantPreviewSummary(
+        UUID(str(row[0])),
+        str(row[1]),
+        str(row[2]),
+        academic_age_years=None if row[3] is None else float(row[3]),
+        h_index=None if row[4] is None else int(row[4]),
+        citation_count=None if row[5] is None else int(row[5]),
+        citation_source=None if row[6] is None else str(row[6]),
+        citation_profile_url=None if row[7] is None else str(row[7]),
+        research_area=None if row[8] is None else str(row[8]),
+        document_count=0 if row[9] is None else int(row[9]),
+    )
 
 
 def _access_request(row: Any) -> ApplicantAccessRequest:

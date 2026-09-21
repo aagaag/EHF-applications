@@ -44,7 +44,8 @@ INSERT @ApprovedProcedures VALUES
     (N'ReviewApplicantDocumentSubmission'), (N'ListPendingApplicantSubmissions'),
     (N'GetApplicantSubmissionReview'), (N'ApproveApplicantSubmission'),
     (N'ReturnApplicantSubmissionForCorrection'),
-    (N'ListApplicantPreviews'), (N'GetApplicantPreview');
+    (N'ListApplicantPreviews'), (N'GetApplicantPreview'),
+    (N'ListApplicantPreviewDocuments'), (N'GetApplicantPreviewDocument');
 DECLARE @DeniedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
 INSERT @DeniedProcedures VALUES (N'ReopenApplicantScope');
 DECLARE @ProtectedTables TABLE (TableName sysname NOT NULL PRIMARY KEY);

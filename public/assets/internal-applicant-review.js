@@ -28,6 +28,65 @@
     const controls = document.createElement("div"); controls.className = "review-actions"; actions.forEach((action) => controls.append(action)); article.append(controls); return article;
   };
   const empty = (target, message) => { target.replaceChildren(Object.assign(document.createElement("p"), { textContent: message })); };
+  const citationSources = { OPENALEX: "OpenAlex", SEMANTIC_SCHOLAR: "Semantic Scholar" };
+  const sourceLabel = (source) => {
+    if (!source) return "";
+    const code = String(source).toUpperCase();
+    if (citationSources[code]) return " (" + citationSources[code] + ")";
+    const words = String(source).toLowerCase().split("_").filter(Boolean);
+    if (!words.length) return "";
+    return " (" + words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ") + ")";
+  };
+  const metricValue = (value, fractionDigits) => {
+    if (value === null || value === undefined || value === "") return "Missing";
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return fractionDigits === undefined ? String(numeric) : numeric.toFixed(fractionDigits);
+    }
+    return String(value);
+  };
+  const applicantCardMetrics = (item) => {
+    const age = metricValue(item.academicAgeYears, 1);
+    const documents = item.documentCount === 1
+      ? "1 proposal PDF"
+      : metricValue(item.documentCount === undefined ? null : item.documentCount) + " proposal PDFs";
+    return [
+      "Academic age: " + age + (age === "Missing" ? "" : " years"),
+      "h-index: " + metricValue(item.hIndex),
+      "Citations: " + metricValue(item.citationCount) + sourceLabel(item.citationSource),
+      "Area of work: " + (item.researchArea ? item.researchArea : "Missing"),
+      documents,
+    ];
+  };
+  const openOnGesture = (link, previewHref, documentsHref, name) => {
+    link.dataset.documentsHref = documentsHref;
+    link.title = "Double-click, or press Ctrl+Enter, for the proposal PDFs of " + name;
+    link.addEventListener("click", (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      if (event.detail > 1) { window.location.assign(documentsHref); return; }
+      window.setTimeout(() => { window.location.assign(previewHref); }, 220);
+    });
+    link.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
+      event.preventDefault();
+      window.location.assign(documentsHref);
+    });
+  };
+  const previewHint =
+    "Each card carries the academic age, h-index, citation count and area of work of that " +
+    "application. Double-click a card, or focus it and press Ctrl+Enter, to open the proposal " +
+    "PDFs of that application.";
+  const ensurePreviewHint = () => {
+    if (!previewSection || previewSection.querySelector("[data-preview-hint]")) return;
+    const heading = previewSection.querySelector(".section-heading");
+    if (!heading) return;
+    const hint = document.createElement("p");
+    hint.className = "report-interaction-hint";
+    hint.dataset.previewHint = "";
+    hint.textContent = previewHint;
+    heading.append(hint);
+  };
   const loadPreviews = async () => {
     const response = await fetch("/api/internal/applicant-previews", { credentials: "same-origin" });
     if (response.status === 404) return;
@@ -37,13 +96,21 @@
     if (syntheticWorkspace) syntheticWorkspace.hidden = false;
     document.querySelectorAll("[data-preview-nav]").forEach((link) => { link.hidden = false; });
     if (!items.length) { empty(previewList, "No existing portal applications are available."); return; }
+    ensurePreviewHint();
     previewList.replaceChildren(...items.map((item) => {
       const link = document.createElement("a");
-      link.className = "shell-card";
+      link.className = "shell-card preview-applicant-card";
       link.href = item.href;
       const name = document.createElement("strong"); name.textContent = item.applicantName;
-      const state = document.createElement("span"); state.textContent = `Application status: ${item.applicationStatus}`;
-      link.append(name, state);
+      link.append(name);
+      const state = document.createElement("span"); state.textContent = "Application status: " + item.applicationStatus;
+      link.append(state);
+      applicantCardMetrics(item).forEach((line) => {
+        const metric = document.createElement("span"); metric.textContent = line; link.append(metric);
+      });
+      if (item.documentsHref) {
+        openOnGesture(link, item.href, item.documentsHref, item.applicantName);
+      }
       return link;
     }));
   };
