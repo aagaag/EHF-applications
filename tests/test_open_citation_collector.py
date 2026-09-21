@@ -727,6 +727,46 @@ def test_openalex_rejects_an_exact_doi_when_the_authoritative_title_conflicts() 
     assert match is None
 
 
+@pytest.mark.parametrize(
+    ("stored_title", "openalex_title"),
+    (
+        (
+            "The secretome triggers intracellular Ca<sup>2+</sup> oscillations",
+            "The secretome triggers intracellular Ca2+ oscillations",
+        ),
+        (
+            "Interactions Using<i>In Vivo</i>Imaging Flow Cytometry",
+            "Interactions UsingIn VivoImaging Flow Cytometry",
+        ),
+    ),
+)
+def test_openalex_exact_doi_accepts_equivalent_inline_markup_titles(
+    stored_title: str, openalex_title: str
+) -> None:
+    """Break caught: publisher inline tags caused real DOI matches to fail closed."""
+    work, raw = _work()
+    work = replace(
+        work,
+        canonical_metadata=replace(work.canonical_metadata, title=stored_title),
+    )
+
+    match = match_openalex_candidate(
+        work,
+        raw,
+        {
+            "id": "https://openalex.org/W123",
+            "doi": "https://doi.org/10.1000/example",
+            "title": openalex_title,
+            "publication_year": 2025,
+            "cited_by_count": 19,
+            "authorships": [{"author": {"display_name": "Alex Example"}}],
+        },
+    )
+
+    assert match is not None
+    assert match.match_method == "DOI_EXACT"
+
+
 def test_openalex_match_preserves_valid_annual_counts_and_discards_invalid_entries() -> None:
     work, raw = _work()
     match = match_openalex_candidate(

@@ -154,6 +154,14 @@ def _normalized_text(value: str) -> str:
     return " ".join(_NON_WORD_RE.sub(" ", value.lower()).split())
 
 
+def _normalized_inline_markup_text(value: str) -> str:
+    """Normalize titles while preserving adjacency across publisher inline tags."""
+
+    value = _TAG_RE.sub("", html.unescape(value))
+    value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
+    return " ".join(_NON_WORD_RE.sub(" ", value.lower()).split())
+
+
 def _applicant_family_token(work: PublicationWork) -> str:
     normalized = _normalized_text(work.workbook_applicant)
     return normalized.split()[-1] if normalized else ""
@@ -172,7 +180,15 @@ def _match_method(
     normalized_title = _normalized_text(candidate_title)
     expected_title = _normalized_text(work.canonical_metadata.title or "")
     if expected_doi and candidate_doi == expected_doi:
-        if expected_title and normalized_title != expected_title:
+        inline_markup_title_matches = (
+            _normalized_inline_markup_text(candidate_title)
+            == _normalized_inline_markup_text(work.canonical_metadata.title or "")
+        )
+        if (
+            expected_title
+            and normalized_title != expected_title
+            and not inline_markup_title_matches
+        ):
             return None
         return "DOI_EXACT"
     compatible_year = (
