@@ -2,9 +2,9 @@
 
 ## Design specification
 
-Date: 21 September 2026  
-Status: Design approved in conversation; written specification awaiting review  
-Repository: `aagaag/EHF-applications`  
+Date: 21 September 2026<br>
+Status: Design approved in conversation; written specification awaiting review<br>
+Repository: `aagaag/EHF-applications`<br>
 Production hostname: `ehf.isab.science`
 
 ## 1. Purpose
