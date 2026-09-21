@@ -207,6 +207,7 @@ def test_production_verifier_uses_the_root_owned_admin_credential_and_safety_gat
     ):
         assert expected in source
     assert "connect(Settings.from_environment())" not in source
+    assert "'CURRICULUM': (35, 35)" in source
 
 
 def test_release_contains_review_artifact_import_modules() -> None:

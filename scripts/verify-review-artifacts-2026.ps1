@@ -55,7 +55,7 @@ try:
     counts = {row[0]: (row[1], row[2]) for row in rows}
     expected = {
         'APPLICATION': (30, 30),
-        'CURRICULUM': (23, 23),
+        'CURRICULUM': (35, 35),
         'PUBLICATIONS': (26, 26),
     }
     for category in ('APPLICATION', 'CURRICULUM', 'PUBLICATIONS'):
