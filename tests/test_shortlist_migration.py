@@ -32,3 +32,12 @@ def test_trustee_shortlist_migration_is_identity_bound_audited_and_least_privile
     assert "@TrusteeCode NOT IN" in migration
     assert "trusteecode" in migration.casefold()
     assert "selected" in migration.casefold()
+
+
+def test_runtime_permission_validator_knows_the_shortlist_objects() -> None:
+    validator = (ROOT / "database/tests/005_validate_application_permissions.sql").read_text(encoding="utf-8")
+
+    assert "GetInternalShortlistSelections" in validator
+    assert "SetInternalShortlistSelection" in validator
+    assert "ShortlistTrustee" in validator
+    assert "TrusteeShortlistSelection" in validator
