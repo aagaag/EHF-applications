@@ -752,7 +752,8 @@ def test_citation_plot_callouts_remain_distinct_accessible_and_responsive() -> N
             applicant=f"Given Exceptionally-Long-Hyphenated-Surname{index:02d}",
             age=40,
             academic_age=8,
-                verified_citations=index,
+            verified_citations=index,
+            h_index=index,
         )
         for index in range(18)
     )
@@ -788,7 +789,7 @@ def test_citation_plot_callouts_remain_distinct_accessible_and_responsive() -> N
                 )
                 assert len(set(first_chart_colors)) == 18
                 assert page.locator(
-                    '.plot-point[aria-label="Given Exceptionally-Long-Hyphenated-Surname17: anagraphic age 40, 17 citations"]'
+                    '.plot-point[aria-label="Given Exceptionally-Long-Hyphenated-Surname17: anagraphic age 40, 17 citations, h-index 17"]'
                 ).count() == 1
                 assert page.locator(".plot-callout-label").evaluate_all(
                     """nodes => nodes.every(node => {

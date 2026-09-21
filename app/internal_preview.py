@@ -335,7 +335,11 @@ def _value_plot(
             y,
             x_value=x_value,
             y_value=y_value,
-            bubble_radius=16.0 * (citations / largest_citation) ** 0.5 if bubbles else 6.0,
+            bubble_radius=(
+                max(3.0, 16.0 * (citations / largest_citation) ** 0.5)
+                if bubbles
+                else 6.0
+            ),
             bubbles=bubbles,
             x_label=x_label,
             y_label=y_label,
@@ -424,6 +428,7 @@ def _plot_point(
     x_label: str,
     y_label: str,
 ) -> str:
+    h_index_description = _number(point.h_index) or "Missing"
     description = (
         f"{point.applicant}: {x_label.removesuffix(' (years)').casefold()} "
         f"{_number(x_value)}, {y_label.removesuffix(' (years)').casefold()} "
@@ -432,8 +437,11 @@ def _plot_point(
     if not bubbles:
         description = (
             f"{point.applicant}: {x_label.removesuffix(' (years)').casefold()} "
-            f"{_number(x_value)}, {int(point.citations):,} citations"
+            f"{_number(x_value)}, {int(point.citations):,} citations, "
+            f"h-index {h_index_description}"
         )
+    else:
+        description = f"{description}, h-index {h_index_description}"
     escaped_description = escape(description)
     classes = "plot-point plot-bubble" if bubbles else "plot-point"
     return (

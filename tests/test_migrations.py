@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_publication_preview() ->
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 32
-    assert sorted(connection.records) == list(range(1, 36))
+    assert applied == 33
+    assert sorted(connection.records) == list(range(1, 37))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,7 +290,7 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_thirty_five_migrations() -> None:
+def test_fresh_repository_run_applies_all_thirty_six_migrations() -> None:
     """Break caught: a new database could omit the synthetic-session boundary."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_thirty_five_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 36))
-    assert applied == 35
+    assert [migration.version for migration in migrations] == list(range(1, 37))
+    assert applied == 36
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -312,7 +312,6 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
     assert [migration.path.name for migration in migrations[-15:]] == [
-        "021_application_publications.sql",
         "022_applicant_publication_preview.sql",
         "023_open_citation_sources.sql",
         "024_applicant_citation_profiles.sql",
@@ -327,6 +326,7 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
         "033_internal_review_artifacts.sql",
         "034_applicant_journal_metrics.sql",
         "035_internal_import_package.sql",
+        "036_verified_h_index_metrics.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -520,6 +520,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "033_internal_review_artifacts.sql",
         "034_applicant_journal_metrics.sql",
         "035_internal_import_package.sql",
+        "036_verified_h_index_metrics.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -557,6 +558,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "033_validate_internal_review_artifacts.sql",
         "034_validate_applicant_journal_metrics.sql",
         "035_validate_imported_application_bundle.sql",
+        "036_validate_verified_h_index_metrics.sql",
     ]
 
 
@@ -866,7 +868,7 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "026_validate_internal_document_access.sql" in script
     assert "027_internal_document_audit_payload.sql" in script
     assert "027_validate_internal_document_audit_payload.sql" in script
-    assert "Applied 35 migration\\(s\\)\\." in script
+    assert "Applied 36 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1230,14 +1232,35 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_thirty_five() -> None:
+def test_database_contract_validator_reports_version_thirty_six() -> None:
     """Break caught: post-upgrade validation could still require the old schema tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 35" in validator
-    assert "WHERE MigrationCount = 35 AND CurrentVersion = 35" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 36" in validator
+    assert "WHERE MigrationCount = 36 AND CurrentVersion = 36" in validator
+
+
+def test_verified_h_index_migration_ranks_each_papers_cutoff_citations() -> None:
+    """Break caught: an omitted self-reported H-index could remain missing despite work evidence."""
+    migration = (
+        MIGRATION_DIRECTORY / "036_verified_h_index_metrics.sql"
+    ).read_text(encoding="utf-8")
+    validator = (
+        VALIDATION_DIRECTORY / "036_validate_verified_h_index_metrics.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "ALTER PROCEDURE dbo.GetInternalApplicationMetrics" in migration
+    assert "ROW_NUMBER() OVER" in migration
+    assert "observation.CitationCount DESC" in migration
+    assert "ranked.CitationCount >= ranked.CitationRank" in migration
+    assert "CONVERT(int,metric.HIndex)" in migration
+    assert "COALESCE(SUM(ranked.CitationCount),CONVERT(bigint,0))" in migration
+    assert "The verified H-index calculation returned the wrong value." in validator
+    assert "An active cutoff with zero qualifying works must return zero metrics." in validator
+    assert "A missing cutoff must retain a missing H-index." in validator
+    assert "An active citation cutoff returned a missing H-index." in validator
 
 
 def test_applicant_journal_metric_migration_projects_latest_openalex_evidence_safely() -> None:

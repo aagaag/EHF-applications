@@ -138,6 +138,7 @@ def test_citation_plots_color_every_applicant_and_label_top_15_surnames() -> Non
             age=30 + index,
             academic_age=3 + index,
             verified_citations=index,
+            h_index=index,
         )
         for index in range(18)
     )
@@ -153,6 +154,8 @@ def test_citation_plots_color_every_applicant_and_label_top_15_surnames() -> Non
 
     assert len(point_colors) == 54
     assert len(set(point_colors[:18])) == 18
+    assert point_colors[0] == "#EEF0F1"
+    assert point_colors[17] == "#0B6BCB"
     assert point_colors[18:36] == point_colors[:18]
     assert point_colors[36:] == point_colors[:18]
     assert callout_labels
@@ -161,7 +164,10 @@ def test_citation_plots_color_every_applicant_and_label_top_15_surnames() -> Non
     for index in range(3):
         assert f">Surname{index:02d}</text>" not in html
     assert html.count('class="plot-point') == 54
-    assert 'aria-label="Given Surname17: anagraphic age 47, 17 citations"' in html
+    assert (
+        'aria-label="Given Surname17: anagraphic age 47, 17 citations, h-index 17"'
+        in html
+    )
 
 
 def test_report_plots_render_linear_value_axes_and_a_citation_scaled_age_bubble_plot() -> None:
@@ -173,6 +179,10 @@ def test_report_plots_render_linear_value_axes_and_a_citation_scaled_age_bubble_
         PreviewApplicantMetric(
             applicant="Second Author", age=40, academic_age=14, verified_citations=100
         ),
+        PreviewApplicantMetric(
+            applicant="Zero Citations", age=35, academic_age=8,
+            verified_citations=0, h_index=0,
+        ),
     )
 
     html = render_internal_preview(_administrator(), simulation=True, records=records)
@@ -180,6 +190,7 @@ def test_report_plots_render_linear_value_axes_and_a_citation_scaled_age_bubble_
     assert html.count('class="plot-gridline"') >= 12
     assert 'data-plot-x="30" data-plot-y="25"' in html
     assert 'data-plot-x="40" data-plot-y="100"' in html
+    assert "100 citations, h-index Missing" in html
     assert 'Academic age versus anagraphic age' in html
     assert 'class="plot-point plot-bubble"' in html
     assert 'data-plot-x="30" data-plot-y="4" data-citations="25"' in html
@@ -192,6 +203,7 @@ def test_report_plots_render_linear_value_axes_and_a_citation_scaled_age_bubble_
         )
     }
     assert bubble_radii[100] ** 2 == 4 * bubble_radii[25] ** 2
+    assert bubble_radii[0] == 3.0
 
 
 def test_age_comparison_callouts_rank_only_records_that_can_be_plotted() -> None:

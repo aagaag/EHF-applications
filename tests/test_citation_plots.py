@@ -63,16 +63,25 @@ def test_plot_points_prefer_a_verified_profile_total_over_self_report() -> None:
     ]
 
 
-def test_each_record_has_a_unique_color_shared_by_both_age_plots() -> None:
-    """Break caught: one applicant could change or share color between plots."""
-    records = tuple(
+def test_plot_colors_heatmap_the_dataset_h_index_range_across_age_plots() -> None:
+    """Break caught: graph colors could encode name order instead of H-index."""
+    records = (
         PreviewApplicantMetric(
-            applicant=f"Applicant Surname{index:02d}",
-            age=30 + index,
-            academic_age=3 + index,
-                verified_citations=100 + index,
-        )
-        for index in range(18)
+            applicant="Highest", age=30, academic_age=3,
+            verified_citations=100, h_index=24,
+        ),
+        PreviewApplicantMetric(
+            applicant="Lowest", age=31, academic_age=4,
+            verified_citations=101, h_index=4,
+        ),
+        PreviewApplicantMetric(
+            applicant="Middle", age=32, academic_age=5,
+            verified_citations=102, h_index=14,
+        ),
+        PreviewApplicantMetric(
+            applicant="Unavailable", age=33, academic_age=6,
+            verified_citations=103, h_index=None,
+        ),
     )
 
     age_points = citation_plot_points(records, "age")
@@ -80,7 +89,12 @@ def test_each_record_has_a_unique_color_shared_by_both_age_plots() -> None:
     age_colors = {point.source_index: point.color for point in age_points}
     academic_colors = {point.source_index: point.color for point in academic_points}
 
-    assert len(set(age_colors.values())) == 18
+    assert age_colors == {
+        0: "#0B6BCB",
+        1: "#EEF0F1",
+        2: "#85ADD6",
+        3: "#B42318",
+    }
     assert all(re.fullmatch(r"#[0-9A-F]{6}", color) for color in age_colors.values())
     assert academic_colors == age_colors
     assert citation_plot_points(records, "age") == age_points

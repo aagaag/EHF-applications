@@ -10,6 +10,7 @@ from typing import Protocol, Sequence
 
 class CitationMetric(Protocol):
     applicant: str
+    h_index: int | None
     total_citations: int | None
     google_scholar_citations: int | None
     verified_citations: int | None
@@ -22,6 +23,7 @@ class CitationPlotPoint:
     surname: str
     age: float
     citations: float
+    h_index: int | None
     color: str
     labelled: bool
 
@@ -50,17 +52,26 @@ def _without_name_suffix(parts: list[str]) -> list[str]:
 def citation_plot_points(
     records: Sequence[CitationMetric], age_field: str, *, label_limit: int = 15
 ) -> tuple[CitationPlotPoint, ...]:
-    """Build plottable points with dataset-stable colors and ranked call-out flags."""
+    """Build plottable points with H-index heat colors and ranked call-out flags."""
     colors = _record_colors(records)
-    candidates: list[tuple[int, str, float, float, str]] = []
+    candidates: list[tuple[int, str, float, float, int | None, str]] = []
     for source_index, record in enumerate(records):
         age = _finite_number(getattr(record, age_field, None))
         citation_value = getattr(record, "verified_citations", None)
         citations = _finite_number(citation_value)
         if age is None or citations is None:
             continue
+        h_index_value = _finite_number(getattr(record, "h_index", None))
+        h_index = int(h_index_value) if h_index_value is not None else None
         candidates.append(
-            (source_index, record.applicant, age, citations, colors[source_index])
+            (
+                source_index,
+                record.applicant,
+                age,
+                citations,
+                h_index,
+                colors[source_index],
+            )
         )
 
     ranked = sorted(
@@ -79,29 +90,41 @@ def citation_plot_points(
             surname=applicant_surname(applicant),
             age=age,
             citations=citations,
+            h_index=h_index,
             color=color,
             labelled=source_index in labelled_indices,
         )
-        for source_index, applicant, age, citations, color in candidates
+        for source_index, applicant, age, citations, h_index, color in candidates
     )
 
 
 def _record_colors(records: Sequence[CitationMetric]) -> tuple[str, ...]:
-    ordered_indices = sorted(
-        range(len(records)),
-        key=lambda index: (
-            records[index].applicant.casefold(), records[index].applicant, index
-        ),
+    h_indices = tuple(
+        value
+        for record in records
+        if (value := _finite_number(getattr(record, "h_index", None))) is not None
     )
-    colors = ["#000000"] * len(records)
-    for rank, source_index in enumerate(ordered_indices):
-        hue = (211.0 + rank * 137.507764) % 360.0
-        lightness = (0.38, 0.52, 0.66)[rank % 3]
-        red, green, blue = hls_to_rgb(hue / 360.0, lightness, 0.72)
-        colors[source_index] = (
-            f"#{round(red * 255):02X}{round(green * 255):02X}{round(blue * 255):02X}"
+    if not h_indices:
+        return ("#B42318",) * len(records)
+    low, high = min(h_indices), max(h_indices)
+    return tuple(
+        _h_index_heat_color(
+            _finite_number(getattr(record, "h_index", None)), low, high
         )
-    return tuple(colors)
+        for record in records
+    )
+
+
+def _h_index_heat_color(
+    h_index: float | None, low: float, high: float
+) -> str:
+    if h_index is None:
+        return "#B42318"
+    position = 0.5 if low == high else (h_index - low) / (high - low)
+    saturation = 0.10 + 0.80 * position
+    lightness = 0.94 - 0.52 * position
+    red, green, blue = hls_to_rgb(210.0 / 360.0, lightness, saturation)
+    return f"#{round(red * 255):02X}{round(green * 255):02X}{round(blue * 255):02X}"
 
 
 def _finite_number(value: object | None) -> float | None:

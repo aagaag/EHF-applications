@@ -113,6 +113,7 @@ def test_workbook_charts_use_distinct_shared_colors_and_top_15_surname_labels() 
             age=30 + index,
             academic_age=3 + index,
             verified_citations=index,
+            h_index=index,
         )
         for index in range(18)
     )
@@ -140,6 +141,8 @@ def test_workbook_charts_use_distinct_shared_colors_and_top_15_surname_labels() 
         ]
         colors_by_chart.append(colors)
         assert len(set(colors)) == 18
+        assert colors[0] == "EEF0F1"
+        assert colors[-1] == "0B6BCB"
         assert all(
             _contrast_ratio(
                 series.marker.graphicalProperties.line.solidFill.srgbClr,
