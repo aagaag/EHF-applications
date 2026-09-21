@@ -4,13 +4,17 @@ SET XACT_ABORT ON;
 ALTER TABLE dbo.TrusteeShortlistSelection
     ADD GroupCode char(1) NULL;
 
+EXEC(N'
 ALTER TABLE dbo.TrusteeShortlistSelection
     ADD CONSTRAINT CK_TrusteeShortlistSelection_GroupCode
-    CHECK (GroupCode IN ('A', 'B', 'C') OR GroupCode IS NULL);
+    CHECK (GroupCode IN (''A'', ''B'', ''C'') OR GroupCode IS NULL);
+');
 
+EXEC(N'
 UPDATE dbo.TrusteeShortlistSelection
-SET GroupCode = 'A'
+SET GroupCode = ''A''
 WHERE IsSelected = 1;
+');
 
 EXEC(N'
 ALTER FUNCTION dbo.IsAuditPayloadKeyProhibited
