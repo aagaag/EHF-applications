@@ -97,6 +97,7 @@ MIGRATIONS = {
     "036_verified_h_index_metrics.sql": (36, "verified_h_index_metrics"),
     "037_trustee_shortlist.sql": (37, "trustee_shortlist"),
     "038_trustee_shortlist_groups.sql": (38, "trustee_shortlist_groups"),
+    "039_publication_promotion_dispositions.sql": (39, "publication_promotion_dispositions"),
 }
 COMMANDS = (
     "inspect-production",
@@ -159,6 +160,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "036_validate_verified_h_index_metrics.sql",
         "037_validate_trustee_shortlist.sql",
         "038_validate_trustee_shortlist_groups.sql",
+        "039_validate_publication_promotion_dispositions.sql",
     }
 )
 

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^/[A-Za-z0-9._/-]+$')]
-    [string] $SqlAdminCredentialPath = '/root/.config/finances2/sql-sa'
+    [string] $SqlAdminCredentialPath = '/etc/ehf/sql-admin-password'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -66,6 +66,37 @@ try:
     duplicate_doi_count = cursor.execute("SELECT COUNT(*) FROM (SELECT p.ApplicationId,p.Doi FROM dbo.ApplicationPublication AS p JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.FellowshipCallId=? AND p.Doi IS NOT NULL GROUP BY p.ApplicationId,p.Doi HAVING COUNT(*)>1) AS duplicate_rows", call_id).fetchone()[0]
     orphan_count = cursor.execute("SELECT (SELECT COUNT(*) FROM dbo.ApplicationPublication AS p LEFT JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.ApplicationId IS NULL) + (SELECT COUNT(*) FROM dbo.ApplicationPublicationSourceOccurrence AS o LEFT JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId WHERE p.ApplicationPublicationId IS NULL) + (SELECT COUNT(*) FROM dbo.PublicationMetadataObservation AS o LEFT JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId WHERE p.ApplicationPublicationId IS NULL) + (SELECT COUNT(*) FROM dbo.PublicationCitationObservation AS o LEFT JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId WHERE p.ApplicationPublicationId IS NULL)").fetchone()[0]
     conflicts = cursor.execute("SELECT COUNT(*) FROM dbo.ImportException WHERE ImportRunId=? AND ExceptionCode LIKE 'PUBLICATION_CONFLICT_%'", run_id).fetchone()[0]
+    audited = cursor.execute("""
+        WITH latest AS
+        (
+            SELECT review_row.ApplicationPublicationId,
+                   review_row.ReviewDisposition,
+                   review_row.EvidenceJson,
+                   ROW_NUMBER() OVER
+                   (
+                       PARTITION BY review_row.ApplicationPublicationId
+                       ORDER BY review_row.RecordedAtUtc DESC,
+                                review_row.ApplicationPublicationReviewId DESC
+                   ) AS row_number
+            FROM dbo.ApplicationPublicationReview AS review_row
+            JOIN dbo.ApplicationPublication AS publication_row
+              ON publication_row.ApplicationPublicationId=review_row.ApplicationPublicationId
+            JOIN dbo.Application AS application_row
+              ON application_row.ApplicationId=publication_row.ApplicationId
+            WHERE application_row.FellowshipCallId=?
+        )
+        SELECT COUNT(*),
+               SUM(CASE WHEN ReviewDisposition='PUBLISHED' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN ReviewDisposition='ACCEPTED_PREPRINT' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN ReviewDisposition='UNDER_PREPARATION' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN ReviewDisposition='NON_PUBLICATION' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN ReviewDisposition='PENDING_REVIEW' THEN 1 ELSE 0 END)
+        FROM latest
+        WHERE row_number=1
+          AND JSON_VALUE(EvidenceJson, '$.resolution.reimport_batch')=
+              '2026-09-21-low-count-reextraction'
+    """, call_id).fetchone()
+    audited_total, audited_published, audited_preprint, audited_preparation, audited_nonpublication, audited_pending = audited
     print(f'Imported applications: {applications}')
     print(f'Application publications: {publications}')
     print(f'Publication source occurrences: {occurrences}')
@@ -74,16 +105,20 @@ try:
     print(f'DOI-bearing publications: {doi_rows}')
     print(f'Google Scholar manual-review rows: {google_scholar_manual}')
     print(f'Publication field conflicts: {conflicts}')
+    print(f'Audited latest dispositions: {audited_published}/{audited_preprint}/{audited_preparation}/{audited_nonpublication}/{audited_pending}')
     print(f'Citation topology errors: {citation_topology_count}; metadata topology errors: {metadata_topology_count}; preprint status errors: {preprint_status_error_count}')
     print(f'bioRxiv unavailable/not-found/not-applicable: {biorxiv_unavailable}/{biorxiv_not_found}/{biorxiv_not_applicable}; medRxiv unavailable/not-found/not-applicable: {medrxiv_unavailable}/{medrxiv_not_found}/{medrxiv_not_applicable}')
-    if (applications != 36 or publications != 847 or occurrences != 1766 or metadata != 1688
-            or citations != 2541 or doi_rows != 532 or google_scholar_manual != 847
+    if (applications != 36 or publications != 932 or occurrences != 1851 or metadata != 2620
+            or citations != 2796 or doi_rows != 612 or google_scholar_manual != 932
             or nonnull_initial_counts != 0 or citation_topology_count != 0
             or preprint_status_error_count != 0 or metadata_topology_count != 0
-            or source_type_error_count != 0 or biorxiv_unavailable != 847
+            or source_type_error_count != 0 or biorxiv_unavailable != 932
             or biorxiv_not_found != 0 or biorxiv_not_applicable != 0
-            or medrxiv_unavailable != 847 or medrxiv_not_found != 0 or medrxiv_not_applicable != 0
-            or orphan_count != 0 or duplicate_doi_count != 0):
+            or medrxiv_unavailable != 932 or medrxiv_not_found != 0 or medrxiv_not_applicable != 0
+            or orphan_count != 0 or duplicate_doi_count != 0 or conflicts != 0
+            or audited_total != 167 or audited_published != 104
+            or audited_preprint != 18 or audited_preparation != 5
+            or audited_nonpublication != 12 or audited_pending != 28):
         raise RuntimeError('publication import verification contract failed')
 finally:
     connection.close()

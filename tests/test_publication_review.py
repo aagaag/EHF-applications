@@ -13,6 +13,8 @@ from app.importer.publication_matching import matches_verified_candidate
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "database" / "migrations" / "025_publication_review_workflow.sql"
 VALIDATOR = ROOT / "database" / "tests" / "025_validate_publication_review_workflow.sql"
+PROMOTION_MIGRATION = ROOT / "database" / "migrations" / "039_publication_promotion_dispositions.sql"
+PROMOTION_VALIDATOR = ROOT / "database" / "tests" / "039_validate_publication_promotion_dispositions.sql"
 
 
 def test_resolver_accepts_vs_abbreviation_and_online_to_issue_year_transition() -> None:
@@ -129,3 +131,17 @@ def test_existing_synthetic_metrics_validator_accepts_validated_count_column() -
 
     assert "ValidatedPublishedPaperCount int" in synthetic_validator
     assert "REPLACE(@MetricsDefinition, N' ', N'')" in metrics_validator
+
+
+def test_promotion_records_the_requested_review_disposition_atomically() -> None:
+    migration = PROMOTION_MIGRATION.read_text(encoding="utf-8")
+    validator = PROMOTION_VALIDATOR.read_text(encoding="utf-8")
+
+    assert "ALTER PROCEDURE dbo.PromoteApplicationPublication" in migration
+    assert "@ReviewDisposition varchar(32) = ''PUBLISHED''" in migration
+    assert "@ReviewDisposition=@ReviewDisposition" in migration
+    assert "@ReviewDisposition=''PUBLISHED''" not in migration
+    assert "@ReviewDisposition='ACCEPTED_PREPRINT'" in validator
+    assert "Promotion must record exactly one review decision." in validator
+    assert "Promotion did not atomically record the requested disposition." in validator
+    assert "PASS 039 publication promotion dispositions" in validator

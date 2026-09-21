@@ -53,6 +53,23 @@ def _rewritten(**changes: object) -> bytes:
     return json.dumps(document, ensure_ascii=False, indent=2).encode("utf-8")
 
 
+def _with_review_decision(
+    disposition: str,
+    *,
+    reason: str = "Reviewed against the applicant's publication list.",
+    evidence: object | None = None,
+) -> bytes:
+    document = json.loads(_fixture_bytes())
+    document["works"][0]["resolution"]["evidence"].update(
+        {
+            "review_disposition": disposition,
+            "review_reason": reason,
+            "review_evidence": evidence or {"source_page": 4},
+        }
+    )
+    return _rewritten(works=document["works"])
+
+
 def test_fixture_is_strictly_valid_and_preserves_all_relationships() -> None:
     manifest = load_publication_manifest(_fixture_bytes(), expected=FIXTURE_COUNTS)
 
@@ -133,6 +150,89 @@ def test_counts_relationships_doi_uniqueness_and_null_initial_counts_are_enforce
     with pytest.raises(PublicationImportError, match="Google Scholar.*MANUAL_REQUIRED"):
         load_publication_manifest(
             _rewritten(citation_source_statuses=document["citation_source_statuses"]),
+            expected=FIXTURE_COUNTS,
+        )
+
+
+def test_explicit_review_decision_is_strictly_validated_in_plan_mode() -> None:
+    """Break caught: malformed repair decisions could reach the privileged writer."""
+    manifest = load_publication_manifest(
+        _with_review_decision("ACCEPTED_PREPRINT"), expected=FIXTURE_COUNTS
+    )
+    assert (
+        manifest.works[0].resolution.evidence["review_disposition"]
+        == "ACCEPTED_PREPRINT"
+    )
+
+    document = json.loads(_fixture_bytes())
+    document["works"][0]["resolution"]["evidence"]["review_disposition"] = (
+        "NON_PUBLICATION"
+    )
+    with pytest.raises(PublicationImportError, match="review decision fields"):
+        load_publication_manifest(
+            _rewritten(works=document["works"]), expected=FIXTURE_COUNTS
+        )
+
+    document = json.loads(_fixture_bytes())
+    document["works"][0]["canonical_metadata"] = {
+        "doi": None,
+        "doi_url": None,
+        "authors_text": None,
+        "title": None,
+        "journal": None,
+        "volume": None,
+        "pages": None,
+        "year": None,
+    }
+    document["works"][0]["resolution"] = {
+        "status": "UNRESOLVED",
+        "method": "SOURCE_REEXTRACTION",
+        "evidence": {
+            "review_disposition": "PUBLISHED",
+            "review_reason": "This must fail closed.",
+            "review_evidence": {"source_page": 4},
+        },
+    }
+    document["summary"].update(
+        {
+            "resolved_doi_work_total": 0,
+            "exact_crossref_resolved_work_total": 0,
+            "unresolved_work_total": 1,
+            "metadata_completeness": {
+                "doi": 0,
+                "doi_url": 0,
+                "authors_text": 0,
+                "title": 0,
+                "journal": 0,
+                "volume": 0,
+                "pages": 0,
+                "year": 0,
+                "fully_complete_canonical_records": 0,
+            },
+        }
+    )
+    with pytest.raises(PublicationImportError, match="resolved record.*PUBLISHED"):
+        load_publication_manifest(
+            _rewritten(works=document["works"], summary=document["summary"]),
+            expected=FIXTURE_COUNTS,
+        )
+
+
+@pytest.mark.parametrize(
+    "oversized_text",
+    ("é" * 8_000, "🧬" * 4_000),
+    ids=("bmp-utf16", "non-bmp-utf16"),
+)
+def test_explicit_review_evidence_envelope_respects_the_sql_utf16_limit(
+    oversized_text: str,
+) -> None:
+    """Break caught: oversized evidence passed planning and failed inside SQL apply."""
+    with pytest.raises(PublicationImportError, match="evidence.*16,000"):
+        load_publication_manifest(
+            _with_review_decision(
+                "NON_PUBLICATION",
+                evidence={"source_excerpt": oversized_text},
+            ),
             expected=FIXTURE_COUNTS,
         )
 
@@ -416,11 +516,13 @@ class _PublicationConnection:
         existing_manifest_publication=None,
         completed_run=None,
         applications=None,
+        latest_review=None,
     ):
         self.existing_publication = existing_publication
         self.existing_manifest_publication = existing_manifest_publication
         self.completed_run = completed_run
         self.applications = applications or {"Alex Example": [("application-id",)]}
+        self.latest_review = latest_review
         self.executed = []
         self.commit_count = 0
         self.rollback_count = 0
@@ -438,6 +540,8 @@ class _PublicationConnection:
             return _Cursor(self.applications.get(parameters[1], []))
         if "INSERT dbo.ImportRow" in normalized and "OUTPUT" in normalized:
             return _Cursor([("row-id",)])
+        if "FROM dbo.ApplicationPublicationReview" in normalized:
+            return _Cursor([] if self.latest_review is None else [self.latest_review])
         if (
             "FROM dbo.ApplicationPublication" in normalized
             and "ManifestWorkKey = ?" in normalized
@@ -479,6 +583,86 @@ def test_sql_repository_inserts_canonical_and_all_evidence_then_completes() -> N
     assert connection.rollback_count == 0
 
 
+@pytest.mark.parametrize(
+    "disposition",
+    ("ACCEPTED_PREPRINT", "UNDER_PREPARATION", "NON_PUBLICATION"),
+)
+def test_sql_repository_records_an_explicit_initial_review(disposition: str) -> None:
+    """Break caught: every resolved DOI was automatically treated as published."""
+    manifest = load_publication_manifest(
+        _with_review_decision(disposition), expected=FIXTURE_COUNTS
+    )
+    connection = _PublicationConnection()
+
+    from app.importer.publications import SqlPublicationRepository
+
+    SqlPublicationRepository(connection).apply(manifest, disposition.lower().ljust(64, "0"))
+
+    review_calls = [
+        parameters
+        for statement, parameters in connection.executed
+        if "EXEC dbo.RecordApplicationPublicationReview" in statement
+    ]
+    assert len(review_calls) == 1
+    assert review_calls[0][1] == disposition
+    assert review_calls[0][3] == "Reviewed against the applicant's publication list."
+    assert json.loads(review_calls[0][4])["review_evidence"] == {"source_page": 4}
+
+
+def test_sql_repository_does_not_duplicate_an_identical_latest_explicit_review() -> None:
+    """Break caught: a revised manifest could append the same audit decision repeatedly."""
+    raw = _with_review_decision("NON_PUBLICATION")
+    manifest = load_publication_manifest(raw, expected=FIXTURE_COUNTS)
+    expected_evidence = json.dumps(
+        {
+            "method": "EXACT_CROSSREF",
+            "resolution": {
+                "crossref_response_sha256": "c" * 64,
+                "doi": "10.1000/example",
+                "review_disposition": "NON_PUBLICATION",
+                "review_evidence": {"source_page": 4},
+                "review_reason": "Reviewed against the applicant's publication list.",
+            },
+            "review_evidence": {"source_page": 4},
+            "work_id": "work-001",
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    existing = (
+        "publication-id",
+        "10.1000/example",
+        "https://doi.org/10.1000/example",
+        "A. Example; B. Researcher",
+        "A fixture publication",
+        "Fixture Journal",
+        "12",
+        "10-20",
+        2025,
+        "RESOLVED",
+    )
+    connection = _PublicationConnection(
+        existing_manifest_publication=existing,
+        latest_review=(
+            "NON_PUBLICATION",
+            "Reviewed against the applicant's publication list.",
+            expected_evidence,
+        ),
+    )
+
+    from app.importer.publications import SqlPublicationRepository
+
+    SqlPublicationRepository(connection).apply(manifest, "9" * 64)
+
+    review_calls = [
+        statement
+        for statement, _parameters in connection.executed
+        if "EXEC dbo.RecordApplicationPublicationReview" in statement
+    ]
+    assert review_calls == []
+
+
 def test_sql_repository_preserves_existing_values_and_records_hashed_conflicts() -> None:
     from app.importer.publications import SqlPublicationRepository
 
@@ -510,6 +694,42 @@ def test_sql_repository_preserves_existing_values_and_records_hashed_conflicts()
         "PUBLICATION_CONFLICT_PUBLICATION_YEAR",
     }
     assert all(len(parameters[3]) == 64 for parameters in exception_calls)
+
+
+def test_sql_repository_fails_closed_when_an_affirmative_review_has_conflicts() -> None:
+    """Break caught: contradictory stored metadata could still receive PUBLISHED."""
+    manifest = load_publication_manifest(
+        _with_review_decision("PUBLISHED"), expected=FIXTURE_COUNTS
+    )
+    existing = (
+        "publication-id",
+        "10.1000/example",
+        None,
+        "Existing Author",
+        "Contradictory title",
+        None,
+        "12",
+        None,
+        2024,
+        "RESOLVED",
+    )
+    connection = _PublicationConnection(existing_manifest_publication=existing)
+
+    from app.importer.publications import SqlPublicationRepository
+
+    SqlPublicationRepository(connection).apply(manifest, "7" * 64)
+
+    review_calls = [
+        parameters
+        for statement, parameters in connection.executed
+        if "EXEC dbo.RecordApplicationPublicationReview" in statement
+    ]
+    assert len(review_calls) == 1
+    assert review_calls[0][1] == "PENDING_REVIEW"
+    assert "canonical field conflict" in review_calls[0][3].lower()
+    evidence = json.loads(review_calls[0][4])
+    assert evidence["requested_disposition"] == "PUBLISHED"
+    assert evidence["conflict_count"] == 3
 
 
 def test_sql_repository_fills_a_previously_unresolved_work_by_manifest_key() -> None:
@@ -552,6 +772,35 @@ def test_sql_repository_promotes_a_resolved_manifest_over_an_unresolved_record()
     statements = "\n".join(statement for statement, _ in connection.executed)
     assert "EXEC dbo.PromoteApplicationPublication" in statements
     assert "UPDATE dbo.ApplicationPublication SET" not in statements
+
+
+def test_sql_repository_promotes_with_the_explicit_nonpublished_disposition_once() -> None:
+    """Break caught: promotion wrote immutable PUBLISHED before ACCEPTED_PREPRINT."""
+    manifest = load_publication_manifest(
+        _with_review_decision("ACCEPTED_PREPRINT"), expected=FIXTURE_COUNTS
+    )
+    existing = (
+        "publication-id", None, None, None, None, None, None, None, None, "UNRESOLVED"
+    )
+    connection = _PublicationConnection(existing_manifest_publication=existing)
+
+    from app.importer.publications import SqlPublicationRepository
+
+    SqlPublicationRepository(connection).apply(manifest, "6" * 64)
+
+    promote_calls = [
+        parameters
+        for statement, parameters in connection.executed
+        if "EXEC dbo.PromoteApplicationPublication" in statement
+    ]
+    record_calls = [
+        parameters
+        for statement, parameters in connection.executed
+        if "EXEC dbo.RecordApplicationPublicationReview" in statement
+    ]
+    assert len(promote_calls) == 1
+    assert promote_calls[0][-4] == "ACCEPTED_PREPRINT"
+    assert record_calls == []
 
 
 def test_completed_identical_sql_import_is_reused_without_new_writes() -> None:

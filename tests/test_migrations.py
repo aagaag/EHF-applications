@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_publication_preview() ->
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 35
-    assert sorted(connection.records) == list(range(1, 39))
+    assert applied == 36
+    assert sorted(connection.records) == list(range(1, 40))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_thirty_eight_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 39))
-    assert applied == 38
+    assert [migration.version for migration in migrations] == list(range(1, 40))
+    assert applied == 39
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -311,7 +311,7 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     """Break caught: a later metrics filter could remove the authoritative academic-age derivation."""
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
-    assert [migration.path.name for migration in migrations[-17:]] == [
+    assert [migration.path.name for migration in migrations[-18:]] == [
         "022_applicant_publication_preview.sql",
         "023_open_citation_sources.sql",
         "024_applicant_citation_profiles.sql",
@@ -329,6 +329,7 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
         "036_verified_h_index_metrics.sql",
         "037_trustee_shortlist.sql",
         "038_trustee_shortlist_groups.sql",
+        "039_publication_promotion_dispositions.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -525,6 +526,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "036_verified_h_index_metrics.sql",
         "037_trustee_shortlist.sql",
         "038_trustee_shortlist_groups.sql",
+        "039_publication_promotion_dispositions.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -565,6 +567,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "036_validate_verified_h_index_metrics.sql",
         "037_validate_trustee_shortlist.sql",
         "038_validate_trustee_shortlist_groups.sql",
+        "039_validate_publication_promotion_dispositions.sql",
     ]
 
 
@@ -878,7 +881,9 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "027_validate_internal_document_audit_payload.sql" in script
     assert "038_trustee_shortlist_groups.sql" in script
     assert "038_validate_trustee_shortlist_groups.sql" in script
-    assert "Applied 38 migration\\(s\\)\\." in script
+    assert "039_publication_promotion_dispositions.sql" in script
+    assert "039_validate_publication_promotion_dispositions.sql" in script
+    assert "Applied 39 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1248,8 +1253,8 @@ def test_database_contract_validator_reports_version_thirty_eight() -> None:
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 38" in validator
-    assert "WHERE MigrationCount = 38 AND CurrentVersion = 38" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 39" in validator
+    assert "WHERE MigrationCount = 39 AND CurrentVersion = 39" in validator
 
 
 def test_verified_h_index_migration_ranks_each_papers_cutoff_citations() -> None:

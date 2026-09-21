@@ -99,6 +99,7 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/036_verified_h_index_metrics.sql",
     "database/migrations/037_trustee_shortlist.sql",
     "database/migrations/038_trustee_shortlist_groups.sql",
+    "database/migrations/039_publication_promotion_dispositions.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -137,6 +138,7 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/036_validate_verified_h_index_metrics.sql",
     "database/tests/037_validate_trustee_shortlist.sql",
     "database/tests/038_validate_trustee_shortlist_groups.sql",
+    "database/tests/039_validate_publication_promotion_dispositions.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",

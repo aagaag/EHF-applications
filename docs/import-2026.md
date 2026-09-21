@@ -56,7 +56,7 @@ Expected result: 36 imported applications, all 162 source occurrences accounted 
 
 ## Publication records
 
-Publication records use a separate manifest lane from the document import. The reviewed `publication-import-manifest.json` contains applicant-derived citations and must remain outside the repository. The initial accepted contract is exactly 36 applicants, 841 application publications, 883 dossier source occurrences, and 2,523 citation-source status observations.
+Publication records use a separate manifest lane from the document import. The reviewed `publication-import-manifest.json` contains applicant-derived citations and must remain outside the repository. After the low-count source-PDF re-extraction, the accepted contract is exactly 36 applicants, 932 application publications, 968 dossier source occurrences, and 2,796 citation-source status observations. Historical malformed extraction rows remain immutable but carry explicit `NON_PUBLICATION` review decisions; corrected source records are append-only.
 
 Create a validation plan and a manual Google Scholar queue without database writes:
 
@@ -74,7 +74,7 @@ After the plan succeeds, apply the identical manifest through the protected root
 powershell -NoProfile -File scripts\import-publications-2026.ps1 `
   -ManifestPath 'C:\approved\publication-import-manifest.json' `
   -ScholarQueuePath 'C:\Users\aag\Documents\ChatGPT\EHF-pubs\google-scholar-review.csv' `
-  -SqlAdminCredentialPath '/root/.config/finances2/sql-sa' `
+  -SqlAdminCredentialPath '/etc/ehf/sql-admin-password' `
   -Apply
 ```
 
@@ -82,7 +82,7 @@ The importer creates missing publication rows, fills only null canonical fields,
 
 ```powershell
 powershell -NoProfile -File scripts\verify-publications-2026.ps1 `
-  -SqlAdminCredentialPath '/root/.config/finances2/sql-sa'
+  -SqlAdminCredentialPath '/etc/ehf/sql-admin-password'
 ```
 
 Google Scholar review remains manual. A queue row is complete only when `citation_status` is `OBSERVED` with a nonnegative integer `citation_count`, or `NOT_FOUND` with a blank count. Every completed row also requires the reviewed Google Scholar result/search URL, a UTC observation timestamp, and the reviewer name. CAPTCHA or access-block responses are not `NOT_FOUND` results and must remain unreviewed until direct access is restored.
@@ -101,15 +101,15 @@ The review importer requires exactly one completed row for every manifest work a
 powershell -NoProfile -File scripts\import-scholar-reviews-2026.ps1 `
   -ManifestPath 'C:\approved\publication-import-manifest.json' `
   -ScholarQueuePath 'C:\Users\aag\Documents\ChatGPT\EHF-pubs\google-scholar-review.csv' `
-  -SqlAdminCredentialPath '/root/.config/finances2/sql-sa' `
+  -SqlAdminCredentialPath '/etc/ehf/sql-admin-password' `
   -Apply
 ```
 
-Verify that each of the 841 publications has a latest reviewed Scholar observation and that none remains pending:
+Verify that each of the 932 publications has a latest reviewed Scholar observation and that none remains pending:
 
 ```powershell
 powershell -NoProfile -File scripts\verify-scholar-reviews-2026.ps1 `
-  -SqlAdminCredentialPath '/root/.config/finances2/sql-sa'
+  -SqlAdminCredentialPath '/etc/ehf/sql-admin-password'
 ```
 
 bioRxiv and medRxiv statuses retain null counts when those services do not expose a citation count; Crossref metadata must never be substituted for a requested-source citation count.
@@ -129,7 +129,7 @@ powershell -NoProfile -File scripts\collect-open-citations-2026.ps1 `
   -OutputPath 'C:\approved\open-citations-2026.csv'
 ```
 
-Validate the complete 841-row snapshot without a database write:
+Validate the complete 932-row snapshot without a database write:
 
 ```powershell
 powershell -NoProfile -File scripts\import-open-citations-2026.ps1 `
@@ -143,11 +143,11 @@ After successful validation, append one Semantic Scholar observation per publica
 powershell -NoProfile -File scripts\import-open-citations-2026.ps1 `
   -ManifestPath 'C:\approved\publication-import-manifest.json' `
   -SnapshotPath 'C:\approved\open-citations-2026.csv' `
-  -SqlAdminCredentialPath '/root/.config/finances2/sql-sa' `
+  -SqlAdminCredentialPath '/etc/ehf/sql-admin-password' `
   -Apply
 
 powershell -NoProfile -File scripts\verify-open-citations-2026.ps1 `
-  -SqlAdminCredentialPath '/root/.config/finances2/sql-sa'
+  -SqlAdminCredentialPath '/etc/ehf/sql-admin-password'
 ```
 
 The applicant preview retains an existing Google Scholar value and shows the

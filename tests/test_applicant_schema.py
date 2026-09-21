@@ -269,8 +269,10 @@ def test_isolated_database_harness_applies_and_validates_release_thirty_six() ->
             "037_validate_trustee_shortlist.sql",
             "038_trustee_shortlist_groups.sql",
             "038_validate_trustee_shortlist_groups.sql",
+            "039_publication_promotion_dispositions.sql",
+            "039_validate_publication_promotion_dispositions.sql",
         ):
             assert name in script
-    assert "Applied 38 migration\\(s\\)\\." in script
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 38" in contract
-    assert "WHERE MigrationCount = 38 AND CurrentVersion = 38" in contract
+    assert "Applied 39 migration\\(s\\)\\." in script
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 39" in contract
+    assert "WHERE MigrationCount = 39 AND CurrentVersion = 39" in contract

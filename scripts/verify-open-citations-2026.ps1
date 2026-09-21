@@ -124,7 +124,7 @@ try:
     print(f'Missing publication year: {missing_year_count}')
     print(f'Invalid or non-journal sources: {invalid_or_non_journal_count}')
     print(f'Latest journal observation: {latest_journal_observation}')
-    if (source_rows != 847 or observation_rows != 847 or openalex_rows != 847
+    if (source_rows != 932 or observation_rows != 932 or openalex_rows != 932
             or invalid != 0 or invalid_journal_evidence != 0):
         raise RuntimeError('open citation verification contract failed')
 finally:

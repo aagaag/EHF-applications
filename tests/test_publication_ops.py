@@ -67,7 +67,7 @@ def test_publication_wrapper_preserves_existing_review_queue_and_replaces_atomic
     assert "[IO.File]::Move($LocalQueueTemp, $QueueFullPath)" in source
     assert "final_work_id" in source
     assert "citation_status" in source
-    assert "847" in source
+    assert "932" in source
 
 
 def test_publication_verifier_requires_exact_root_owned_credential_boundary() -> None:
@@ -83,25 +83,33 @@ def test_publication_verifier_checks_exact_counts_integrity_conflicts_and_safety
     source = VERIFY_SCRIPT.read_text(encoding="utf-8")
 
     for expected in (
-        "publications != 847",
-        "occurrences != 1766",
-        "metadata != 1688",
-        "citations != 2541",
-        "doi_rows != 532",
-        "google_scholar_manual != 847",
-        "biorxiv_unavailable != 847",
+        "publications != 932",
+        "occurrences != 1851",
+        "metadata != 2620",
+        "citations != 2796",
+        "doi_rows != 612",
+        "google_scholar_manual != 932",
+        "biorxiv_unavailable != 932",
         "biorxiv_not_found != 0",
         "biorxiv_not_applicable != 0",
-        "medrxiv_unavailable != 847",
+        "medrxiv_unavailable != 932",
         "medrxiv_not_found != 0",
         "medrxiv_not_applicable != 0",
         "citation_topology_count != 0",
         "preprint_status_error_count != 0",
         "orphan_count != 0",
         "duplicate_doi_count != 0",
+        "conflicts != 0",
         "EHF_INVITATIONS_ENABLED=false",
         "EHF_PRODUCTION_MAIL_ENABLED=false",
         "Publication field conflicts:",
+        "Audited latest dispositions:",
+        "audited_total != 167",
+        "audited_published != 104",
+        "audited_preprint != 18",
+        "audited_preparation != 5",
+        "audited_nonpublication != 12",
+        "audited_pending != 28",
     ):
         assert expected in source
     assert source.count("o.ImportRunId=?") >= 9
@@ -114,4 +122,4 @@ def test_operator_documentation_keeps_publication_manifest_and_queue_out_of_git(
     assert "publication-import-manifest.json" in source
     assert "manual Google Scholar" in source
     assert "must remain outside the repository" in source
-    assert "841" in source and "883" in source and "2,523" in source
+    assert "932" in source and "968" in source and "2,796" in source

@@ -35,7 +35,7 @@ class ManifestCounts:
     citation_statuses: int
 
 
-PRODUCTION_COUNTS = ManifestCounts(36, 847, 883, 2541)
+PRODUCTION_COUNTS = ManifestCounts(36, 932, 968, 2796)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +61,14 @@ class CanonicalMetadata:
 class PublicationResolution:
     status: str
     method: str
+    evidence: Mapping[str, Any]
+    review: "PublicationReviewDecision | None"
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationReviewDecision:
+    disposition: str
+    reason: str
     evidence: Mapping[str, Any]
 
 
@@ -189,6 +197,19 @@ _CITATION_SOURCES = {"GOOGLE_SCHOLAR", "BIORXIV", "MEDRXIV"}
 _CITATION_STATUSES = {
     "OBSERVED", "MANUAL_REQUIRED", "NOT_AVAILABLE_FROM_SOURCE", "NOT_FOUND", "NOT_APPLICABLE"
 }
+_REVIEW_DISPOSITIONS = {
+    "PUBLISHED",
+    "ACCEPTED_PREPRINT",
+    "UNDER_PREPARATION",
+    "NON_PUBLICATION",
+    "PENDING_REVIEW",
+}
+_REVIEW_EVIDENCE_KEYS = {
+    "review_disposition",
+    "review_reason",
+    "review_evidence",
+}
+_MAX_REVIEW_EVIDENCE_UTF16_BYTES = 16_000
 
 
 def _mapping(value: Any, label: str) -> dict[str, Any]:
@@ -267,6 +288,46 @@ def _integer(value: Any, label: str, *, nullable: bool = False) -> int | None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
         raise PublicationImportError(f"{label} must be an integer.")
+    return value
+
+
+def _review_decision(
+    evidence: Mapping[str, Any], resolution_status: str
+) -> PublicationReviewDecision | None:
+    present = _REVIEW_EVIDENCE_KEYS.intersection(evidence)
+    if not present:
+        return None
+    if present != _REVIEW_EVIDENCE_KEYS:
+        raise PublicationImportError(
+            "Explicit review decision fields must be supplied together."
+        )
+    disposition = str(_text(evidence["review_disposition"], "review_disposition"))
+    if disposition not in _REVIEW_DISPOSITIONS:
+        raise PublicationImportError("The explicit review disposition is invalid.")
+    reason = str(
+        _bounded_text(evidence["review_reason"], "review_reason", 2000)
+    )
+    review_evidence = _mapping(evidence["review_evidence"], "review_evidence")
+    if disposition == "PUBLISHED" and resolution_status != "RESOLVED":
+        raise PublicationImportError(
+            "Only a resolved record may receive an explicit PUBLISHED review decision."
+        )
+    return PublicationReviewDecision(disposition, reason, review_evidence)
+
+
+def _review_evidence_value(
+    work_id: str,
+    method: str,
+    resolution_evidence: Mapping[str, Any],
+    decision: PublicationReviewDecision | None,
+) -> dict[str, Any]:
+    value: dict[str, Any] = {
+        "method": method,
+        "resolution": resolution_evidence,
+        "work_id": work_id,
+    }
+    if decision is not None:
+        value["review_evidence"] = decision.evidence
     return value
 
 
@@ -451,14 +512,34 @@ def load_publication_manifest(
         status = str(_text(resolution_value["status"], "resolution status"))
         if status not in {"RESOLVED", "AMBIGUOUS", "UNRESOLVED"}:
             raise PublicationImportError("A publication resolution status is invalid.")
+        resolution_evidence = _mapping(
+            resolution_value["evidence"], "resolution evidence"
+        )
         resolution = PublicationResolution(
             status,
             str(_text(resolution_value["method"], "resolution method")),
-            _mapping(resolution_value["evidence"], "resolution evidence"),
+            resolution_evidence,
+            _review_decision(resolution_evidence, status),
         )
         if (status == "RESOLVED") != (doi is not None):
             raise PublicationImportError("Resolution status and DOI presence disagree.")
         work_id = _identifier(item["final_work_id"], "final_work_id", 80)
+        if resolution.review is not None:
+            review_evidence_json = _canonical_json(
+                _review_evidence_value(
+                    work_id,
+                    resolution.method,
+                    resolution.evidence,
+                    resolution.review,
+                )
+            )
+            if (
+                len(review_evidence_json.encode("utf-16-le"))
+                > _MAX_REVIEW_EVIDENCE_UTF16_BYTES
+            ):
+                raise PublicationImportError(
+                    "The serialized review evidence exceeds the SQL 16,000-byte limit."
+                )
         folder = str(_text(item["applicant_folder"], "work applicant_folder"))
         name = str(_text(item["workbook_applicant"], "work workbook_applicant"))
         if folder not in applicant_by_folder or applicant_by_folder[folder].workbook_applicant != name:
@@ -764,12 +845,14 @@ class SqlPublicationRepository:
                     raise PublicationImportError("A publication import row could not be created.")
                 import_row_id = str(import_row[0])
                 for work in works_by_applicant.get(applicant.workbook_applicant, []):
-                    publication_id, work_conflicts = self._upsert_publication(
-                        application_id,
-                        run_id,
-                        import_row_id,
-                        work,
-                        manifest.source_occurrences,
+                    publication_id, work_conflicts, review_recorded = (
+                        self._upsert_publication(
+                            application_id,
+                            run_id,
+                            import_row_id,
+                            work,
+                            manifest.source_occurrences,
+                        )
                     )
                     conflicts += work_conflicts
                     for occurrence_id in work.source_occurrence_ids:
@@ -786,6 +869,17 @@ class SqlPublicationRepository:
                     )
                     for citation in citations_by_work[work.final_work_id]:
                         self._record_citation(publication_id, run_id, citation)
+                    if work.resolution.review is not None and not review_recorded:
+                        if (
+                            work_conflicts
+                            and work.resolution.review.disposition
+                            not in {"NON_PUBLICATION", "PENDING_REVIEW"}
+                        ):
+                            self._ensure_conflict_review(
+                                publication_id, work, work_conflicts
+                            )
+                        else:
+                            self._ensure_explicit_review(publication_id, work)
                 self._connection.commit()
             self._connection.execute(
                 "UPDATE dbo.ImportRun SET RunStatus = 'COMPLETED', CompletedAtUtc = SYSUTCDATETIME() "
@@ -826,7 +920,7 @@ class SqlPublicationRepository:
         import_row_id: str,
         work: PublicationWork,
         occurrences: Sequence[PublicationSourceOccurrence],
-    ) -> tuple[str, int]:
+    ) -> tuple[str, int, bool]:
         identity = publication_identity(work, occurrences)
         incoming = _canonical_database_values(work)
         select_columns = (
@@ -881,7 +975,7 @@ class SqlPublicationRepository:
                 raise PublicationImportError("A publication row could not be created.")
             publication_id = str(publication_row[0])
             self._record_initial_review(publication_id, work)
-            return publication_id, 0
+            return publication_id, 0, True
 
         publication_id = str(existing_row[0])
         existing = dict(zip(_CANONICAL_DATABASE_FIELDS, existing_row[1:9], strict=True))
@@ -895,8 +989,10 @@ class SqlPublicationRepository:
             and work.resolution.status == "RESOLVED"
             and _is_promotable_metadata(incoming)
         ):
-            self._promote_existing_publication(publication_id, incoming, work)
-            return publication_id, 0
+            review_recorded = self._promote_existing_publication(
+                publication_id, incoming, work
+            )
+            return publication_id, 0, review_recorded
         fills, conflicts = reconcile_canonical_values(existing, incoming)
         if fills:
             self._connection.execute(
@@ -922,13 +1018,25 @@ class SqlPublicationRepository:
                 f"PUBLICATION_CONFLICT_{field.upper()}",
                 detail_hash,
             )
-        return publication_id, len(conflicts)
+        return publication_id, len(conflicts), False
 
     def _record_initial_review(
         self, publication_id: str, work: PublicationWork
     ) -> None:
+        decision = work.resolution.review
         disposition = (
-            "PUBLISHED" if work.resolution.status == "RESOLVED" else "PENDING_REVIEW"
+            decision.disposition
+            if decision is not None
+            else (
+                "PUBLISHED"
+                if work.resolution.status == "RESOLVED"
+                else "PENDING_REVIEW"
+            )
+        )
+        reason = (
+            decision.reason
+            if decision is not None
+            else "Initial review decision from the reviewed publication import manifest."
         )
         self._connection.execute(
             "EXEC dbo.RecordApplicationPublicationReview "
@@ -937,14 +1045,8 @@ class SqlPublicationRepository:
             publication_id,
             disposition,
             "publication-importer",
-            "Initial review decision from the reviewed publication import manifest.",
-            _canonical_json(
-                {
-                    "method": work.resolution.method,
-                    "resolution": work.resolution.evidence,
-                    "work_id": work.final_work_id,
-                }
-            ),
+            reason,
+            self._review_evidence_json(work),
         )
 
     def _promote_existing_publication(
@@ -952,12 +1054,15 @@ class SqlPublicationRepository:
         publication_id: str,
         incoming: Mapping[str, Any],
         work: PublicationWork,
-    ) -> None:
+    ) -> bool:
+        decision = work.resolution.review
+        disposition = decision.disposition if decision is not None else "PUBLISHED"
         self._connection.execute(
             "EXEC dbo.PromoteApplicationPublication "
             "@ApplicationPublicationId=?, @Doi=?, @HttpLink=?, @AuthorsText=?, "
             "@Title=?, @JournalText=?, @VolumeText=?, @PagesText=?, "
-            "@PublicationYear=?, @ReviewerIdentity=?, @ReviewReason=?, @EvidenceJson=?",
+            "@PublicationYear=?, @ReviewDisposition=?, @ReviewerIdentity=?, "
+            "@ReviewReason=?, @EvidenceJson=?",
             publication_id,
             incoming["doi"],
             incoming["http_link"],
@@ -967,15 +1072,105 @@ class SqlPublicationRepository:
             incoming["volume_text"],
             incoming["pages_text"],
             incoming["publication_year"],
+            disposition,
             "publication-importer",
-            "Promoted from an unresolved record after verified import-manifest reconciliation.",
-            _canonical_json(
-                {
-                    "method": work.resolution.method,
-                    "resolution": work.resolution.evidence,
-                    "work_id": work.final_work_id,
-                }
+            (
+                decision.reason
+                if decision is not None
+                else "Promoted from an unresolved record after verified import-manifest reconciliation."
             ),
+            self._review_evidence_json(work),
+        )
+        return True
+
+    @staticmethod
+    def _review_evidence_json(work: PublicationWork) -> str:
+        return _canonical_json(
+            _review_evidence_value(
+                work.final_work_id,
+                work.resolution.method,
+                work.resolution.evidence,
+                work.resolution.review,
+            )
+        )
+
+    def _ensure_explicit_review(
+        self, publication_id: str, work: PublicationWork
+    ) -> None:
+        decision = work.resolution.review
+        if decision is None:
+            return
+        self._ensure_review(
+            publication_id,
+            decision.disposition,
+            decision.reason,
+            self._review_evidence_json(work),
+        )
+
+    def _ensure_conflict_review(
+        self,
+        publication_id: str,
+        work: PublicationWork,
+        conflict_count: int,
+    ) -> None:
+        decision = work.resolution.review
+        if decision is None:
+            return
+        evidence_json = _canonical_json(
+            {
+                "conflict_count": conflict_count,
+                "method": work.resolution.method,
+                "requested_disposition": decision.disposition,
+                "resolution": work.resolution.evidence,
+                "work_id": work.final_work_id,
+            }
+        )
+        if len(evidence_json.encode("utf-16-le")) > _MAX_REVIEW_EVIDENCE_UTF16_BYTES:
+            raise PublicationImportError(
+                "The serialized conflict review evidence exceeds the SQL 16,000-byte limit."
+            )
+        self._ensure_review(
+            publication_id,
+            "PENDING_REVIEW",
+            "Canonical field conflicts prevent the requested affirmative review decision.",
+            evidence_json,
+        )
+
+    def _ensure_review(
+        self,
+        publication_id: str,
+        disposition: str,
+        reason: str,
+        evidence_json: str,
+    ) -> None:
+        latest = self._connection.execute(
+            "SELECT TOP (1) ReviewDisposition, ReviewReason, EvidenceJson "
+            "FROM dbo.ApplicationPublicationReview "
+            "WHERE ApplicationPublicationId = ? "
+            "ORDER BY RecordedAtUtc DESC, ApplicationPublicationReviewId DESC",
+            publication_id,
+        ).fetchone()
+        if latest is not None:
+            latest_evidence = str(latest[2])
+            try:
+                latest_evidence = _canonical_json(json.loads(latest_evidence))
+            except (TypeError, json.JSONDecodeError):
+                pass
+            if (
+                str(latest[0]) == disposition
+                and str(latest[1]) == reason
+                and latest_evidence == evidence_json
+            ):
+                return
+        self._connection.execute(
+            "EXEC dbo.RecordApplicationPublicationReview "
+            "@ApplicationPublicationId=?, @ReviewDisposition=?, @ReviewerIdentity=?, "
+            "@ReviewReason=?, @EvidenceJson=?",
+            publication_id,
+            disposition,
+            "publication-importer",
+            reason,
+            evidence_json,
         )
 
     def _record_occurrence(
