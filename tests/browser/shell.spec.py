@@ -142,7 +142,7 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
     """Break caught: report rows could stop opening details or hide incomplete fields."""
     pytest.importorskip("playwright.sync_api")
     from axe_playwright_python.sync_playwright import Axe
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import expect, sync_playwright
 
     from app.identity import AuthenticatedIdentity
     from app.internal_preview import PreviewApplicantMetric, render_internal_preview
@@ -190,6 +190,9 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
 
             row = page.locator("[data-report-row]")
+            row.evaluate(
+                "node => { node.dataset.applicationId = 'a7000000-0000-4000-8000-000000000001'; }"
+            )
             row.dblclick()
 
             modal = page.locator("[data-report-modal]")
@@ -199,6 +202,23 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             assert modal.locator("dd").count() == 9
             assert modal.locator("dd", has_text="Missing").count() == 1
             assert modal.locator("dd", has_text="0000-0002-1825-0097").count() == 0
+
+            expect(modal.get_by_role("tab", name="Track record")).to_have_attribute(
+                "aria-selected", "true"
+            )
+            expect(modal.get_by_role("tabpanel", name="Application")).to_be_hidden()
+            modal.get_by_role("tab", name="Application").click()
+            expect(modal.get_by_role("tab", name="Application")).to_have_attribute(
+                "aria-selected", "true"
+            )
+            application_pdf = modal.locator("[data-report-application-pdf]")
+            expect(application_pdf).to_be_visible()
+            expect(application_pdf).to_have_attribute(
+                "src",
+                "/api/internal/applicants/a7000000-0000-4000-8000-000000000001/documents/package/view",
+            )
+            modal.get_by_role("tab", name="Supporting docs").click()
+            expect(modal.get_by_text("Supporting documents are not available yet.")).to_be_visible()
 
             missing = modal.locator(".missing-value")
             assert missing.evaluate("node => getComputedStyle(node).color") == "rgb(180, 35, 24)"
@@ -347,6 +367,7 @@ def test_report_dropdown_filters_completed_and_missing_applications_only() -> No
         first_author_papers=7,
         last_author_papers=2,
         total_papers=18,
+        validated_published_papers=16,
         h_index=12,
         total_citations=640,
         orcid="0000-0002-1825-0097",

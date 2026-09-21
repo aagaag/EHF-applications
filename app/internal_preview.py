@@ -149,7 +149,14 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
         '<div class="report-details-panel"><div class="report-details-header">'
         '<h3 id="report-details-title" data-report-details-title>Application details</h3>'
         '<button type="button" class="report-details-close" data-report-modal-close aria-label="Close details">×</button>'
-        '</div><div class="report-details-content" data-report-details></div></div></dialog>'
+        '</div><div class="report-detail-tabs" role="tablist" aria-label="Applicant review">'
+        '<button type="button" role="tab" id="report-tab-track-record" data-report-tab="track-record" aria-controls="report-panel-track-record" aria-selected="true">Track record</button>'
+        '<button type="button" role="tab" id="report-tab-application" data-report-tab="application" aria-controls="report-panel-application" aria-selected="false">Application</button>'
+        '<button type="button" role="tab" id="report-tab-supporting-docs" data-report-tab="supporting-docs" aria-controls="report-panel-supporting-docs" aria-selected="false">Supporting docs</button>'
+        '</div><section id="report-panel-track-record" role="tabpanel" aria-labelledby="report-tab-track-record" data-report-panel="track-record"><div class="report-details-content" data-report-details></div></section>'
+        '<section id="report-panel-application" role="tabpanel" aria-labelledby="report-tab-application" data-report-panel="application" hidden><p data-report-application-empty hidden>The submitted application PDF is unavailable for this record.</p><iframe data-report-application-pdf title="Submitted application PDF" hidden></iframe></section>'
+        '<section id="report-panel-supporting-docs" role="tabpanel" aria-labelledby="report-tab-supporting-docs" data-report-panel="supporting-docs" hidden><p data-report-supporting-documents>Supporting documents are not available yet.</p></section>'
+        '</div></dialog>'
     )
 
 

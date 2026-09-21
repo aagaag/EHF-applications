@@ -14,9 +14,36 @@ from app.identity import AuthenticatedIdentity
 from app.main import ReadinessChecks, create_app
 from app.navigation import INTERNAL_GROUPS
 from app.preferences import Identity
+from app.internal_preview import PreviewApplicantMetric, render_internal_preview
 
 
 APPLICATION_ID = UUID("a7000000-0000-4000-8000-000000000001")
+
+
+def test_report_detail_modal_has_track_record_application_and_supporting_document_tabs() -> None:
+    """Break caught: reviewers could not switch from metrics to the submitted package."""
+    principal = AuthenticatedIdentity(
+        Identity("development:administrator", "preview@example.invalid", "Preview"),
+        frozenset({INTERNAL_GROUPS.administrators}),
+    )
+
+    page = render_internal_preview(
+        principal,
+        simulation=True,
+        records=(
+            PreviewApplicantMetric(
+                applicant="Synthetic Preview Applicant",
+                application_id=str(APPLICATION_ID),
+            ),
+        ),
+    )
+
+    assert 'role="tablist" aria-label="Applicant review"' in page
+    assert 'data-report-tab="track-record"' in page
+    assert 'data-report-tab="application"' in page
+    assert 'data-report-tab="supporting-docs"' in page
+    assert 'data-report-application-pdf' in page
+    assert 'data-report-supporting-documents' in page
 
 
 def test_preview_uses_only_openalex_when_no_observation_exists() -> None:

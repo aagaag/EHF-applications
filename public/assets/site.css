@@ -135,6 +135,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .report-details-header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 1rem; }
 .report-details-header h3 { margin: 0; overflow-wrap: anywhere; }
 .report-details-close { display: inline-grid; flex: 0 0 44px; width: 44px; height: 44px; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--surface-soft); color: var(--text); cursor: pointer; font: 800 1.35rem/1 Aptos, "Segoe UI", system-ui, sans-serif; }
+.report-detail-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+.report-detail-tabs [role="tab"] { min-height: 44px; border: 1px solid var(--line); border-radius: .6rem; padding: .55rem .8rem; background: var(--surface-soft); color: var(--text); cursor: pointer; font: inherit; font-weight: 800; }
+.report-detail-tabs [role="tab"][aria-selected="true"] { border-color: var(--accent); background: var(--accent-quiet); }
+[data-report-application-pdf] { width: 100%; height: min(68vh, 56rem); margin-top: 1rem; border: 1px solid var(--line); border-radius: .7rem; background: var(--surface-soft); }
 .report-details-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; margin: 1rem 0 0; }
 .report-details-item { display: grid; min-width: 0; gap: .2rem; border: 1px solid var(--line); border-radius: .7rem; padding: .7rem; overflow-wrap: anywhere; }
 .report-details-item dt { color: var(--muted); font-size: .72rem; font-weight: 800; text-transform: uppercase; }

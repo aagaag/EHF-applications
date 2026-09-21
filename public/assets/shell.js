@@ -72,7 +72,34 @@
   const reportModal = document.querySelector("[data-report-modal]");
   const reportDetails = reportModal?.querySelector("[data-report-details]");
   const reportTitle = reportModal?.querySelector("[data-report-details-title]");
+  const reportApplicationPdf = reportModal?.querySelector("[data-report-application-pdf]");
+  const reportApplicationEmpty = reportModal?.querySelector("[data-report-application-empty]");
   let activeReportRow = null;
+  const selectReportTab = (tab) => {
+    if (!reportModal) return;
+    reportModal.querySelectorAll("[data-report-tab]").forEach((button) => {
+      button.setAttribute("aria-selected", String(button.dataset.reportTab === tab));
+    });
+    reportModal.querySelectorAll("[data-report-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.reportPanel !== tab;
+    });
+    if (tab !== "application" || !reportApplicationPdf || !reportApplicationEmpty) return;
+    const applicationId = activeReportRow?.dataset.applicationId;
+    if (!applicationId) {
+      reportApplicationPdf.hidden = true;
+      reportApplicationPdf.removeAttribute("src");
+      reportApplicationEmpty.hidden = false;
+      return;
+    }
+    reportApplicationEmpty.hidden = true;
+    reportApplicationPdf.hidden = false;
+    if (!reportApplicationPdf.getAttribute("src")) {
+      reportApplicationPdf.src = `/api/internal/applicants/${encodeURIComponent(applicationId)}/documents/package/view`;
+    }
+  };
+  reportModal?.querySelectorAll("[data-report-tab]").forEach((button) => {
+    button.addEventListener("click", () => selectReportTab(button.dataset.reportTab));
+  });
   const fallbackReportDetails = (row) => {
     const cells = [...row.querySelectorAll('[role="cell"]')];
     const list = document.createElement("dl");
@@ -95,6 +122,8 @@
     const cells = [...row.querySelectorAll('[role="cell"]')];
     reportTitle.textContent = cells[0]?.textContent.trim() || "Application details";
     activeReportRow = row;
+    reportApplicationPdf?.removeAttribute("src");
+    selectReportTab("track-record");
     reportModal.showModal();
     const url = row.dataset.reportDetailsUrl;
     if (!url) {
@@ -134,6 +163,7 @@
   });
   reportModal?.querySelector("[data-report-modal-close]")?.addEventListener("click", () => reportModal.close());
   reportModal?.addEventListener("close", () => {
+    reportApplicationPdf?.removeAttribute("src");
     activeReportRow?.focus();
     activeReportRow = null;
   });
