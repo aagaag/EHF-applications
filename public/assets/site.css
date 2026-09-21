@@ -119,6 +119,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .report-header > [data-report-column] { grid-row: 1 / span 2; }
 .report-shortlist-group { grid-column: 10 / span 3; justify-content: center; border-bottom: 1px solid currentColor; }
 .report-shortlist-heading { justify-content: center; }
+.report-shortlist-mode { font-size: .62rem; font-weight: 700; opacity: .8; }
 .report-header > span, .report-data-row > span { min-width: 0; padding: .55rem .3rem; overflow-wrap: anywhere; }
 .report-header > span { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .3rem; }
 .report-column-label { min-width: 0; flex: 1 1 2.5rem; overflow-wrap: anywhere; }
@@ -126,8 +127,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .report-sort-button { display: inline-grid; width: 22px; height: 22px; place-items: center; border: 1px solid currentColor; border-radius: .3rem; padding: 0; background: transparent; color: var(--nav-text); cursor: pointer; font: inherit; line-height: 1; }
 .report-sort-button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
 .report-shortlist-cell { display: grid; min-width: 0; place-items: center; }
-.shortlist-grade-control { display: grid; width: 100%; min-width: 8.5rem; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: .55rem; overflow: hidden; }
-.shortlist-grade { min-width: 0; min-height: 44px; border: 0; border-right: 1px solid var(--line); background: var(--surface-soft); color: var(--text); cursor: pointer; font: 800 .9rem/1 Aptos, "Segoe UI", system-ui, sans-serif; }
+.shortlist-grade-control { display: grid; width: fit-content; min-width: 0; grid-template-columns: repeat(3, 44px); border: 1px solid var(--line); border-radius: .55rem; overflow: hidden; }
+.shortlist-grade { width: 44px; min-width: 44px; min-height: 44px; border: 0; border-right: 1px solid var(--line); background: var(--surface-soft); color: var(--text); cursor: pointer; font: 800 .74rem/1 Aptos, "Segoe UI", system-ui, sans-serif; }
 .shortlist-grade:last-child { border-right: 0; }
 .shortlist-grade[aria-pressed="true"] { background: var(--accent-dark); color: #fff; }
 .shortlist-grade:hover:not(:disabled), .shortlist-grade:focus-visible { position: relative; outline: 3px solid var(--focus); outline-offset: -3px; z-index: 1; }

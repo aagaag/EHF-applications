@@ -75,8 +75,10 @@ def test_report_renders_each_reviewers_group_and_only_their_own_segmented_contro
 
     assert 'class="report-shortlist-group" role="columnheader" aria-colspan="3">Shortlist' in html
     for trustee in ("Ricky", "Magda", "Adriano"):
-        assert f'role="columnheader">{trustee}</span>' in html
+        assert f'role="columnheader"><span>{trustee}</span>' in html
         assert f'data-label="Shortlist — {trustee}"' in html
+    assert html.count('data-shortlist-mode="saved">Saved</span>') == 2
+    assert 'data-shortlist-mode="editable">Yours</span>' in html
     assert 'data-shortlist-owner="ricky" data-shortlist-assignment="B"' in html
     assert 'data-shortlist-owner="magda" data-shortlist-assignment="unassigned"' in html
     for group in ("A", "B", "C"):

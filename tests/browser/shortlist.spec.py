@@ -51,6 +51,11 @@ def test_shortlist_group_control_saves_reverts_on_failure_and_never_opens_row() 
             assert page.locator('[data-shortlist-owner="magda"][data-shortlist-assignment="unassigned"]').count() == 1
             group_b = page.locator('[data-shortlist-grade][data-shortlist-owner="adriano"][data-shortlist-group="B"]')
             assert group_b.is_enabled()
+            group_control = page.locator(".shortlist-grade-control")
+            assert group_control.evaluate("node => node.getBoundingClientRect().width") <= 134
+            assert group_b.evaluate("node => Number.parseFloat(getComputedStyle(node).fontSize)") == page.locator(
+                ".report-data-row"
+            ).evaluate("node => Number.parseFloat(getComputedStyle(node).fontSize)")
             group_b.click()
             page.get_by_text("Adriano group B saved.", exact=True).wait_for()
             assert calls == [{"group": "B"}]

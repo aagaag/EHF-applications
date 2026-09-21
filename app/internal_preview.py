@@ -141,8 +141,16 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: Shortl
     shortlist_header = (
         '<span class="report-shortlist-group" role="columnheader" aria-colspan="3">Shortlist</span>'
         + "".join(
-            f'<span class="report-shortlist-heading" role="columnheader">{name}</span>'
-            for name in ("Ricky", "Magda", "Adriano")
+            f'<span class="report-shortlist-heading" role="columnheader"><span>{name}</span>'
+            f'<span class="report-shortlist-mode" data-shortlist-mode="{mode}">{label}</span></span>'
+            for trustee_code, name in (
+                ("ricky", "Ricky"), ("magda", "Magda"), ("adriano", "Adriano")
+            )
+            for mode, label in (
+                ("editable", "Yours")
+                if trustee_code == shortlist.editable_trustee
+                else ("saved", "Saved"),
+            )
         )
     )
     h_indices = tuple(record.h_index for record in records if record.h_index is not None)
