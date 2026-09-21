@@ -192,9 +192,9 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
                 """window.fetch = async url => {
                     const target = String(url);
                     if (target.endsWith('/review-artifacts')) {
-                      return {ok: true, json: async () => ({available: ['application', 'publications']})};
+                      return {ok: true, json: async () => ({available: ['publications']})};
                     }
-                    if (target.endsWith('/review-artifacts/application/view')) {
+                    if (target.endsWith('/documents/package/view')) {
                       return {ok: true, blob: async () => new Blob(['%PDF-1.7'], {type: 'application/pdf'})};
                     }
                     return {ok: false};
@@ -228,7 +228,7 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             expect(application).to_have_attribute("aria-disabled", "false")
             expect(application).to_have_attribute(
                 "href",
-                "/api/internal/applicants/a7000000-0000-4000-8000-000000000001/review-artifacts/application/view",
+                "/api/internal/applicants/a7000000-0000-4000-8000-000000000001/documents/package/view",
             )
             assert application.evaluate(
                 "node => !node.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}))"
@@ -241,7 +241,12 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             expect(curriculum).to_have_attribute("aria-disabled", "true")
             expect(curriculum).not_to_have_attribute("href", re.compile(".+"))
             expect(publications).to_have_attribute("aria-disabled", "false")
-            expect(modal.get_by_text("2 reviewed PDFs are available.", exact=False)).to_be_visible()
+            expect(
+                modal.get_by_text(
+                    "Full application PDF is available. 1 reviewed supporting PDF is available.",
+                    exact=False,
+                )
+            ).to_be_visible()
 
             missing = modal.locator(".missing-value")
             assert missing.evaluate("node => getComputedStyle(node).color") == "rgb(180, 35, 24)"
@@ -389,6 +394,125 @@ def test_journal_scatter_is_responsive_focusable_and_visible_in_every_skin(
                 assert page.locator(".journal-scatter-point--lead-author").evaluate(
                     "node => getComputedStyle(node).stroke"
                 ) == "rgb(180, 35, 24)"
+        finally:
+            browser.close()
+
+
+def test_modal_chart_opens_as_a_full_page_graph_in_a_new_tab() -> None:
+    """Break caught: modal chart clicks could not expand into a reviewable graph."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import expect, sync_playwright
+
+    from app.applicant_detail import ApplicantDetail, Publication, render_applicant_detail
+    from app.identity import AuthenticatedIdentity
+    from app.internal_preview import PreviewApplicantMetric, render_internal_preview
+    from app.navigation import INTERNAL_GROUPS
+    from app.preferences import Identity
+
+    application_id = "a7000000-0000-4000-8000-000000000001"
+    principal = AuthenticatedIdentity(
+        Identity("development:administrator", "preview@example.invalid", "Preview"),
+        frozenset({INTERNAL_GROUPS.administrators}),
+    )
+    page_html = render_internal_preview(
+        principal,
+        simulation=True,
+        records=(PreviewApplicantMetric(applicant="Applicant One", application_id=application_id),),
+    )
+    detail_html = render_applicant_detail(
+        ApplicantDetail(
+            application_number="EHF-2026-001",
+            name="Applicant One",
+            publications=(Publication(title="A paper", year=2025, citation_count=2),),
+        ),
+        current_year=2026,
+    )
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page()
+            page.set_content(page_html, wait_until="domcontentloaded")
+            page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+            page.evaluate(
+                """detail => { window.fetch = async url => String(url).endsWith('/review-artifacts')
+                    ? {ok: true, json: async () => ({available: []})}
+                    : {ok: true, text: async () => detail}; }""",
+                detail_html,
+            )
+            page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
+            page.locator("[data-report-row]").dblclick()
+
+            chart = page.locator("[data-full-page-chart]").first
+            expect(chart).to_be_visible()
+            with page.expect_popup() as popup_info:
+                chart.click()
+            popup = popup_info.value
+            popup.wait_for_load_state()
+            expect(popup.get_by_role("heading", name="Papers by year")).to_be_visible()
+            expect(popup.locator("[data-full-page-chart]")).to_have_count(1)
+        finally:
+            browser.close()
+
+
+def test_modal_identity_items_stay_compact_on_one_desktop_line() -> None:
+    """Break caught: identity fields could expand into unused modal width."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import expect, sync_playwright
+
+    from app.applicant_detail import ApplicantDetail, render_applicant_detail
+    from app.identity import AuthenticatedIdentity
+    from app.internal_preview import PreviewApplicantMetric, render_internal_preview
+    from app.navigation import INTERNAL_GROUPS
+    from app.preferences import Identity
+
+    application_id = "a7000000-0000-4000-8000-000000000001"
+    principal = AuthenticatedIdentity(
+        Identity("development:administrator", "preview@example.invalid", "Preview"),
+        frozenset({INTERNAL_GROUPS.administrators}),
+    )
+    page_html = render_internal_preview(
+        principal,
+        simulation=True,
+        records=(PreviewApplicantMetric(applicant="Applicant One", application_id=application_id),),
+    )
+    detail_html = render_applicant_detail(
+        ApplicantDetail(
+            application_number="EHF-2026-001",
+            name="Applicant One",
+            age=34,
+            academic_age=4.8,
+        )
+    )
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page(viewport={"width": 1366, "height": 768})
+            page.set_content(page_html, wait_until="domcontentloaded")
+            page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+            page.evaluate(
+                """detail => { window.fetch = async url => String(url).endsWith('/review-artifacts')
+                    ? {ok: true, json: async () => ({available: []})}
+                    : {ok: true, text: async () => detail}; }""",
+                detail_html,
+            )
+            page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
+            page.locator("[data-report-row]").dblclick()
+
+            identity = page.locator(".applicant-detail-identity")
+            items = identity.locator(":scope > span")
+            expect(items).to_have_count(4)
+            boxes = [item.bounding_box() for item in items.all()]
+            assert all(box is not None for box in boxes)
+            assert len({round(box["y"]) for box in boxes if box is not None}) == 1
+            assert boxes[1] is not None and boxes[1]["width"] < identity.bounding_box()["width"] * 0.4
         finally:
             browser.close()
 

@@ -76,8 +76,13 @@
   const reportArtifactStatus = reportModal?.querySelector("[data-report-artifact-status]");
   let activeReportRow = null;
   let artifactRequest = 0;
-  const resetReportArtifacts = (message = "Checking document availability…") => {
+  const resetReportArtifacts = (message = "Checking document availability…", applicationId = null) => {
     reportArtifactLinks.forEach((link) => {
+      if (link.dataset.reportArtifact === "application" && applicationId) {
+        link.href = `/api/internal/applicants/${encodeURIComponent(applicationId)}/documents/package/view`;
+        link.setAttribute("aria-disabled", "false");
+        return;
+      }
       link.removeAttribute("href");
       link.setAttribute("aria-disabled", "true");
     });
@@ -109,7 +114,7 @@
   });
   const loadReportArtifacts = async (applicationId) => {
     const request = ++artifactRequest;
-    resetReportArtifacts();
+    resetReportArtifacts("Checking document availability…", applicationId);
     if (!applicationId) {
       resetReportArtifacts("No reviewed PDFs are available for this applicant.");
       return;
@@ -122,17 +127,18 @@
       const available = new Set(Array.isArray(payload.available) ? payload.available : []);
       reportArtifactLinks.forEach((link) => {
         const category = link.dataset.reportArtifact;
+        if (category === "application") return;
         if (!available.has(category)) return;
         link.href = `/api/internal/applicants/${encodeURIComponent(applicationId)}/review-artifacts/${encodeURIComponent(category)}/view`;
         link.setAttribute("aria-disabled", "false");
       });
-      const count = reportArtifactLinks.filter((link) => link.getAttribute("aria-disabled") === "false").length;
+      const count = reportArtifactLinks.filter((link) => link.dataset.reportArtifact !== "application" && link.getAttribute("aria-disabled") === "false").length;
       if (reportArtifactStatus) reportArtifactStatus.textContent = count
-        ? `${count} reviewed PDF${count === 1 ? " is" : "s are"} available. Unavailable buttons are dimmed.`
-        : "No reviewed PDFs are available for this applicant.";
+        ? `Full application PDF is available. ${count} reviewed supporting PDF${count === 1 ? " is" : "s are"} available.`
+        : "Full application PDF is available. No reviewed supporting PDFs are available.";
     } catch (_error) {
       if (request !== artifactRequest) return;
-      resetReportArtifacts("Document availability could not be loaded. Please try again.");
+      resetReportArtifacts("Full application PDF is available. Supporting document availability could not be loaded. Please try again.", applicationId);
     }
   };
   const fallbackReportDetails = (row) => {
@@ -169,6 +175,22 @@
       const response = await fetch(url, { credentials: "same-origin" });
       if (!response.ok) throw new Error("Applicant detail unavailable");
       reportDetails.innerHTML = await response.text();
+      reportDetails.querySelectorAll("[data-full-page-chart]").forEach((chart) => {
+        const openFullPageChart = () => {
+          const title = chart.querySelector("figcaption")?.textContent.trim() || "Applicant graph";
+          const escapedTitle = title.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+          const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><base href="${window.location.origin}/"><title>${escapedTitle}</title><link rel="stylesheet" href="/assets/site.css"></head><body><main class="site-main"><h1>${escapedTitle}</h1>${chart.outerHTML}</main></body></html>`;
+          const url = URL.createObjectURL(new Blob([page], { type: "text/html" }));
+          window.open(url, "_blank", "noopener,noreferrer");
+          window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+        };
+        chart.addEventListener("click", openFullPageChart);
+        chart.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          openFullPageChart();
+        });
+      });
       const publications = [...reportDetails.querySelectorAll("[data-publication-row]")];
       publications.forEach((publication, index) => {
         publication.dataset.publicationOrder = String(index);

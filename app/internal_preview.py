@@ -135,7 +135,13 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...]) -> str:
         _report_header(index, label, kind)
         for index, (label, kind) in enumerate(headers)
     )
-    rows = "".join(_report_row(record, labels) for record in records)
+    h_indices = tuple(record.h_index for record in records if record.h_index is not None)
+    h_index_low = min(h_indices, default=None)
+    h_index_high = max(h_indices, default=None)
+    rows = "".join(
+        _report_row(record, labels, _h_index_saturation(record.h_index, h_index_low, h_index_high))
+        for record in records
+    )
     empty = (
         '<p class="report-empty" role="status">No application metrics are available.</p>'
         if not records else ""
@@ -175,17 +181,22 @@ def _report_header(index: int, label: str, kind: str) -> str:
     )
 
 
-def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str:
+def _report_row(
+    record: PreviewApplicantMetric,
+    headers: tuple[str, ...],
+    h_index_saturation: int | None,
+) -> str:
     values = (
-        (record.applicant, _display_markup(record.applicant), None),
-        (record.degree, _display_markup(record.degree), None),
-        (record.age, _display_markup(_number(record.age)), None),
-        (record.academic_age, _display_markup(_number(record.academic_age)), None),
-        (record.gender, _display_markup(record.gender), None),
+        (record.applicant, _display_markup(record.applicant), None, None),
+        (record.degree, _display_markup(record.degree), None, None),
+        (record.age, _display_markup(_number(record.age)), None, None),
+        (record.academic_age, _display_markup(_number(record.academic_age)), None, None),
+        (record.gender, _display_markup(record.gender), None, None),
         (
             (record.first_author_papers, record.last_author_papers),
             _combined_metric_markup(record.first_author_papers, record.last_author_papers),
             _number(record.first_author_papers),
+            None,
         ),
         (
             (record.total_papers, record.validated_published_papers),
@@ -193,15 +204,16 @@ def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str
                 record.total_papers, record.validated_published_papers
             ),
             _number(record.validated_published_papers),
+            None,
         ),
-        (record.h_index, _display_markup(_number(record.h_index)), None),
-        (record.verified_citations, _display_markup(_number(record.verified_citations)), None),
+        (record.h_index, _display_markup(_number(record.h_index)), None, h_index_saturation),
+        (record.verified_citations, _display_markup(_number(record.verified_citations)), None, None),
     )
     cells = "".join(
-        _report_cell(label, markup, sort_value=sort_value)
-        for label, (_raw, markup, sort_value) in zip(headers, values, strict=True)
+        _report_cell(label, markup, sort_value=sort_value, h_index_saturation=heat)
+        for label, (_raw, markup, sort_value, heat) in zip(headers, values, strict=True)
     )
-    status_values = tuple(raw for raw, _markup, _sort_value in values)
+    status_values = tuple(value[0] for value in values)
     status = "missing" if any(value in (None, "") or (isinstance(value, tuple) and any(part in (None, "") for part in value)) for value in status_values) else "completed"
     detail_attributes = ""
     if record.application_id:
@@ -216,13 +228,34 @@ def _report_row(record: PreviewApplicantMetric, headers: tuple[str, ...]) -> str
     )
 
 
-def _report_cell(label: str, markup: str, *, sort_value: str | None) -> str:
+def _report_cell(
+    label: str,
+    markup: str,
+    *,
+    sort_value: str | None,
+    h_index_saturation: int | None = None,
+) -> str:
     sort_attribute = (
         f' data-report-sort-value="{escape(sort_value, quote=True)}"'
         if sort_value is not None
         else ""
     )
-    return f'<span role="cell" data-label="{escape(label)}"{sort_attribute}>{markup}</span>'
+    heat_attribute = (
+        f' data-h-index-heat style="--h-index-saturation: {h_index_saturation}%"'
+        if h_index_saturation is not None
+        else ""
+    )
+    return f'<span role="cell" data-label="{escape(label)}"{heat_attribute}{sort_attribute}>{markup}</span>'
+
+
+def _h_index_saturation(
+    h_index: int | None, low: int | None, high: int | None
+) -> int | None:
+    if h_index is None or low is None or high is None:
+        return None
+    if low == high:
+        return 50
+    return round(10 + (h_index - low) * 80 / (high - low))
 
 
 def _combined_metric_markup(first: int | None, last: int | None) -> str:

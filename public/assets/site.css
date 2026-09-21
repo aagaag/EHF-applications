@@ -125,6 +125,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .report-data-row { border-top: 1px solid var(--line); font-size: .74rem; cursor: pointer; }
 .report-data-row:hover { background: var(--accent-quiet); }
 .report-data-row:focus-visible { position: relative; outline: 3px solid var(--focus); outline-offset: -3px; }
+.report-data-row > [data-h-index-heat] { background: hsl(210 var(--h-index-saturation) 92%); color: var(--text); box-shadow: inset 0 0 0 1px hsl(210 var(--h-index-saturation) 78%); font-weight: 800; }
 .report-data-row > span::before { display: none; content: attr(data-label); color: var(--muted); font-size: .72rem; font-weight: 800; }
 .report-interaction-hint { font-weight: 700; }
 .report-filter-empty { margin-top: .75rem; border: 1px dashed var(--line); border-radius: .8rem; padding: .8rem; background: var(--surface); color: var(--muted); }
@@ -144,11 +145,12 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .report-details-item dt { color: var(--muted); font-size: .72rem; font-weight: 800; text-transform: uppercase; }
 .report-details-item dd { margin: 0; }
 .applicant-detail { display: grid; gap: .8rem; margin-top: .8rem; }
-.applicant-detail-identity { display: grid; grid-template-columns: minmax(7rem, .8fr) minmax(12rem, 2fr) repeat(2, minmax(6rem, .75fr)); gap: .5rem; align-items: center; }
-.applicant-detail-identity > span { min-width: 0; border: 1px solid var(--line); border-radius: .55rem; padding: .45rem .55rem; overflow-wrap: anywhere; }
+.applicant-detail-identity { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.applicant-detail-identity > span { min-width: 0; max-width: min(100%, 36rem); border: 1px solid var(--line); border-radius: .55rem; padding: .45rem .55rem; overflow-wrap: anywhere; }
 .application-number, .applicant-name { font-weight: 800; }
 .applicant-detail-charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
-.applicant-detail-chart { min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: .8rem; padding: .75rem; background: var(--surface-soft); }
+.applicant-detail-chart { min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: .8rem; padding: .75rem; background: var(--surface-soft); cursor: pointer; }
+.applicant-detail-chart:hover, .applicant-detail-chart:focus-visible { border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 28%, transparent); outline: none; }
 .applicant-detail-chart figcaption { margin-bottom: .4rem; font-weight: 800; }
 .applicant-detail-chart svg { display: block; width: 100%; height: auto; min-height: 7rem; }
 .applicant-detail-chart rect { fill: var(--accent); }

@@ -54,6 +54,8 @@ def test_render_detail_shows_identity_charts_and_newest_first_links() -> None:
     assert '>Citations<' in html
     assert 'data-publication-citations="7"' in html
     assert 'data-publication-citations="3"' in html
+    assert html.count('data-full-page-chart') == 3
+    assert html.count('role="link" tabindex="0"') == 3
 
 
 def test_render_detail_exposes_labeled_vertical_axes_in_a_single_chart_row() -> None:

@@ -111,6 +111,24 @@ def test_empty_preview_remains_honest() -> None:
     assert 'class="report-data-row"' not in html
 
 
+def test_report_h_index_uses_the_candidate_relative_blue_heat_scale() -> None:
+    """Break caught: H-index cells could lose their relative reviewer comparison."""
+    records = (
+        PreviewApplicantMetric(applicant="Lowest", h_index=4),
+        PreviewApplicantMetric(applicant="Middle", h_index=14),
+        PreviewApplicantMetric(applicant="Highest", h_index=24),
+        PreviewApplicantMetric(applicant="Unavailable", h_index=None),
+    )
+
+    html = render_internal_preview(_administrator(), simulation=True, records=records)
+
+    assert re.findall(
+        r'data-label="h-index" data-h-index-heat style="--h-index-saturation: (\d+)%">(\d+)',
+        html,
+    ) == [("10", "4"), ("50", "14"), ("90", "24")]
+    assert 'data-label="h-index"><strong class="missing-value">Missing</strong>' in html
+
+
 def test_citation_plots_color_every_applicant_and_label_top_15_surnames() -> None:
     """Break caught: plot points could become monochrome or label the wrong applicants."""
     records = tuple(

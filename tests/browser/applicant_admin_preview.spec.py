@@ -156,7 +156,7 @@ def test_applicant_admin_preview_is_read_only_accessible_and_responsive() -> Non
             )
             row.dblclick()
             assert page.evaluate("window.__openedPublication") == (
-                "https://doi.org/10.1000/example"
+                "https://scholar.google.com/scholar?q=10.1000%2Fexample"
             )
             publication_open_count = page.evaluate("window.__publicationOpenCount")
             assert publication_open_count == 1, publication_open_count
