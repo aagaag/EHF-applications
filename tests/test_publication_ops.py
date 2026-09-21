@@ -67,7 +67,7 @@ def test_publication_wrapper_preserves_existing_review_queue_and_replaces_atomic
     assert "[IO.File]::Move($LocalQueueTemp, $QueueFullPath)" in source
     assert "final_work_id" in source
     assert "citation_status" in source
-    assert "841" in source
+    assert "847" in source
 
 
 def test_publication_verifier_requires_exact_root_owned_credential_boundary() -> None:
@@ -83,12 +83,12 @@ def test_publication_verifier_checks_exact_counts_integrity_conflicts_and_safety
     source = VERIFY_SCRIPT.read_text(encoding="utf-8")
 
     for expected in (
-        "publications != 841",
+        "publications != 847",
         "occurrences != 883",
-        "metadata != 841",
-        "citations != 2523",
-        "doi_rows != 519",
-        "google_scholar_manual != 841",
+        "metadata != 847",
+        "citations != 2541",
+        "doi_rows != 530",
+        "google_scholar_manual != 847",
         "citation_topology_count != 0",
         "preprint_status_error_count != 0",
         "orphan_count != 0",

@@ -82,8 +82,8 @@ try:
     print(f'Observed citation counts: {observed}')
     print(f'Papers not found in Google Scholar: {not_found}')
     print(f'Pending manual reviews: {pending_manual}')
-    if (latest_google_scholar != 841 or imported_rows != 841 or pending_manual != 0
-            or observed + not_found != 841 or invalid_observed != 0):
+    if (latest_google_scholar != 847 or imported_rows != 847 or pending_manual != 0
+            or observed + not_found != 847 or invalid_observed != 0):
         raise RuntimeError('Google Scholar review verification contract failed')
 finally:
     connection.close()

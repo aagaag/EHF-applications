@@ -73,8 +73,8 @@ try:
     print(f'DOI-bearing publications: {doi_rows}')
     print(f'Google Scholar manual-review rows: {google_scholar_manual}')
     print(f'Publication field conflicts: {conflicts}')
-    if (applications != 36 or publications != 841 or occurrences != 883 or metadata != 841
-            or citations != 2523 or doi_rows != 519 or google_scholar_manual != 841
+    if (applications != 36 or publications != 847 or occurrences != 883 or metadata != 847
+            or citations != 2541 or doi_rows != 530 or google_scholar_manual != 847
             or nonnull_initial_counts != 0 or citation_topology_count != 0
             or preprint_status_error_count != 0 or metadata_topology_count != 0
             or source_type_error_count != 0 or biorxiv_unavailable != 5

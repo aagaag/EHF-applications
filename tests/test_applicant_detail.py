@@ -97,6 +97,31 @@ def test_render_detail_marks_confident_first_and_last_author_publications() -> N
     assert html.count("applicant-publication-row--lead-author") == 2
 
 
+def test_render_detail_marks_an_author_with_an_abbreviated_middle_name() -> None:
+    """Break caught: a published middle initial hid the applicant's lead role."""
+    detail = ApplicantDetail(
+        application_number="EHF-2026-007",
+        name="Fernando Pablo Canale",
+        publications=(
+            Publication(
+                title="First author with middle initial",
+                year=2023,
+                authors_text="Fernando P. Canale; Julia Neumann",
+            ),
+            Publication(
+                title="Initial-only names remain ambiguous",
+                year=2024,
+                authors_text="F. P. Canale; Julia Neumann",
+            ),
+        ),
+    )
+
+    html = render_applicant_detail(detail, current_year=2024)
+
+    assert html.count('data-author-position="first"') == 1
+    assert html.count("applicant-publication-row--lead-author") == 1
+
+
 def test_render_detail_escapes_text_and_rejects_unsafe_links() -> None:
     detail = ApplicantDetail(
         application_number='"><script>alert(1)</script>',

@@ -66,7 +66,7 @@ try:
     print(f'Imported source rows: {source_rows}')
     print(f'OpenAlex observed: {sum(row[2] == "OBSERVED" for row in openalex.values())}')
     print(f'OpenAlex not found: {sum(row[2] == "NOT_FOUND" for row in openalex.values())}')
-    if (source_rows != 841 or observation_rows != 841 or openalex_rows != 841
+    if (source_rows != 847 or observation_rows != 847 or openalex_rows != 847
             or invalid != 0):
         raise RuntimeError('open citation verification contract failed')
 finally:

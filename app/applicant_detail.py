@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from html import escape
+import unicodedata
 from urllib.parse import urlparse
 
 
@@ -170,17 +171,42 @@ def _author_position(authors_text: str | None, applicant_name: str) -> str | Non
     ]
     if not applicant or not authors:
         return None
-    if authors[0] == applicant:
+    if _same_person(authors[0], applicant):
         return "first" if len(authors) > 1 else "sole"
-    if authors[-1] == applicant:
+    if _same_person(authors[-1], applicant):
         return "last"
     return None
 
 
 def _person_tokens(value: str) -> tuple[str, ...]:
-    return tuple(sorted(part for part in "".join(
-        character.lower() if character.isalnum() else " " for character in value
-    ).split() if part))
+    normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
+    return tuple(
+        part
+        for part in "".join(
+            character.lower() if character.isalnum() else " " for character in normalized
+        ).split()
+        if part
+    )
+
+
+def _same_person(author: tuple[str, ...], applicant: tuple[str, ...]) -> bool:
+    if sorted(author) == sorted(applicant):
+        return True
+    if len(author) < 2 or len(applicant) < 2:
+        return False
+    given_name, family_name = applicant[0], applicant[-1]
+    if given_name not in author or family_name not in author:
+        return False
+    middle_names = applicant[1:-1]
+    for token in author:
+        if token in {given_name, family_name}:
+            continue
+        if token in middle_names:
+            continue
+        if len(token) == 1 and any(name.startswith(token) for name in middle_names):
+            continue
+        return False
+    return True
 
 
 def _publication_url(publication: Publication) -> str | None:

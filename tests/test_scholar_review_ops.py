@@ -49,9 +49,9 @@ def test_review_verifier_checks_latest_scholar_state_and_safety() -> None:
     for fragment in (
         "ROW_NUMBER() OVER",
         "ObservedAtUtc DESC",
-        "latest_google_scholar != 841",
+        "latest_google_scholar != 847",
         "pending_manual != 0",
-        "observed + not_found != 841",
+        "observed + not_found != 847",
         "invalid_observed != 0",
         "EHF_INVITATIONS_ENABLED=false",
         "EHF_PRODUCTION_MAIL_ENABLED=false",
