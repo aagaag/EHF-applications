@@ -364,8 +364,13 @@ def test_internal_review_artifact_sql_release_is_append_only_and_procedure_scope
         "TO EHFApplicationRuntime"
     ) in migration
     assert "DocumentType <> ''RECOMMENDATION_LETTER''" in migration
+    assert "ALTER FUNCTION dbo.IsAuditPayloadKeyProhibited" in migration
+    assert "N''category''" in migration
     assert migration.count("slot_row.SlotCode = CASE provenance_row.Category") == 2
     assert migration.count("document_row.DocumentType = CASE provenance_row.Category") == 2
     assert "SourcePlaintextSha256 binary(32) NOT NULL" in migration
     assert "FirstPage int NOT NULL" in migration and "LastPage int NOT NULL" in migration
     assert "PASS 033 internal review artifacts" in validator
+    assert "IsAuditPayloadKeyProhibited(N'category')" in validator
+    assert "EXEC dbo.GetInternalReviewArtifact" in validator
+    assert "EXEC dbo.RecordInternalReviewArtifactFailure" in validator
