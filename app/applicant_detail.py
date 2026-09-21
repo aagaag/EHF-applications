@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from html import escape
+import math
 import unicodedata
 from urllib.parse import urlparse
 
@@ -75,6 +76,7 @@ def render_applicant_detail(
         '<div class="applicant-detail-charts">'
         f'{_bar_chart("Papers by year", "Papers", papers, start_year, end_year)}'
         f'{_bar_chart("Citations by year", "Citations", citations, start_year, end_year)}'
+        f'{_journal_scatter_chart(detail.publications, detail.name)}'
         '</div>'
         '<section class="applicant-publications" aria-labelledby="applicant-publications-heading">'
         '<h2 id="applicant-publications-heading">Publications</h2>'
@@ -141,6 +143,222 @@ def _axis_ticks(maximum: int) -> tuple[int, ...]:
     if maximum <= 1:
         return (0, 1)
     return (0, (maximum + 1) // 2, maximum)
+
+
+def _journal_scatter_chart(
+    publications: tuple[Publication, ...], applicant_name: str
+) -> str:
+    title = "Papers by year and journal citedness"
+    plotted = [publication for publication in publications if _valid_year(publication.year)]
+    omitted = [publication for publication in publications if not _valid_year(publication.year)]
+    omitted_markup = "".join(
+        f'<li>{_text(publication.title)}: omitted because its publication year is unavailable.</li>'
+        for publication in omitted
+    )
+    omitted_summary = (
+        f"{len(plotted)} papers plotted; {len(omitted)} omitted because its publication year is unavailable."
+        if omitted
+        else f"{len(plotted)} papers plotted."
+    )
+    if not plotted:
+        return (
+            '<figure class="applicant-detail-chart applicant-detail-chart--journal-scatter" '
+            f'aria-label="{_text(title)}"><figcaption>{_text(title)}</figcaption>'
+            '<p class="journal-scatter-empty">No publications have a valid publication year for this chart.</p>'
+            f'<ul class="journal-scatter-omitted">{omitted_markup}</ul></figure>'
+        )
+
+    width, height = 720, 220
+    left, right, top, numeric_bottom, na_y = 62, 700, 18, 138, 184
+    years = [publication.year for publication in plotted if publication.year is not None]
+    first_year, last_year = min(years), max(years)
+    metrics = [_journal_metric(publication.journal_two_year_mean_citedness) for publication in plotted]
+    numeric_metrics = [metric for metric in metrics if metric is not None]
+    maximum_metric = max(numeric_metrics, default=0.0)
+    scale_maximum = maximum_metric if maximum_metric > 0 else 1.0
+    citation_values = [
+        publication.citation_count
+        for publication in plotted
+        if isinstance(publication.citation_count, int) and publication.citation_count >= 0
+    ]
+    maximum_citations = max(citation_values, default=0)
+    points: list[dict[str, object]] = []
+    for index, publication in enumerate(plotted):
+        year = publication.year
+        assert year is not None
+        citedness = _journal_metric(publication.journal_two_year_mean_citedness)
+        citation_count = (
+            publication.citation_count
+            if isinstance(publication.citation_count, int) and publication.citation_count >= 0
+            else None
+        )
+        citation_ratio = (
+            0.0
+            if citation_count is None or maximum_citations == 0
+            else citation_count / maximum_citations
+        )
+        area = 36.0 + 900.0 * citation_ratio
+        radius = round(math.sqrt(area / math.pi), 2)
+        x = round(
+            (left + right) / 2
+            if first_year == last_year
+            else left + (year - first_year) / (last_year - first_year) * (right - left),
+            2,
+        )
+        y = na_y if citedness is None else round(
+            numeric_bottom - (citedness / scale_maximum) * (numeric_bottom - top), 2
+        )
+        position = _author_position(publication.authors_text, applicant_name)
+        source_name = publication.journal_openalex_name or publication.journal or "Journal unavailable"
+        citedness_text = (
+            "OpenAlex 2-year journal citedness unavailable"
+            if citedness is None
+            else f"OpenAlex 2-year journal citedness {_display_number(citedness)}"
+        )
+        citation_text = (
+            "citation data unavailable"
+            if citation_count is None
+            else f"{citation_count} OpenAlex citations"
+        )
+        author_text = (
+            f"applicant is {position} author"
+            if position is not None
+            else "applicant is not first or last author"
+        )
+        points.append(
+            {
+                "publication": publication,
+                "index": index,
+                "x": x,
+                "y": y,
+                "radius": radius,
+                "citedness": citedness,
+                "citation_count": citation_count,
+                "position": position,
+                "source_name": source_name,
+                "label": ". ".join(
+                    (
+                        publication.title,
+                        source_name,
+                        str(year),
+                        citedness_text,
+                        citation_text,
+                        author_text,
+                    )
+                ),
+            }
+        )
+    circles = "".join(
+        _journal_scatter_point(point)
+        for point in sorted(
+            points,
+            key=lambda point: (-float(point["radius"]), int(point["index"])),
+        )
+    )
+    accessible_list = "".join(
+        f'<li data-journal-scatter-list-item>{_text(str(point["label"]))}</li>'
+        for point in points
+    )
+    year_labels = "".join(
+        f'<text x="{_year_x(year, first_year, last_year, left, right)}" y="159" '
+        f'text-anchor="middle">{year}</text>'
+        for year in range(first_year, last_year + 1)
+    )
+    y_ticks = _metric_ticks(maximum_metric)
+    y_tick_markup = "".join(
+        f'<line x1="{left - 5}" y1="{round(numeric_bottom - value / scale_maximum * (numeric_bottom - top), 2)}" '
+        f'x2="{left}" y2="{round(numeric_bottom - value / scale_maximum * (numeric_bottom - top), 2)}" />'
+        f'<text class="chart-y-axis-tick" x="{left - 8}" '
+        f'y="{round(numeric_bottom - value / scale_maximum * (numeric_bottom - top) + 3, 2)}" '
+        f'text-anchor="end">{_display_number(value)}</text>'
+        for value in y_ticks
+    )
+    na_lane = (
+        f'<line class="journal-scatter-na-lane" x1="{left}" y1="{na_y}" x2="{right}" y2="{na_y}" />'
+        f'<text class="journal-scatter-na-label" x="{left - 8}" y="{na_y + 3}" text-anchor="end">N/A</text>'
+        if any(point["citedness"] is None for point in points)
+        else ""
+    )
+    snapshot_dates = sorted(
+        {
+            publication.journal_metric_observed_at_utc[:10]
+            for publication in plotted
+            if publication.journal_metric_observed_at_utc
+        }
+    )
+    snapshot = (
+        f'<p class="journal-scatter-snapshot">Snapshot: {_text(snapshot_dates[-1])}</p>'
+        if snapshot_dates
+        else ""
+    )
+    return (
+        '<figure class="applicant-detail-chart applicant-detail-chart--journal-scatter" '
+        f'aria-label="{_text(title)}"><figcaption>{_text(title)}</figcaption>'
+        '<p class="journal-scatter-legend">Bubble area represents OpenAlex citations.</p>'
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{_text(title)}" '
+        'xmlns="http://www.w3.org/2000/svg">'
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{numeric_bottom}" />'
+        f'<line x1="{left}" y1="{numeric_bottom}" x2="{right}" y2="{numeric_bottom}" />'
+        f'{y_tick_markup}{na_lane}'
+        f'<text class="chart-y-axis-label" x="15" y="87" text-anchor="middle" '
+        f'transform="rotate(-90 15 87)">OpenAlex 2-year journal citedness</text>'
+        f'<text class="journal-scatter-x-label" x="{(left + right) / 2}" y="177" text-anchor="middle">Publication year</text>'
+        f'{year_labels}{circles}</svg>'
+        f'<p class="journal-scatter-summary">{_text(omitted_summary)}</p>{snapshot}'
+        f'<ul class="journal-scatter-accessible-list">{accessible_list}</ul>'
+        f'<ul class="journal-scatter-omitted">{omitted_markup}</ul></figure>'
+    )
+
+
+def _journal_scatter_point(point: dict[str, object]) -> str:
+    publication = point["publication"]
+    assert isinstance(publication, Publication)
+    position = point["position"]
+    assert position is None or isinstance(position, str)
+    citedness = point["citedness"]
+    citation_count = point["citation_count"]
+    classes = ["journal-scatter-point"]
+    if position is not None:
+        classes.append("journal-scatter-point--lead-author")
+    if citedness is None:
+        classes.append("journal-scatter-point--metric-unavailable")
+    if citation_count is None:
+        classes.append("journal-scatter-point--citation-unavailable")
+    author_markup = f' data-author-position="{position}"' if position is not None else ""
+    citation_markup = "" if citation_count is None else str(citation_count)
+    return (
+        f'<circle class="{" ".join(classes)}" data-journal-scatter-point '
+        f'data-citation-count="{citation_markup}" data-publication-year="{publication.year}" '
+        f'cx="{point["x"]}" cy="{point["y"]}" r="{point["radius"]}" '
+        f'role="img" tabindex="0"{author_markup} aria-label="{_text(str(point["label"]))}">'
+        f'<title>{_text(str(point["label"]))}</title></circle>'
+    )
+
+
+def _journal_metric(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    numeric = float(value)
+    return numeric if math.isfinite(numeric) and numeric >= 0 else None
+
+
+def _year_x(year: int, first_year: int, last_year: int, left: int, right: int) -> float:
+    return round(
+        (left + right) / 2
+        if first_year == last_year
+        else left + (year - first_year) / (last_year - first_year) * (right - left),
+        2,
+    )
+
+
+def _metric_ticks(maximum: float) -> tuple[float, ...]:
+    if maximum <= 0:
+        return (0.0, 1.0)
+    return (0.0, maximum / 2, maximum)
+
+
+def _display_number(value: float) -> str:
+    return format(value, ".4g")
 
 
 def _publication_row(publication: Publication, applicant_name: str) -> str:

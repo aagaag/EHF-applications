@@ -185,7 +185,7 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
         except Exception as error:  # pragma: no cover - environment-specific browser installation
             pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
         try:
-            page = browser.new_page(viewport={"width": 1024, "height": 768})
+            page = browser.new_page(viewport={"width": 1366, "height": 768})
             page.set_content(html, wait_until="domcontentloaded")
             page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
             page.evaluate(
@@ -236,8 +236,8 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             browser.close()
 
 
-def test_applicant_detail_keeps_charts_side_by_side_and_colours_lead_authors_red() -> None:
-    """Break caught: the compact modal could stack charts or lose lead-author emphasis."""
+def test_applicant_detail_keeps_three_charts_side_by_side_and_colours_lead_authors_red() -> None:
+    """Break caught: the compact modal could stack the new chart or lose author emphasis."""
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
@@ -251,13 +251,19 @@ def test_applicant_detail_keeps_charts_side_by_side_and_colours_lead_authors_red
                 Publication(
                     title="Lead work",
                     year=2025,
+                    citation_count=4,
                     authors_text="Ada Researcher; Ben Biologist",
                     citations_by_year=((2025, 4),),
+                    journal_openalex_name="Example Journal",
+                    journal_two_year_mean_citedness=3.0,
                 ),
                 Publication(
                     title="Collaborative work",
                     year=2024,
+                    citation_count=2,
                     authors_text="Ben Biologist; Cara Chemist; Ada Researcher",
+                    journal_openalex_name="Other Journal",
+                    journal_two_year_mean_citedness=1.5,
                 ),
             ),
         ),
@@ -275,13 +281,95 @@ def test_applicant_detail_keeps_charts_side_by_side_and_colours_lead_authors_red
             page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
 
             charts = page.locator(".applicant-detail-chart")
-            first_chart, second_chart = charts.nth(0).bounding_box(), charts.nth(1).bounding_box()
-            assert first_chart is not None and second_chart is not None
+            first_chart, second_chart, third_chart = (
+                charts.nth(0).bounding_box(),
+                charts.nth(1).bounding_box(),
+                charts.nth(2).bounding_box(),
+            )
+            assert first_chart is not None and second_chart is not None and third_chart is not None
             assert second_chart["x"] > first_chart["x"]
-            assert abs(second_chart["y"] - first_chart["y"]) < 1
+            assert third_chart["x"] > second_chart["x"]
+            assert max(abs(chart["y"] - first_chart["y"]) for chart in (second_chart, third_chart)) < 1
 
-            lead = page.locator('[data-author-position="first"]')
+            lead = page.locator('[data-publication-row][data-author-position="first"]')
             assert lead.evaluate("node => getComputedStyle(node).color") == "rgb(180, 35, 24)"
+            bubble = page.locator(".journal-scatter-point--lead-author").first
+            assert bubble.evaluate("node => getComputedStyle(node).stroke") == "rgb(180, 35, 24)"
+            assert bubble.evaluate("node => { node.focus(); return document.activeElement === node }")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("viewport", [(1920, 1080), (1366, 768), (720, 900), (390, 844)])
+def test_journal_scatter_is_responsive_focusable_and_visible_in_every_skin(
+    viewport: tuple[int, int],
+) -> None:
+    """Break caught: a new chart could overflow, lose point focus, or lose role emphasis by skin."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from app.applicant_detail import ApplicantDetail, Publication, render_applicant_detail
+
+    html = render_applicant_detail(
+        ApplicantDetail(
+            application_number="EHF-2026-007",
+            name="Ada Researcher",
+            publications=(
+                Publication(
+                    title="Lead journal paper",
+                    journal="Example Journal",
+                    year=2025,
+                    citation_count=7,
+                    authors_text="Ada Researcher; Ben Biologist",
+                    journal_openalex_name="Example Journal",
+                    journal_two_year_mean_citedness=5.0,
+                ),
+                Publication(
+                    title="Unavailable source paper",
+                    journal="Repository",
+                    year=2024,
+                    citation_count=None,
+                ),
+            ),
+        ),
+        current_year=2026,
+    )
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover - environment-specific browser installation
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
+            page.set_content(html, wait_until="domcontentloaded")
+            page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+
+            charts = page.locator(".applicant-detail-chart")
+            boxes = [charts.nth(index).bounding_box() for index in range(3)]
+            assert all(box is not None for box in boxes)
+            first, second, third = boxes
+            assert first is not None and second is not None and third is not None
+            if viewport[0] <= 800:
+                assert second["y"] > first["y"] and third["y"] > second["y"]
+            else:
+                assert first["y"] == second["y"] == third["y"]
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+            bubbles = page.locator("[data-journal-scatter-point]")
+            assert bubbles.count() == 2
+            for index in range(bubbles.count()):
+                assert bubbles.nth(index).evaluate(
+                    "node => { node.focus(); return document.activeElement === node && node.getAttribute('aria-label').length > 20 }"
+                )
+            for skin in (None, "high-contrast", "soft-earth", "blue"):
+                page.evaluate(
+                    "skin => skin ? document.documentElement.setAttribute('data-skin', skin) : document.documentElement.removeAttribute('data-skin')",
+                    skin,
+                )
+                assert page.locator(".journal-scatter-point--lead-author").evaluate(
+                    "node => getComputedStyle(node).stroke"
+                ) == "rgb(180, 35, 24)"
         finally:
             browser.close()
 
@@ -327,7 +415,7 @@ def test_modal_publication_citations_sort_numerically_with_missing_values_last()
         except Exception as error:  # pragma: no cover
             pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
         try:
-            page = browser.new_page(viewport={"width": 1024, "height": 768})
+            page = browser.new_page(viewport={"width": 1366, "height": 768})
             page.set_content(page_html, wait_until="domcontentloaded")
             page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
             page.evaluate(

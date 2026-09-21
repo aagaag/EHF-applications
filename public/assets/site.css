@@ -147,7 +147,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .applicant-detail-identity { display: grid; grid-template-columns: minmax(7rem, .8fr) minmax(12rem, 2fr) repeat(2, minmax(6rem, .75fr)); gap: .5rem; align-items: center; }
 .applicant-detail-identity > span { min-width: 0; border: 1px solid var(--line); border-radius: .55rem; padding: .45rem .55rem; overflow-wrap: anywhere; }
 .application-number, .applicant-name { font-weight: 800; }
-.applicant-detail-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.applicant-detail-charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
 .applicant-detail-chart { min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: .8rem; padding: .75rem; background: var(--surface-soft); }
 .applicant-detail-chart figcaption { margin-bottom: .4rem; font-weight: 800; }
 .applicant-detail-chart svg { display: block; width: 100%; height: auto; min-height: 7rem; }
@@ -156,6 +156,18 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .applicant-detail-chart text { fill: var(--muted); font-size: 9px; }
 .applicant-detail-chart .chart-y-axis-label { fill: var(--text); font-size: 10px; font-weight: 800; }
 .applicant-detail-chart .chart-y-axis-tick { fill: var(--text); font-size: 9px; }
+.journal-scatter-legend, .journal-scatter-summary, .journal-scatter-snapshot, .journal-scatter-empty, .journal-scatter-omitted { margin: .35rem 0 0; color: var(--muted); font-size: .78rem; line-height: 1.35; }
+.journal-scatter-legend { font-weight: 700; }
+.journal-scatter-omitted { padding-left: 1.1rem; }
+.applicant-detail-chart .journal-scatter-x-label { fill: var(--text); font-size: 10px; font-weight: 800; }
+.applicant-detail-chart .journal-scatter-na-lane { stroke: var(--muted); stroke-dasharray: 4 3; }
+.applicant-detail-chart .journal-scatter-na-label { fill: var(--text); font-size: 9px; font-weight: 800; }
+.applicant-detail-chart .journal-scatter-point { fill: var(--accent); stroke: var(--accent-dark); stroke-width: 1; cursor: default; }
+.applicant-detail-chart .journal-scatter-point--metric-unavailable { fill: var(--surface); stroke: var(--muted); }
+.applicant-detail-chart .journal-scatter-point--lead-author { stroke: var(--missing); stroke-width: 2; }
+.applicant-detail-chart .journal-scatter-point--citation-unavailable { stroke-dasharray: 3 2; }
+.applicant-detail-chart .journal-scatter-point:focus { outline: none; stroke: var(--focus); stroke-width: 3; }
+.journal-scatter-accessible-list { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .applicant-publications h2 { margin: 0 0 .6rem; font-size: 1rem; }
 .applicant-publication-list { display: grid; max-height: min(24rem, 40vh); overflow: auto; border: 1px solid var(--line); border-radius: .6rem; }
 .applicant-publication-header, .applicant-publication-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(9rem, .7fr) minmax(7rem, auto); gap: .75rem; align-items: center; }

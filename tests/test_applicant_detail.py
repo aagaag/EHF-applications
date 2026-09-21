@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import math
+import re
+
 from app.applicant_detail import ApplicantDetail, Publication, render_applicant_detail
 
 
@@ -118,7 +121,7 @@ def test_render_detail_marks_an_author_with_an_abbreviated_middle_name() -> None
 
     html = render_applicant_detail(detail, current_year=2024)
 
-    assert html.count('data-author-position="first"') == 1
+    assert html.count('data-publication-row data-publication-citations="" data-double-clickable="true" tabindex="0" data-author-position="first"') == 1
     assert html.count("applicant-publication-row--lead-author") == 1
 
 
@@ -144,3 +147,88 @@ def test_render_detail_escapes_text_and_rejects_unsafe_links() -> None:
     assert "&lt;b&gt;Unsafe&lt;/b&gt;" in html
     assert "javascript:" not in html.lower()
     assert 'aria-label="Papers by year, 2025 through 2025"' in html
+
+
+def test_render_detail_adds_an_accessible_journal_citedness_scatter_with_honest_bubbles() -> None:
+    detail = ApplicantDetail(
+        application_number="EHF-2026-007",
+        name="Ada Researcher",
+        publications=(
+            Publication(
+                title="Largest first-author work",
+                journal="Journal <A>",
+                year=2024,
+                citation_count=10,
+                authors_text="Ada Researcher; Ben Biologist",
+                journal_openalex_name="Journal <A>",
+                journal_two_year_mean_citedness=4.25,
+                journal_metric_observed_at_utc="2026-09-21T08:00:00.000000Z",
+            ),
+            Publication(
+                title="Zero-citation middle work",
+                journal="Journal B",
+                year=2024,
+                citation_count=0,
+                authors_text="Ben Biologist; Ada Researcher; Cara Chemist",
+                journal_openalex_name="Journal B",
+                journal_two_year_mean_citedness=2.0,
+            ),
+            Publication(
+                title="Missing metric last-author work",
+                journal="Repository C",
+                year=2025,
+                citation_count=None,
+                authors_text="Ben Biologist; Ada Researcher",
+            ),
+            Publication(
+                title="No year <omitted>",
+                journal="Journal D",
+                citation_count=4,
+                journal_two_year_mean_citedness=3.0,
+            ),
+        ),
+    )
+
+    html = render_applicant_detail(detail, current_year=2025)
+
+    assert 'class="applicant-detail-chart applicant-detail-chart--journal-scatter"' in html
+    assert "Papers by year and journal citedness" in html
+    assert "OpenAlex 2-year journal citedness" in html
+    assert "Bubble area represents OpenAlex citations" in html
+    assert "2026-09-21" in html
+    assert "3 papers plotted; 1 omitted because its publication year is unavailable." in html
+    assert html.count('data-journal-scatter-list-item') == 3
+    assert 'data-author-position="first"' in html
+    assert 'data-author-position="last"' in html
+    assert 'journal-scatter-point--lead-author' in html
+    assert 'journal-scatter-point--metric-unavailable' in html
+    assert 'journal-scatter-point--citation-unavailable' in html
+    assert "Journal &lt;A&gt;" in html
+    assert "No year &lt;omitted&gt;" in html
+
+    circles = re.findall(
+        r'<circle[^>]*data-journal-scatter-point[^>]*data-citation-count="([^"]*)"[^>]*data-publication-year="([^"]+)"[^>]*cx="([^"]+)"[^>]*r="([^"]+)"',
+        html,
+    )
+    assert len(circles) == 3
+    assert [count for count, _year, _x, _radius in circles] == ["10", "0", ""]
+    assert circles[0][1] == circles[1][1] == "2024"
+    assert circles[0][2] == circles[1][2]
+    largest_area = math.pi * float(circles[0][3]) ** 2
+    zero_area = math.pi * float(circles[1][3]) ** 2
+    assert abs((largest_area - zero_area) - 900.0) < 0.25
+
+
+def test_render_detail_uses_a_compact_journal_scatter_empty_state_when_years_are_unavailable() -> None:
+    html = render_applicant_detail(
+        ApplicantDetail(
+            application_number="EHF-2026-007",
+            name="Ada Researcher",
+            publications=(Publication(title="Unplaced", year=None, citation_count=2),),
+        ),
+        current_year=2025,
+    )
+
+    assert "Papers by year and journal citedness" in html
+    assert "No publications have a valid publication year for this chart." in html
+    assert "<circle" not in html
