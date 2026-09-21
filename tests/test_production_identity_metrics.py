@@ -146,6 +146,53 @@ def test_sql_metric_repository_maps_role_scoped_projection() -> None:
     assert records[0].application_number == "EHF-2026-001"
 
 
+class _ActiveCutoffWithoutEligibleWorksConnection:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, statement: str, role: str):
+        assert "GetInternalApplicationMetrics" in statement
+        assert role == "EHF-Trustees"
+        return SimpleNamespace(
+            fetchall=lambda: [
+                (
+                    "No Published Works",
+                    "PhD",
+                    31,
+                    4.5,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    "OPENALEX",
+                    None,
+                    0,
+                    "a7000000-0000-4000-8000-000000000002",
+                    "EHF-2026-002",
+                )
+            ]
+        )
+
+
+def test_sql_metric_repository_reports_zero_for_active_cutoff_without_eligible_works() -> None:
+    """Break caught: an active cutoff could render applicants with no eligible works as missing."""
+    records = SqlMetricRepository(
+        lambda: _ActiveCutoffWithoutEligibleWorksConnection()
+    ).load("EHF-Trustees")
+
+    assert records[0].verified_citation_source == "OPENALEX"
+    assert records[0].verified_citations == 0
+
+
 class _DetailCursor:
     def __init__(self) -> None:
         self._set = 0
