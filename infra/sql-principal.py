@@ -92,6 +92,7 @@ MIGRATIONS = {
     "031_citation_metric_cutoff_runs.sql": (31, "citation_metric_cutoff_runs"),
     "032_revoke_cutoff_activation_runtime.sql": (32, "revoke_cutoff_activation_runtime"),
     "033_internal_review_artifacts.sql": (33, "internal_review_artifacts"),
+    "034_applicant_journal_metrics.sql": (34, "applicant_journal_metrics"),
 }
 COMMANDS = (
     "inspect-production",
@@ -149,7 +150,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "031_validate_citation_metric_cutoff_runs.sql",
         "032_validate_cutoff_activation_permissions.sql",
         "033_validate_internal_review_artifacts.sql",
-        "033_validate_internal_review_artifacts.sql",
+        "034_validate_applicant_journal_metrics.sql",
     }
 )
 
