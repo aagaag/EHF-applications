@@ -6,6 +6,7 @@ import argparse
 import os
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, Callable
 
 from app.config import Settings
 from app.documents.keys import load_keyring
@@ -54,6 +55,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 EncryptedObjectStore(
                     Path(settings.document_root or ""),
                     load_keyring(Path(settings.document_encryption_keyring_path or "")),
+                    owner=_service_owner(),
                 ),
                 ClamDScanner(Path(os.environ.get("EHF_CLAMD_CONFIG", "/etc/clamav/clamd.conf"))),
                 Path(settings.quarantine_root or ""),
@@ -75,6 +77,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"Artifacts: {result.artifact_count}")
     print(f"Applied: {result.applied_count}")
     return 0
+
+
+def _service_owner(
+    user_lookup: Callable[[str], Any] | None = None,
+    group_lookup: Callable[[str], Any] | None = None,
+) -> tuple[int, int]:
+    if user_lookup is None or group_lookup is None:
+        import grp
+        import pwd
+
+        user_lookup = pwd.getpwnam
+        group_lookup = grp.getgrnam
+    return int(user_lookup("ehf").pw_uid), int(group_lookup("ehf").gr_gid)
 
 
 if __name__ == "__main__":

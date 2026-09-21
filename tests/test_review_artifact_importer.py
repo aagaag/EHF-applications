@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -20,6 +21,7 @@ from app.importer.review_artifacts import (
     run_review_artifact_import,
     _matches_provenance,
 )
+from app.importer.run_review_artifacts import _service_owner
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -235,3 +237,10 @@ def test_database_sources_allow_legacy_unreviewed_but_not_confidential_material(
 
     assert "version_row.Classification IN ('UNREVIEWED','APPLICANT_VISIBLE')" in source
     assert "CONFIDENTIAL_RECOMMENDATION" not in source
+
+
+def test_root_mediated_import_assigns_objects_to_the_runtime_service_account() -> None:
+    assert _service_owner(
+        lambda name: SimpleNamespace(pw_uid=410) if name == "ehf" else None,
+        lambda name: SimpleNamespace(gr_gid=420) if name == "ehf" else None,
+    ) == (410, 420)
