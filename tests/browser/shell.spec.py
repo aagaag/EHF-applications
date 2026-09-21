@@ -189,9 +189,20 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             page.set_content(html, wait_until="domcontentloaded")
             page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
             page.evaluate(
-                """window.fetch = async url => String(url).endsWith('/review-artifacts')
-                    ? {ok: true, json: async () => ({available: ['application', 'publications']})}
-                    : {ok: false};"""
+                """window.fetch = async url => {
+                    const target = String(url);
+                    if (target.endsWith('/review-artifacts')) {
+                      return {ok: true, json: async () => ({available: ['application', 'publications']})};
+                    }
+                    if (target.endsWith('/review-artifacts/application/view')) {
+                      return {ok: true, blob: async () => new Blob(['%PDF-1.7'], {type: 'application/pdf'})};
+                    }
+                    return {ok: false};
+                  };
+                  window.open = (url, target, features) => {
+                    window.reportArtifactOpen = {url, target, features};
+                    return null;
+                  };"""
             )
             page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
 
@@ -219,6 +230,14 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
                 "href",
                 "/api/internal/applicants/a7000000-0000-4000-8000-000000000001/review-artifacts/application/view",
             )
+            assert application.evaluate(
+                "node => !node.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}))"
+            )
+            page.wait_for_function("() => Boolean(window.reportArtifactOpen)")
+            opened = page.evaluate("window.reportArtifactOpen")
+            assert opened["target"] == "_blank"
+            assert opened["features"] == "noopener,noreferrer"
+            assert str(opened["url"]).startswith("blob:")
             expect(curriculum).to_have_attribute("aria-disabled", "true")
             expect(curriculum).not_to_have_attribute("href", re.compile(".+"))
             expect(publications).to_have_attribute("aria-disabled", "false")

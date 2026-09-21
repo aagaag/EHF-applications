@@ -84,8 +84,27 @@
     if (reportArtifactStatus) reportArtifactStatus.textContent = message;
   };
   reportArtifactLinks.forEach((link) => {
-    link.addEventListener("click", (event) => {
-      if (link.getAttribute("aria-disabled") === "true") event.preventDefault();
+    link.addEventListener("click", async (event) => {
+      if (link.getAttribute("aria-disabled") === "true") {
+        event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      const href = link.href;
+      if (!href) return;
+      try {
+        const response = await fetch(href, { credentials: "same-origin" });
+        if (!response.ok) throw new Error("Artifact unavailable");
+        const documentPayload = await response.blob();
+        if (documentPayload.type !== "application/pdf") {
+          throw new Error("Artifact is not a PDF");
+        }
+        window.open(URL.createObjectURL(documentPayload), "_blank", "noopener,noreferrer");
+      } catch (_error) {
+        if (reportArtifactStatus) {
+          reportArtifactStatus.textContent = "The reviewed PDF could not be opened. Please try again.";
+        }
+      }
     });
   });
   const loadReportArtifacts = async (applicationId) => {
