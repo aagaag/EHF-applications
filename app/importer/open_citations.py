@@ -46,8 +46,15 @@ OPEN_CITATION_FIELDS = (
     "reviewer",
     "match_method",
     "annual_citation_counts",
+    "journal_openalex_id",
+    "journal_openalex_name",
+    "journal_source_type",
+    "journal_two_year_mean_citedness",
+    "journal_source_updated_date",
+    "journal_metric_observed_at_utc",
 )
-LEGACY_OPEN_CITATION_FIELDS = OPEN_CITATION_FIELDS[:-1]
+PRE_JOURNAL_OPEN_CITATION_FIELDS = OPEN_CITATION_FIELDS[:-6]
+LEGACY_OPEN_CITATION_FIELDS = PRE_JOURNAL_OPEN_CITATION_FIELDS[:-1]
 _RESULT_HOSTS = {
     "OPENALEX": {"openalex.org", "api.openalex.org", "www.openalex.org"},
     "SEMANTIC_SCHOLAR": {

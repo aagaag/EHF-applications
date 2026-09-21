@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import csv
 import json
+import math
 import os
 import re
 import tempfile
@@ -30,6 +31,7 @@ _NON_WORD_RE = re.compile(r"[^a-z0-9]+")
 _MAX_REQUEST_ATTEMPTS = 20
 _REQUEST_INTERVAL_SECONDS = 2.0
 _SEMANTIC_SCHOLAR_FIELDS = "paperId,title,year,citationCount,url,externalIds,authors"
+_OPENALEX_SOURCE_ID_RE = re.compile(r"https://openalex\.org/(S[0-9]+)\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +45,16 @@ class CitationApiMatch:
     citation_count: int
     match_method: str
     annual_citation_counts: dict[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class OpenAlexJournalMetric:
+    source_id: str
+    name: str
+    source_type: str
+    two_year_mean_citedness: float | None
+    source_updated_date: str
+    observed_at_utc: str
 
 
 class OpenCitationCollectionError(RuntimeError):
@@ -448,6 +460,108 @@ def _row(
         "annual_citation_counts": "{}" if match is None else json.dumps(
             match.annual_citation_counts, separators=(",", ":"), sort_keys=True
         ),
+        "journal_openalex_id": "",
+        "journal_openalex_name": "",
+        "journal_source_type": "",
+        "journal_two_year_mean_citedness": "",
+        "journal_source_updated_date": "",
+        "journal_metric_observed_at_utc": "",
+    }
+
+
+def _openalex_source_id(candidate: dict[str, Any]) -> str | None:
+    primary_location = candidate.get("primary_location")
+    if not isinstance(primary_location, dict):
+        return None
+    source = primary_location.get("source")
+    if not isinstance(source, dict):
+        return None
+    identifier = str(source.get("id") or "").strip()
+    return identifier if _OPENALEX_SOURCE_ID_RE.fullmatch(identifier) else None
+
+
+def _journal_citedness(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    numeric = float(value)
+    return numeric if math.isfinite(numeric) and numeric >= 0 else None
+
+
+def _openalex_source_url(source_id: str) -> str:
+    match = _OPENALEX_SOURCE_ID_RE.fullmatch(source_id)
+    if match is None:
+        raise ValueError("OpenAlex source ID must be canonical.")
+    return "https://api.openalex.org/sources/" + match.group(1) + "?" + urlencode({
+        "select": "id,display_name,type,summary_stats,updated_date",
+    })
+
+
+def collect_openalex_journal_metrics(
+    rows: Sequence[dict[str, str]],
+    matched_candidates: dict[str, dict[str, Any]],
+    client: OfficialCitationApiClient,
+    *,
+    observed_at_utc: str,
+) -> dict[str, OpenAlexJournalMetric]:
+    """Fetch each accepted primary OpenAlex source once and fail closed on metrics."""
+
+    source_by_work = {
+        row["final_work_id"]: source_id
+        for row in rows
+        if row["citation_status"] == "OBSERVED"
+        and (candidate := matched_candidates.get(row["final_work_id"])) is not None
+        and (source_id := _openalex_source_id(candidate)) is not None
+    }
+    metrics_by_source: dict[str, OpenAlexJournalMetric] = {}
+    for source_id in dict.fromkeys(source_by_work.values()):
+        payload = client.get_json(_openalex_source_url(source_id))
+        if not isinstance(payload, dict):
+            raise OpenCitationCollectionError(
+                "OpenAlex returned an unexpected journal-source response shape."
+            )
+        returned_id = str(payload.get("id") or "").strip()
+        if returned_id != source_id:
+            raise OpenCitationCollectionError(
+                "OpenAlex returned a journal source with an unexpected identifier."
+            )
+        name = str(payload.get("display_name") or "").strip()
+        source_type = str(payload.get("type") or "").strip()
+        summary_stats = payload.get("summary_stats")
+        citedness = _journal_citedness(
+            summary_stats.get("2yr_mean_citedness")
+            if isinstance(summary_stats, dict) and source_type == "journal"
+            else None
+        )
+        metrics_by_source[source_id] = OpenAlexJournalMetric(
+            source_id=source_id,
+            name=name,
+            source_type=source_type,
+            two_year_mean_citedness=citedness,
+            source_updated_date=str(payload.get("updated_date") or "").strip(),
+            observed_at_utc=observed_at_utc,
+        )
+        time.sleep(_REQUEST_INTERVAL_SECONDS)
+    return {
+        work_id: metrics_by_source[source_id]
+        for work_id, source_id in source_by_work.items()
+    }
+
+
+def _journal_snapshot_fields(metric: OpenAlexJournalMetric | None) -> dict[str, str]:
+    if metric is None:
+        return {}
+    citedness = (
+        ""
+        if metric.two_year_mean_citedness is None
+        else format(metric.two_year_mean_citedness, ".15g")
+    )
+    return {
+        "journal_openalex_id": metric.source_id,
+        "journal_openalex_name": metric.name,
+        "journal_source_type": metric.source_type,
+        "journal_two_year_mean_citedness": citedness,
+        "journal_source_updated_date": metric.source_updated_date,
+        "journal_metric_observed_at_utc": metric.observed_at_utc,
     }
 
 
@@ -463,6 +577,7 @@ def collect_open_citation_rows(
     raw_by_work = _raw_citations(manifest)
     total = len(manifest.works)
     rows: list[dict[str, str]] = []
+    matched_candidates: dict[str, dict[str, Any]] = {}
     observed_at = _utc_now()
     for index, work in enumerate(manifest.works, start=1):
         raw_citation = raw_by_work.get(work.final_work_id, "")
@@ -492,16 +607,16 @@ def collect_open_citation_rows(
                 else (payload,)
             )
         )
-        match = next(
-            (
-                matched
-                for item in candidates
-                if isinstance(item, dict)
-                for matched in (match_openalex_candidate(work, raw_citation, item),)
-                if matched is not None
-            ),
-            None,
-        )
+        match: CitationApiMatch | None = None
+        matched_candidate: dict[str, Any] | None = None
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            candidate_match = match_openalex_candidate(work, raw_citation, item)
+            if candidate_match is not None:
+                match = candidate_match
+                matched_candidate = item
+                break
         time.sleep(_REQUEST_INTERVAL_SECONDS)
         if (
             match is not None
@@ -519,8 +634,18 @@ def collect_open_citation_rows(
             else:
                 match = replace(match, annual_citation_counts={})
         rows.append(_row(work, "OPENALEX", observed_at, reviewer, query_url, match))
+        if match is not None and matched_candidate is not None:
+            matched_candidates[work.final_work_id] = matched_candidate
         if progress is not None:
             progress(index, total, "OPENALEX")
+    metrics = collect_openalex_journal_metrics(
+        rows,
+        matched_candidates,
+        client,
+        observed_at_utc=observed_at,
+    )
+    for row in rows:
+        row.update(_journal_snapshot_fields(metrics.get(row["final_work_id"])))
     return tuple(rows)
 
 

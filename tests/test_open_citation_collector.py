@@ -152,6 +152,12 @@ def test_semantic_scholar_collection_emits_an_observed_row_for_a_doi_work(
         "reviewer": "EHF Semantic Scholar cutoff collector 2026.7",
         "match_method": "DOI_EXACT",
         "annual_citation_counts": "{}",
+        "journal_openalex_id": "",
+        "journal_openalex_name": "",
+        "journal_source_type": "",
+        "journal_two_year_mean_citedness": "",
+        "journal_source_updated_date": "",
+        "journal_metric_observed_at_utc": "",
     },)
 
 
@@ -560,6 +566,113 @@ def test_openalex_does_not_spend_search_credits_on_unresolved_metadata(
     openalex_urls = [url for url in client.urls if "api.openalex.org" in url]
     assert openalex_urls == []
     assert rows[0]["result_url"] == "https://api.openalex.org/works"
+
+
+def test_openalex_collects_a_shared_journal_source_once_per_snapshot(
+    monkeypatch,
+) -> None:
+    manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
+    manifest = replace(
+        manifest,
+        works=(
+            manifest.works[0],
+            replace(manifest.works[0], final_work_id="work-shares-journal"),
+        ),
+    )
+
+    class JournalClient:
+        def __init__(self) -> None:
+            self.source_requests: list[str] = []
+
+        def get_json(self, url: str, *, allow_not_found: bool = False):
+            if "/sources/" in url:
+                self.source_requests.append(url)
+                return {
+                    "id": "https://openalex.org/S123",
+                    "display_name": "Example Journal",
+                    "type": "journal",
+                    "summary_stats": {"2yr_mean_citedness": 4.25},
+                    "updated_date": "2026-09-20",
+                }
+            return {
+                "results": [{
+                    "id": "https://openalex.org/W123",
+                    "title": "A fixture publication",
+                    "publication_year": 2025,
+                    "cited_by_count": 17,
+                    "doi": "https://doi.org/10.1000/example",
+                    "authorships": [{"author": {"display_name": "Alex Example"}}],
+                    "counts_by_year": [{"year": 2025, "cited_by_count": 17}],
+                    "primary_location": {
+                        "source": {"id": "https://openalex.org/S123"},
+                    },
+                }],
+            }
+
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
+    client = JournalClient()
+
+    rows = collect_open_citation_rows(manifest, client)
+
+    assert client.source_requests == [
+        "https://api.openalex.org/sources/S123?select=id%2Cdisplay_name%2Ctype%2Csummary_stats%2Cupdated_date"
+    ]
+    assert [row["journal_openalex_id"] for row in rows] == [
+        "https://openalex.org/S123",
+        "https://openalex.org/S123",
+    ]
+    assert [row["journal_two_year_mean_citedness"] for row in rows] == ["4.25", "4.25"]
+
+
+@pytest.mark.parametrize(
+    ("source", "metric"),
+    [
+        ({"id": "https://openalex.org/S123", "type": "repository"}, 4.25),
+        ({"id": "https://openalex.org/S123", "type": "journal"}, None),
+        ({"id": "https://openalex.org/S123", "type": "journal"}, -1),
+        ({"id": "https://openalex.org/S123", "type": "journal"}, "3.2"),
+        ({"id": "https://openalex.org/S123", "type": "journal"}, float("nan")),
+        ({"id": "https://openalex.org/S123", "type": "journal"}, float("inf")),
+        (None, 4.25),
+    ],
+)
+def test_openalex_keeps_matches_when_the_primary_source_cannot_supply_a_valid_journal_metric(
+    monkeypatch,
+    source,
+    metric,
+) -> None:
+    manifest = load_publication_manifest(FIXTURE.read_bytes(), expected=FIXTURE_COUNTS)
+
+    class JournalClient:
+        def get_json(self, url: str, *, allow_not_found: bool = False):
+            if "/sources/" in url:
+                return {
+                    "id": "https://openalex.org/S123",
+                    "display_name": "Example source",
+                    "type": source["type"] if source else "journal",
+                    "summary_stats": {"2yr_mean_citedness": metric},
+                    "updated_date": "2026-09-20",
+                }
+            candidate = {
+                "id": "https://openalex.org/W123",
+                "title": "A fixture publication",
+                "publication_year": 2025,
+                "cited_by_count": 17,
+                "doi": "https://doi.org/10.1000/example",
+                "authorships": [{"author": {"display_name": "Alex Example"}}],
+                "counts_by_year": [{"year": 2025, "cited_by_count": 17}],
+                "primary_location": {"source": source},
+            }
+            return {"results": [candidate]}
+
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    monkeypatch.setattr("app.importer.open_citation_collector.time.sleep", lambda _: None)
+
+    row = collect_open_citation_rows(manifest, JournalClient())[0]
+
+    assert row["citation_status"] == "OBSERVED"
+    assert row["journal_two_year_mean_citedness"] == ""
 
 
 def _work():
