@@ -11,7 +11,8 @@ import unicodedata
 from collections.abc import Sequence
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from io import StringIO
 from typing import Any
 from urllib.parse import urlparse
@@ -70,6 +71,7 @@ _MATCH_METHODS = {
     "NO_CONFIDENT_MATCH",
 }
 _OPENALEX_ID_RE = re.compile(r"https://openalex\.org/W[0-9]+\Z")
+_OPENALEX_SOURCE_ID_RE = re.compile(r"https://openalex\.org/S[0-9]+\Z")
 _SEMANTIC_SCHOLAR_ID_RE = re.compile(r"[0-9a-f]{40}\Z")
 _NON_WORD_RE = re.compile(r"[^a-z0-9]+")
 
@@ -94,6 +96,12 @@ class OpenCitationReview:
     reviewer: str
     match_method: str
     annual_citation_counts: dict[str, int]
+    journal_openalex_id: str | None
+    journal_openalex_name: str | None
+    journal_source_type: str | None
+    journal_two_year_mean_citedness: float | None
+    journal_source_updated_date: str | None
+    journal_metric_observed_at_utc: str | None
     raw: dict[str, str]
 
 
@@ -131,6 +139,93 @@ def _utc_timestamp(value: str) -> str:
     return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds").replace(
         "+00:00", "Z"
     )
+
+
+def _journal_date(value: str, label: str, *, required: bool) -> str | None:
+    if not value:
+        if required:
+            raise OpenCitationImportError(f"{label} is missing or invalid.")
+        return None
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as error:
+        raise OpenCitationImportError(f"{label} is missing or invalid.") from error
+    if not 2000 <= parsed.year <= 2200 or parsed > datetime.now(timezone.utc).date():
+        raise OpenCitationImportError(f"{label} is missing or invalid.")
+    return parsed.isoformat()
+
+
+def _journal_timestamp(value: str, *, required: bool) -> str | None:
+    if not value:
+        if required:
+            raise OpenCitationImportError(
+                "journal_metric_observed_at_utc is missing or invalid."
+            )
+        return None
+    normalized = _utc_timestamp(value)
+    parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    if parsed > datetime.now(timezone.utc):
+        raise OpenCitationImportError(
+            "journal_metric_observed_at_utc is missing or invalid."
+        )
+    return normalized
+
+
+def _journal_evidence(
+    row: dict[str, str],
+    *,
+    source: str,
+    status: str,
+) -> tuple[str | None, str | None, str | None, float | None, str | None, str | None]:
+    source_id = row.get("journal_openalex_id", "")
+    name = row.get("journal_openalex_name", "")
+    source_type = row.get("journal_source_type", "")
+    metric_text = row.get("journal_two_year_mean_citedness", "")
+    source_updated_date = row.get("journal_source_updated_date", "")
+    metric_observed_at = row.get("journal_metric_observed_at_utc", "")
+    values = (
+        source_id,
+        name,
+        source_type,
+        metric_text,
+        source_updated_date,
+        metric_observed_at,
+    )
+    if not any(values):
+        return None, None, None, None, None, None
+    if source != "OPENALEX" or status != "OBSERVED":
+        raise OpenCitationImportError(
+            "journal evidence is permitted only on observed OpenAlex rows."
+        )
+    source_id = _safe_text(source_id, "journal_openalex_id", 2048)
+    if not _OPENALEX_SOURCE_ID_RE.fullmatch(source_id):
+        raise OpenCitationImportError("journal_openalex_id is missing or invalid.")
+    name = _safe_text(name, "journal_openalex_name", 2000, required=False)
+    source_type = _safe_text(source_type, "journal_source_type", 100)
+    observed = _journal_timestamp(metric_observed_at, required=True)
+    updated = _journal_date(
+        source_updated_date,
+        "journal_source_updated_date",
+        required=bool(metric_text),
+    )
+    if not metric_text:
+        return source_id, name or None, source_type, None, updated, observed
+    try:
+        metric_decimal = Decimal(metric_text)
+    except (InvalidOperation, ValueError) as error:
+        raise OpenCitationImportError(
+            "journal_two_year_mean_citedness is missing or invalid."
+        ) from error
+    if (
+        source_type != "journal"
+        or not name
+        or not metric_decimal.is_finite()
+        or metric_decimal < 0
+    ):
+        raise OpenCitationImportError(
+            "journal_two_year_mean_citedness is missing or invalid."
+        )
+    return source_id, name, source_type, float(metric_decimal), updated, observed
 
 
 def _result_url(value: str, source_code: str) -> str:
@@ -221,7 +316,11 @@ def load_open_citation_reviews(
         ) from error
     reader = csv.DictReader(StringIO(text, newline=""))
     fields = tuple(reader.fieldnames or ())
-    if fields not in (OPEN_CITATION_FIELDS, LEGACY_OPEN_CITATION_FIELDS):
+    if fields not in (
+        OPEN_CITATION_FIELDS,
+        PRE_JOURNAL_OPEN_CITATION_FIELDS,
+        LEGACY_OPEN_CITATION_FIELDS,
+    ):
         raise OpenCitationImportError("The open citation snapshot has an unexpected schema.")
     work_by_id = {work.final_work_id: work for work in manifest.works}
     raw_by_work: dict[str, list[str]] = {}
@@ -351,6 +450,7 @@ def load_open_citation_reviews(
             work=work,
             raw_citation=" ".join(raw_by_work.get(work_id, ())),
         )
+        journal_evidence = _journal_evidence(row, source=source, status=status)
         reviews.append(
             OpenCitationReview(
                 work.workbook_applicant,
@@ -367,6 +467,7 @@ def load_open_citation_reviews(
                 _safe_text(row["reviewer"], "reviewer", 255),
                 match_method,
                 annual_counts,
+                *journal_evidence,
                 dict(row),
             )
         )
@@ -555,17 +656,32 @@ class SqlOpenCitationRepository:
                 ).fetchone()
                 if imported is None:
                     raise OpenCitationImportError("An open citation row could not be recorded.")
+                evidence_data: dict[str, Any] = {
+                    "match_method": review.match_method,
+                    "matched_doi": review.matched_doi or None,
+                    "matched_title": review.matched_title or None,
+                    "matched_authors": review.matched_authors or None,
+                    "result_url": review.result_url,
+                    "reviewer": review.reviewer,
+                    "source_identifier": review.source_identifier or None,
+                    "counts_by_year": review.annual_citation_counts,
+                }
+                if (
+                    review.source_code == "OPENALEX"
+                    and review.journal_openalex_id is not None
+                ):
+                    evidence_data.update(
+                        {
+                            "journal_openalex_id": review.journal_openalex_id,
+                            "journal_openalex_name": review.journal_openalex_name,
+                            "journal_source_type": review.journal_source_type,
+                            "journal_two_year_mean_citedness": review.journal_two_year_mean_citedness,
+                            "journal_source_updated_date": review.journal_source_updated_date,
+                            "journal_metric_observed_at_utc": review.journal_metric_observed_at_utc,
+                        }
+                    )
                 evidence = json.dumps(
-                    {
-                        "match_method": review.match_method,
-                        "matched_doi": review.matched_doi or None,
-                        "matched_title": review.matched_title or None,
-                        "matched_authors": review.matched_authors or None,
-                        "result_url": review.result_url,
-                        "reviewer": review.reviewer,
-                        "source_identifier": review.source_identifier or None,
-                        "counts_by_year": review.annual_citation_counts,
-                    },
+                    evidence_data,
                     ensure_ascii=False,
                     sort_keys=True,
                     separators=(",", ":"),

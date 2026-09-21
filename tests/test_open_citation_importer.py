@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from dataclasses import replace
 from io import StringIO
 from pathlib import Path
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from app.importer.open_citations import (
+    OPEN_CITATION_FIELDS,
     OpenCitationImportError,
     SqlOpenCitationRepository,
     load_open_citation_reviews,
@@ -22,25 +24,7 @@ from app.importer.run import ImportMode
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "import" / "publications-minimal.json"
 FIXTURE_COUNTS = ManifestCounts(1, 1, 2, 3)
-FIELDS = (
-    "applicant",
-    "final_work_id",
-    "doi",
-    "title",
-    "year",
-    "source_code",
-    "citation_status",
-    "citation_count",
-    "source_identifier",
-    "result_url",
-    "matched_doi",
-    "matched_title",
-    "matched_authors",
-    "observed_at_utc",
-    "reviewer",
-    "match_method",
-    "annual_citation_counts",
-)
+FIELDS = OPEN_CITATION_FIELDS
 
 
 def _manifest():
@@ -67,6 +51,12 @@ def _snapshot_bytes(**changes: str) -> bytes:
             "reviewer": "EHF open citation collector",
             "match_method": "DOI_EXACT",
             "annual_citation_counts": "{}",
+            "journal_openalex_id": "",
+            "journal_openalex_name": "",
+            "journal_source_type": "",
+            "journal_two_year_mean_citedness": "",
+            "journal_source_updated_date": "",
+            "journal_metric_observed_at_utc": "",
         },
     ]
     if "source_code" in changes:
@@ -79,6 +69,23 @@ def _snapshot_bytes(**changes: str) -> bytes:
     writer.writeheader()
     writer.writerows(rows)
     return output.getvalue().encode("utf-8-sig")
+
+
+def _openalex_journal_snapshot_bytes(**changes: str) -> bytes:
+    values = {
+        "source_code": "OPENALEX",
+        "source_identifier": "https://openalex.org/W123456789",
+        "result_url": "https://openalex.org/W123456789",
+        "matched_authors": "",
+        "journal_openalex_id": "https://openalex.org/S123",
+        "journal_openalex_name": "Example Journal",
+        "journal_source_type": "journal",
+        "journal_two_year_mean_citedness": "4.25",
+        "journal_source_updated_date": "2026-08-20",
+        "journal_metric_observed_at_utc": "2026-08-23T15:00:00Z",
+    }
+    values.update(changes)
+    return _snapshot_bytes(**values)
 
 
 def test_snapshot_requires_one_semantic_scholar_observation_per_work() -> None:
@@ -146,6 +153,77 @@ def test_openalex_doi_exact_observation_does_not_require_authors() -> None:
 
     assert reviews[0].match_method == "DOI_EXACT"
     assert reviews[0].matched_authors == ""
+
+
+def test_openalex_journal_evidence_is_validated_and_persisted_as_a_numeric_value() -> None:
+    review = load_open_citation_reviews(
+        _openalex_journal_snapshot_bytes(), _manifest()
+    )[0]
+
+    assert review.journal_openalex_id == "https://openalex.org/S123"
+    assert review.journal_two_year_mean_citedness == 4.25
+
+    connection = _Connection()
+    SqlOpenCitationRepository(connection).apply((review,), "e" * 64)
+    evidence = next(
+        json.loads(parameters[5])
+        for statement, parameters in connection.executed
+        if "INSERT dbo.PublicationCitationObservation" in statement
+    )
+
+    assert evidence == {
+        "counts_by_year": {},
+        "journal_openalex_id": "https://openalex.org/S123",
+        "journal_openalex_name": "Example Journal",
+        "journal_source_type": "journal",
+        "journal_two_year_mean_citedness": 4.25,
+        "journal_source_updated_date": "2026-08-20",
+        "journal_metric_observed_at_utc": "2026-08-23T15:00:00.000000Z",
+        "match_method": "DOI_EXACT",
+        "matched_authors": None,
+        "matched_doi": "10.1000/example",
+        "matched_title": "A fixture publication",
+        "result_url": "https://openalex.org/W123456789",
+        "reviewer": "EHF open citation collector",
+        "source_identifier": "https://openalex.org/W123456789",
+    }
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    (
+        ({"journal_openalex_id": "https://openalex.org/W999"}, "journal"),
+        ({"journal_openalex_id": "http://openalex.org/S123"}, "journal"),
+        ({"journal_source_type": "repository"}, "journal"),
+        ({"journal_two_year_mean_citedness": "-1"}, "journal"),
+        ({"journal_two_year_mean_citedness": "NaN"}, "journal"),
+        ({"journal_two_year_mean_citedness": "Infinity"}, "journal"),
+        ({"journal_source_updated_date": "not-a-date"}, "journal"),
+        ({"journal_metric_observed_at_utc": "2200-01-01T00:00:00Z"}, "journal"),
+    ),
+)
+def test_openalex_journal_evidence_fails_closed_on_invalid_fields(
+    changes: dict[str, str], message: str
+) -> None:
+    with pytest.raises(OpenCitationImportError, match=message):
+        load_open_citation_reviews(_openalex_journal_snapshot_bytes(**changes), _manifest())
+
+
+def test_not_found_openalex_rows_cannot_carry_journal_evidence() -> None:
+    with pytest.raises(OpenCitationImportError, match="journal"):
+        load_open_citation_reviews(
+            _openalex_journal_snapshot_bytes(
+                citation_status="NOT_FOUND",
+                citation_count="",
+                source_identifier="",
+                result_url="https://api.openalex.org/works",
+                matched_doi="",
+                matched_title="",
+                matched_authors="",
+                match_method="NO_CONFIDENT_MATCH",
+            ),
+            _manifest(),
+        )
 
 
 @pytest.mark.parametrize(

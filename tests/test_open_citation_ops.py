@@ -88,6 +88,12 @@ def test_import_wrapper_protects_private_snapshot_and_verifier_requires_openalex
         "observation.ImportRunId=?",
         "EHF_INVITATIONS_ENABLED=false",
         "EHF_PRODUCTION_MAIL_ENABLED=false",
+        "Journal-source publications:",
+        "Valid OpenAlex 2-year journal citedness:",
+        "Journal citedness N/A:",
+        "Missing publication year:",
+        "Invalid or non-journal sources:",
+        "Latest journal observation:",
     ):
         assert fragment in verifier
     for obsolete_requirement in (
