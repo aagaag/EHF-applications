@@ -50,6 +50,8 @@ REQUIRED_RELEASE_FILES = (
     "app/importer/open_citation_collector.py",
     "app/importer/collect_open_citations.py",
     "app/importer/run_open_citations.py",
+    "app/importer/review_artifacts.py",
+    "app/importer/run_review_artifacts.py",
     "app/requirements.txt",
     "app/requirements-dev.txt",
     "infra/ehf.service",
