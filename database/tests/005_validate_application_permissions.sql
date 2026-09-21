@@ -23,6 +23,10 @@ IF OBJECT_ID(N'dbo.GetInternalApplicantDocument', N'P') IS NULL
     THROW 51522, 'The internal document-read procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.RecordInternalDocumentAccessOutcome', N'P') IS NULL
     THROW 51523, 'The internal document-audit procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.ListInternalReviewArtifacts', N'P') IS NULL
+    THROW 51525, 'The internal review-artifact list procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.GetInternalReviewArtifact', N'P') IS NULL
+    THROW 51526, 'The internal review-artifact read procedure is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'EHFApplicationRuntime') IS NULL
     THROW 51503, 'The EHF runtime role is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'ehf_app') IS NULL
@@ -38,6 +42,7 @@ INSERT @ApprovedProcedures VALUES
     (N'RecordReportExportAudit'),
     (N'ListInternalApplicantDocuments'), (N'GetInternalApplicantDocument'),
     (N'RecordInternalDocumentAccessOutcome'),
+    (N'ListInternalReviewArtifacts'), (N'GetInternalReviewArtifact'),
     (N'SaveApplicantSectionDraft'), (N'ConfirmApplicantSection'),
     (N'SubmitApplicantFinalConfirmation'), (N'GetApplicantFacingApplication'),
     (N'ValidateApplicantUploadSlot'), (N'GetApplicantDocumentSlots'),
@@ -78,7 +83,8 @@ INSERT @ProtectedTables VALUES
     (N'ApplicantFinalReviewDecision'), (N'ApplicantDocumentReviewDecision'),
     (N'ApplicationPublication'), (N'ApplicationPublicationSourceOccurrence'),
     (N'ApplicationPublicationReview'), (N'PublicationMetadataObservation'),
-    (N'PublicationCitationObservation'), (N'CitationMetricCutoffRun');
+    (N'PublicationCitationObservation'), (N'CitationMetricCutoffRun'),
+    (N'InternalReviewArtifactProvenance');
 DECLARE @RequiredDmlDenies TABLE (TableName sysname NOT NULL, PermissionName sysname NOT NULL, PRIMARY KEY (TableName, PermissionName));
 INSERT @RequiredDmlDenies
 SELECT TableName, PermissionName

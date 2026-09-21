@@ -27,6 +27,12 @@ REQUIRED_SLOT_CODES = (
     "FUTURE_UZH_EMPLOYMENT_PROOF",
 )
 
+REVIEW_ARTIFACT_SLOT_CODES = {
+    "application": "REVIEW-ARTIFACT-APPLICATION",
+    "curriculum": "REVIEW-ARTIFACT-CURRICULUM",
+    "publications": "REVIEW-ARTIFACT-PUBLICATIONS",
+}
+
 
 class DocumentUnavailable(RuntimeError):
     pass
@@ -85,6 +91,12 @@ class InternalDocumentSummary:
     label: str
     version_number: int
     status: str
+
+
+@dataclass(frozen=True, slots=True)
+class InternalReviewArtifactSummary:
+    category: str
+    version_id: UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,6 +287,17 @@ class DocumentSlotRepository:
                 return None
         return None
 
+    def internal_review_artifacts(
+        self, application_id: UUID
+    ) -> tuple[InternalReviewArtifactSummary, ...]:
+        categories_by_code = {code: category for category, code in REVIEW_ARTIFACT_SLOT_CODES.items()}
+        artifacts: list[InternalReviewArtifactSummary] = []
+        for slot, version in self.internal_documents(application_id):
+            category = categories_by_code.get(slot.code)
+            if category is not None:
+                artifacts.append(InternalReviewArtifactSummary(category, version.version_id))
+        return tuple(artifacts)
+
     def accept(self, version_id: UUID, actor: str) -> ApplicantDocumentVersion:
         if not actor.strip():
             raise ValueError("reviewing actor is required")
@@ -437,6 +460,41 @@ class ApplicantDocumentService:
             for slot, version in self._repository.internal_documents(application_id)
         )
 
+    def internal_review_artifacts(
+        self, application_id: UUID, *, actor: str, actor_group: str
+    ) -> tuple[InternalReviewArtifactSummary, ...]:
+        _authorize_internal_document_access(actor, actor_group)
+        return self._repository.internal_review_artifacts(application_id)
+
+    def internal_review_artifact(
+        self,
+        application_id: UUID,
+        category: str,
+        *,
+        actor: str,
+        actor_group: str,
+    ) -> bytes | None:
+        normalized = _review_artifact_category(category)
+        summary = next(
+            (
+                item
+                for item in self.internal_review_artifacts(
+                    application_id, actor=actor, actor_group=actor_group
+                )
+                if item.category == normalized
+            ),
+            None,
+        )
+        if summary is None:
+            return None
+        return self.internal_download(
+            application_id,
+            summary.version_id,
+            actor=actor,
+            actor_group=actor_group,
+            purpose="VIEW",
+        )
+
     def internal_download(
         self,
         application_id: UUID,
@@ -506,3 +564,10 @@ def _safe_applicant_slot(slot: ApplicantDocumentSlot) -> bool:
 def _authorize_internal_document_access(actor: str, actor_group: str) -> None:
     if actor_group not in {"EHF-Administrators", "EHF-Trustees"} or not actor.strip():
         raise PermissionError("Administrator or trustee authorization is required.")
+
+
+def _review_artifact_category(category: str) -> str:
+    normalized = category.strip().lower()
+    if normalized not in REVIEW_ARTIFACT_SLOT_CODES:
+        raise ValueError("A valid review-artifact category is required.")
+    return normalized

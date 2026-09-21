@@ -313,6 +313,46 @@ def test_internal_document_repository_uses_role_checked_procedures_and_maps_bind
     assert outcome_connection.commits == 1
 
 
+def test_internal_review_artifact_repository_uses_category_scoped_procedures() -> None:
+    """Break caught: SQL-backed artifact buttons could resolve arbitrary document versions."""
+    version_id = UUID("92000000-0000-4000-8000-000000000015")
+    document_id = UUID("92000000-0000-4000-8000-000000000016")
+    object_id = UUID("92000000-0000-4000-8000-000000000017")
+    list_connection = Connection([("APPLICATION", str(version_id))])
+    artifact_connection = Connection([(
+        str(APPLICATION_A), str(document_id), str(version_id), str(object_id),
+        "1" * 32, 1, 1, b"n" * 12, b"p" * 32, b"c" * 32, 321,
+    )])
+    available = iter((list_connection, artifact_connection))
+
+    @contextmanager
+    def connections():
+        yield next(available)
+
+    repository = SqlApplicantDocumentRepository(connections, ApplicantSqlSessionScope())
+    listed = repository.internal_review_artifacts(
+        APPLICATION_A, actor="cloudflare:reviewer", actor_group="EHF-Trustees"
+    )
+    record = repository.internal_review_artifact_record(
+        APPLICATION_A, "application",
+        actor="cloudflare:reviewer", actor_group="EHF-Trustees",
+    )
+
+    assert [(item.category, item.version_id) for item in listed] == [
+        ("application", version_id)
+    ]
+    assert record is not None and record[1].version_id == version_id
+    assert "ListInternalReviewArtifacts" in list_connection.cursor.calls[0][0]
+    assert list_connection.cursor.calls[0][1] == (
+        APPLICATION_A, "cloudflare:reviewer", "EHF-Trustees"
+    )
+    assert "GetInternalReviewArtifact" in artifact_connection.cursor.calls[0][0]
+    assert artifact_connection.cursor.calls[0][1] == (
+        APPLICATION_A, "APPLICATION", "cloudflare:reviewer", "EHF-Trustees"
+    )
+    assert artifact_connection.commits == 1
+
+
 def test_sql_internal_document_service_records_decryption_outcome() -> None:
     """Break caught: database-backed viewing could decrypt without a success/failure audit."""
     version_id = UUID("92000000-0000-4000-8000-000000000022")

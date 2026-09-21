@@ -25,6 +25,8 @@ from app.applicant.documents import (
     ApplicantDocumentSlot,
     ApplicantDocumentVersion,
     InternalDocumentSummary,
+    InternalReviewArtifactSummary,
+    _review_artifact_category,
     DocumentAlreadySubmitted,
     DocumentScannerUnavailable,
     DocumentUnavailable,
@@ -619,6 +621,53 @@ class SqlApplicantDocumentRepository:
             bytes(row[9]), int(row[10])
         ), binding
 
+    def internal_review_artifacts(
+        self, application_id: UUID, *, actor: str, actor_group: str
+    ) -> tuple[InternalReviewArtifactSummary, ...]:
+        _require_internal_document_actor(actor, actor_group)
+        with self._connections() as connection:
+            rows = connection.execute(
+                "EXEC dbo.ListInternalReviewArtifacts "
+                "@ApplicationId=?, @ActorIdentity=?, @ActorGroup=?",
+                application_id,
+                actor.strip(),
+                actor_group,
+            ).fetchall()
+        return tuple(
+            InternalReviewArtifactSummary(str(row[0]).lower(), UUID(str(row[1])))
+            for row in rows
+        )
+
+    def internal_review_artifact_record(
+        self,
+        application_id: UUID,
+        category: str,
+        *,
+        actor: str,
+        actor_group: str,
+    ) -> tuple[StoredObjectRecord, ObjectBinding] | None:
+        normalized = _review_artifact_category(category)
+        _require_internal_document_actor(actor, actor_group)
+        with self._connections() as connection:
+            row = connection.execute(
+                "EXEC dbo.GetInternalReviewArtifact "
+                "@ApplicationId=?, @Category=?, @ActorIdentity=?, @ActorGroup=?",
+                application_id,
+                normalized.upper(),
+                actor.strip(),
+                actor_group,
+            ).fetchone()
+            connection.commit()
+        if row is None or UUID(str(row[0])) != application_id:
+            return None
+        binding = ObjectBinding(
+            UUID(str(row[0])), UUID(str(row[1])), UUID(str(row[2])), UUID(str(row[3]))
+        )
+        return StoredObjectRecord(
+            str(row[4]), int(row[5]), int(row[6]), bytes(row[7]), bytes(row[8]),
+            bytes(row[9]), int(row[10])
+        ), binding
+
     def record_internal_access_outcome(
         self,
         application_id: UUID,
@@ -892,6 +941,53 @@ class SqlApplicantDocumentService:
             actor=actor,
             actor_group=actor_group,
             purpose=purpose,
+            outcome="SUCCEEDED",
+        )
+        return payload
+
+    def internal_review_artifacts(
+        self, application_id: UUID, *, actor: str, actor_group: str
+    ) -> tuple[InternalReviewArtifactSummary, ...]:
+        return self._repository.internal_review_artifacts(
+            application_id, actor=actor, actor_group=actor_group
+        )
+
+    def internal_review_artifact(
+        self,
+        application_id: UUID,
+        category: str,
+        *,
+        actor: str,
+        actor_group: str,
+    ) -> bytes | None:
+        normalized = _review_artifact_category(category)
+        item = self._repository.internal_review_artifact_record(
+            application_id,
+            normalized,
+            actor=actor,
+            actor_group=actor_group,
+        )
+        if item is None:
+            return None
+        record, binding = item
+        try:
+            payload = self._object_store.decrypt_bytes(record, binding)
+        except DocumentStoreError:
+            self._repository.record_internal_access_outcome(
+                application_id,
+                binding.version_id,
+                actor=actor,
+                actor_group=actor_group,
+                purpose="VIEW",
+                outcome="FAILED",
+            )
+            return None
+        self._repository.record_internal_access_outcome(
+            application_id,
+            binding.version_id,
+            actor=actor,
+            actor_group=actor_group,
+            purpose="VIEW",
             outcome="SUCCEEDED",
         )
         return payload

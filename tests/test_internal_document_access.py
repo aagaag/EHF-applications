@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import os
+import pytest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
@@ -12,7 +13,11 @@ from fastapi.testclient import TestClient
 from pypdf import PdfReader, PdfWriter
 
 from app.applicant.approval import ApplicantApprovalService
-from app.applicant.documents import ApplicantDocumentService, DocumentSlotRepository
+from app.applicant.documents import (
+    ApplicantDocumentService,
+    DocumentSlotRepository,
+    REVIEW_ARTIFACT_SLOT_CODES,
+)
 from app.auth.applicant import ApplicantSessionContext
 from app.config import Settings
 from app.documents.keys import load_keyring
@@ -196,6 +201,82 @@ def test_internal_document_routes_offer_view_download_and_package_with_neutral_d
     assert guessed.json() == {"message": "The document is unavailable."}
 
 
+def test_internal_review_artifact_is_category_scoped_allowlisted_and_audited(
+    tmp_path: Path,
+) -> None:
+    """Break caught: a category button could expose a full dossier or an arbitrary document."""
+    service, _slot, _version, _other_version = _service(tmp_path)
+    repository = service._repository
+    source = tmp_path / "source.pdf"
+    artifact_pdf = _pdf() + b"\n% reviewed artifact\n"
+    source.write_bytes(artifact_pdf)
+    artifact_slot = repository.add_slot(
+        APPLICATION_A,
+        REVIEW_ARTIFACT_SLOT_CODES["application"],
+        "Reviewed fellowship application",
+        required=False,
+        document_type="RESEARCH_PLAN",
+    )
+    artifact_slot = repository.open_slot(
+        APPLICATION_A, artifact_slot.slot_id, "MISSING", "admin", "Reviewed extraction"
+    )
+    artifact_version = service.upload(
+        _session(APPLICATION_A), artifact_slot.slot_id, artifact_slot.row_version,
+        source, "application.pdf", "application/pdf",
+    )
+    repository.accept(artifact_version.version_id, "admin")
+
+    listed = service.internal_review_artifacts(
+        APPLICATION_A, actor="cloudflare:reviewer", actor_group=INTERNAL_GROUPS.trustees
+    )
+    payload = service.internal_review_artifact(
+        APPLICATION_A, "application",
+        actor="cloudflare:reviewer", actor_group=INTERNAL_GROUPS.trustees,
+    )
+
+    assert [(item.category, item.version_id) for item in listed] == [
+        ("application", artifact_version.version_id)
+    ]
+    assert payload == artifact_pdf
+    assert [(event.purpose, event.outcome) for event in service.access_events[-2:]] == [
+        ("VIEW", "REQUESTED"),
+        ("VIEW", "SUCCEEDED"),
+    ]
+    with pytest.raises(ValueError, match="category"):
+        service.internal_review_artifact(
+            APPLICATION_A, "recommendations",
+            actor="cloudflare:reviewer", actor_group=INTERNAL_GROUPS.trustees,
+        )
+
+
+def test_internal_review_artifact_route_lists_availability_and_serves_only_category_pdf(
+    tmp_path: Path,
+) -> None:
+    """Break caught: modal links could embed a package or expose a non-allowlisted category."""
+    service, _slot, _version, _other_version = _service(tmp_path)
+    application = create_app(
+        Settings.from_environment({}),
+        readiness_checks=ReadinessChecks(lambda _timeout: None, lambda _timeout: None),
+        identity_resolver=lambda _request: _identity(INTERNAL_GROUPS.administrators),
+        applicant_approval_service=ApplicantApprovalService(),
+        applicant_document_service=service,
+    )
+    with TestClient(application, base_url="https://localhost") as client:
+        listing = client.get(f"/api/internal/applicants/{APPLICATION_A}/review-artifacts")
+        missing = client.get(
+            f"/api/internal/applicants/{APPLICATION_A}/review-artifacts/application/view"
+        )
+        rejected = client.get(
+            f"/api/internal/applicants/{APPLICATION_A}/review-artifacts/recommendations/view"
+        )
+
+    assert listing.status_code == 200
+    assert listing.json() == {"available": []}
+    assert missing.status_code == 404
+    assert rejected.status_code == 404
+    assert missing.json() == rejected.json() == {"message": "The document is unavailable."}
+
+
 def test_internal_document_sql_release_is_procedure_only_scoped_and_audited() -> None:
     """Break caught: production access could expose recommendations or skip outcome audit."""
     migration = (
@@ -247,3 +328,30 @@ def test_document_access_audit_purpose_is_allowlisted_by_a_followup_release() ->
     assert "IsAuditPayloadKeyProhibited(N'purpose')" in validator
     assert "IsAuditPayloadKeyProhibited(N'email')" in validator
     assert "PASS 027 internal document audit payload" in validator
+
+
+def test_internal_review_artifact_sql_release_is_append_only_and_procedure_scoped() -> None:
+    """Break caught: derived PDFs could lose provenance or become directly queryable by runtime."""
+    migration = (
+        ROOT / "database" / "migrations" / "033_internal_review_artifacts.sql"
+    ).read_text(encoding="utf-8")
+    validator = (
+        ROOT / "database" / "tests" / "033_validate_internal_review_artifacts.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "CREATE TABLE dbo.InternalReviewArtifactProvenance" in migration
+    assert "CREATE TRIGGER dbo.TR_InternalReviewArtifactProvenance_AppendOnly" in migration
+    assert "INSTEAD OF UPDATE, DELETE" in migration
+    for category in ("APPLICATION", "CURRICULUM", "PUBLICATIONS"):
+        assert category in migration
+    for procedure in ("ListInternalReviewArtifacts", "GetInternalReviewArtifact"):
+        assert f"PROCEDURE dbo.{procedure}" in migration
+        assert f"GRANT EXECUTE ON dbo.{procedure} TO EHFApplicationRuntime" in migration
+    assert (
+        "DENY SELECT, INSERT, UPDATE, DELETE ON dbo.InternalReviewArtifactProvenance "
+        "TO EHFApplicationRuntime"
+    ) in migration
+    assert "DocumentType <> ''RECOMMENDATION_LETTER''" in migration
+    assert "SourcePlaintextSha256 binary(32) NOT NULL" in migration
+    assert "FirstPage int NOT NULL" in migration and "LastPage int NOT NULL" in migration
+    assert "PASS 033 internal review artifacts" in validator

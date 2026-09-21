@@ -257,6 +257,46 @@ def register_internal_approval_routes(
             )
         )
 
+    @application.get("/api/internal/applicants/{application_id}/review-artifacts")
+    def internal_review_artifacts(
+        application_id: UUID, request: Request
+    ) -> JSONResponse:
+        principal = authenticated(request)
+        group = _reviewer_group(principal)
+        if documents is None:
+            return JSONResponse({"available": []})
+        items = documents.internal_review_artifacts(
+            application_id, actor=principal.identity.key, actor_group=group
+        )
+        return JSONResponse({"available": [item.category for item in items]})
+
+    @application.get(
+        "/api/internal/applicants/{application_id}/review-artifacts/{category}/view"
+    )
+    def view_internal_review_artifact(
+        application_id: UUID, category: str, request: Request
+    ) -> Response:
+        principal = authenticated(request)
+        group = _reviewer_group(principal)
+        if documents is None:
+            return _internal_document_unavailable()
+        try:
+            payload = documents.internal_review_artifact(
+                application_id,
+                category,
+                actor=principal.identity.key,
+                actor_group=group,
+            )
+        except ValueError:
+            return _internal_document_unavailable()
+        if payload is None:
+            return _internal_document_unavailable()
+        return pdf_response(
+            payload,
+            disposition="inline",
+            filename=f"{category.lower()}-review.pdf",
+        )
+
     @application.get("/api/internal/applicants/{application_id}/documents/package/view")
     def view_internal_applicant_package(
         application_id: UUID, request: Request

@@ -80,8 +80,8 @@ Commit subject: `feat: extract reviewed applicant PDF sections`
 ### Task 2: Artifact schema, repository, and secure route
 
 **Files:**
-- Create: `database/migrations/032_internal_review_artifacts.sql`
-- Create: `database/tests/032_validate_internal_review_artifacts.sql`
+- Create: `database/migrations/033_internal_review_artifacts.sql`
+- Create: `database/tests/033_validate_internal_review_artifacts.sql`
 - Modify: `app/applicant/documents.py`
 - Modify: `app/applicant/sql_pilot.py`
 - Modify: `app/routes/internal_approval.py`
@@ -96,12 +96,12 @@ Commit subject: `feat: extract reviewed applicant PDF sections`
 
 - [ ] **Step 1: Write failing schema and service tests**
 
-Assert an append-only provenance table, category/source/page constraints, runtime direct-table denial, execute grants, strict category allowlisting, 404 for missing artifacts, and requested/succeeded/failed audit outcomes.
+Assert an append-only provenance table, category/source/page constraints, runtime direct-table denial, execute grants, strict category allowlisting, 404 for missing artifacts, and requested/succeeded/failed audit outcomes. Release number 033 follows the existing cutoff-permission release 032.
 
 - [ ] **Step 2: Run tests to verify RED**
 
 Run: `python -m pytest tests/test_internal_document_access.py tests/test_pilot_sql_repositories.py tests/test_sql_permissions.py tests/test_applicant_schema.py -q`
-Expected: FAIL because migration 032, repository methods, and route are missing.
+Expected: FAIL because migration 033, repository methods, and route are missing.
 
 - [ ] **Step 3: Implement schema and access path**
 
@@ -207,11 +207,11 @@ Expected: PASS with no warnings attributable to this change.
 
 - [ ] **Step 2: Run production preflight and database validation**
 
-Run the repository verification scripts, migration tests through 032, and the review-artifact importer in plan mode. Expected: all checks PASS and source hashes unchanged.
+Run the repository verification scripts, migration tests through 033, and the review-artifact importer in plan mode. Expected: all checks PASS and source hashes unchanged.
 
 - [ ] **Step 3: Deploy atomically**
 
-Push `main`, deploy the exact pushed commit with `scripts/deploy-ehf.ps1`, apply migration 032, import the private reviewed artifacts, then switch the active release only after health checks pass.
+Push `main`, deploy the exact pushed commit with `scripts/deploy-ehf.ps1`, apply migration 033, import the private reviewed artifacts, then switch the active release only after health checks pass.
 
 - [ ] **Step 4: Verify production behaviour**
 
