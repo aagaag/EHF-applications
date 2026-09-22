@@ -107,6 +107,7 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/044_call_navigation_preferences.sql",
     "database/migrations/045_fix_call_navigation_preference_insert.sql",
     "database/migrations/046_fix_call_navigation_audit_payload.sql",
+    "database/migrations/047_decouple_publication_disposition.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -153,6 +154,7 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/044_validate_call_navigation_preferences.sql",
     "database/tests/045_validate_call_navigation_preference_insert.sql",
     "database/tests/046_validate_call_navigation_audit_payload.sql",
+    "database/tests/047_validate_decoupled_publication_disposition.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",

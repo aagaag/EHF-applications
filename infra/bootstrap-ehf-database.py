@@ -154,6 +154,7 @@ def run_validators(connection) -> None:
         "044_validate_call_navigation_preferences.sql",
         "045_validate_call_navigation_preference_insert.sql",
         "046_validate_call_navigation_audit_payload.sql",
+        "047_validate_decoupled_publication_disposition.sql",
     ]:
         raise BootstrapError("The EHF validator set is incomplete or unexpected.")
     try:

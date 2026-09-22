@@ -105,6 +105,7 @@ MIGRATIONS = {
     "044_call_navigation_preferences.sql": (44, "call_navigation_preferences"),
     "045_fix_call_navigation_preference_insert.sql": (45, "fix_call_navigation_preference_insert"),
     "046_fix_call_navigation_audit_payload.sql": (46, "fix_call_navigation_audit_payload"),
+    "047_decouple_publication_disposition.sql": (47, "decouple_publication_disposition"),
 }
 COMMANDS = (
     "inspect-production",
@@ -175,6 +176,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "044_validate_call_navigation_preferences.sql",
         "045_validate_call_navigation_preference_insert.sql",
         "046_validate_call_navigation_audit_payload.sql",
+        "047_validate_decoupled_publication_disposition.sql",
     }
 )
 
