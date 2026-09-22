@@ -1289,6 +1289,9 @@ def test_multi_call_foundation_exposes_call_ownership_and_authorized_catalog_con
         "ehf-standard-v1",
     ):
         assert fragment in migration
+    assert "EXEC(N'\nUPDATE dbo.FellowshipCall" in migration
+    foundation = migration.split("CREATE TABLE dbo.FellowshipCallGroupGrant", 1)[0]
+    assert foundation.count("EXEC(N'") == 2
 
 
 def test_verified_h_index_migration_ranks_each_papers_cutoff_citations() -> None:

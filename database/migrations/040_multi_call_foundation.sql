@@ -14,32 +14,33 @@ ALTER TABLE dbo.FellowshipCall ADD
     InvitationsEnabled bit NULL,
     AnalysisProfileCode varchar(40) NULL;
 
+EXEC(N'
 UPDATE dbo.FellowshipCall
-SET PublicSlug = LOWER(REPLACE(CallCode, N' ', N'-')),
+SET PublicSlug = LOWER(REPLACE(CallCode, N'' '', N''-'')),
     CompactTitle = LEFT(DisplayName, 120),
-    ApplicantReviewStatus = CASE WHEN CallCode = N'EHF-2026' THEN 'OPEN' ELSE 'DISABLED' END,
-    InternalSelectionStatus = CASE WHEN CallCode = N'EHF-2026' THEN 'OPEN' ELSE 'DISABLED' END,
+    ApplicantReviewStatus = CASE WHEN CallCode = N''EHF-2026'' THEN ''OPEN'' ELSE ''DISABLED'' END,
+    InternalSelectionStatus = CASE WHEN CallCode = N''EHF-2026'' THEN ''OPEN'' ELSE ''DISABLED'' END,
     InvitationsEnabled = 0,
-    AnalysisProfileCode = 'ehf-standard-v1'
+    AnalysisProfileCode = ''ehf-standard-v1''
 WHERE PublicSlug IS NULL;
 
 UPDATE dbo.FellowshipCall
-SET PublicSlug = 'ehf-2026', CompactTitle = LEFT(DisplayName, 120),
-    ApplicantReviewStatus = 'OPEN', InternalSelectionStatus = 'OPEN',
-    InvitationsEnabled = 0, AnalysisProfileCode = 'ehf-standard-v1'
-WHERE CallCode = N'EHF-2026';
+SET PublicSlug = ''ehf-2026'', CompactTitle = LEFT(DisplayName, 120),
+    ApplicantReviewStatus = ''OPEN'', InternalSelectionStatus = ''OPEN'',
+    InvitationsEnabled = 0, AnalysisProfileCode = ''ehf-standard-v1''
+WHERE CallCode = N''EHF-2026'';
 
 IF EXISTS
 (
     SELECT 1 FROM dbo.FellowshipCall
     WHERE PublicSlug IS NULL
-       OR PublicSlug COLLATE Latin1_General_100_BIN2 LIKE '%[^a-z0-9-]%'
+       OR PublicSlug COLLATE Latin1_General_100_BIN2 LIKE ''%[^a-z0-9-]%''
        OR LEN(PublicSlug) NOT BETWEEN 3 AND 80
-       OR PublicSlug LIKE '-%' OR PublicSlug LIKE '%-' OR PublicSlug LIKE '%--%'
+       OR PublicSlug LIKE ''-%'' OR PublicSlug LIKE ''%-'' OR PublicSlug LIKE ''%--%''
 )
-    THROW 54500, 'An existing fellowship call cannot be assigned a safe public slug.', 1;
+    THROW 54500, ''An existing fellowship call cannot be assigned a safe public slug.'', 1;
 IF EXISTS (SELECT 1 FROM dbo.FellowshipCall GROUP BY PublicSlug HAVING COUNT(*) > 1)
-    THROW 54501, 'Existing fellowship calls do not map uniquely to public slugs.', 1;
+    THROW 54501, ''Existing fellowship calls do not map uniquely to public slugs.'', 1;
 
 ALTER TABLE dbo.FellowshipCall ALTER COLUMN PublicSlug varchar(80) NOT NULL;
 ALTER TABLE dbo.FellowshipCall ALTER COLUMN CompactTitle nvarchar(120) NOT NULL;
@@ -50,17 +51,19 @@ ALTER TABLE dbo.FellowshipCall ALTER COLUMN AnalysisProfileCode varchar(40) NOT 
 ALTER TABLE dbo.FellowshipCall ADD
     CONSTRAINT UQ_FellowshipCall_PublicSlug UNIQUE (PublicSlug),
     CONSTRAINT CK_FellowshipCall_PublicSlug CHECK
-    (PublicSlug COLLATE Latin1_General_100_BIN2 NOT LIKE '%[^a-z0-9-]%'
+    (PublicSlug COLLATE Latin1_General_100_BIN2 NOT LIKE ''%[^a-z0-9-]%''
      AND LEN(PublicSlug) BETWEEN 3 AND 80
-     AND PublicSlug NOT LIKE '-%' AND PublicSlug NOT LIKE '%-' AND PublicSlug NOT LIKE '%--%'),
+     AND PublicSlug NOT LIKE ''-%'' AND PublicSlug NOT LIKE ''%-'' AND PublicSlug NOT LIKE ''%--%''),
     CONSTRAINT CK_FellowshipCall_ApplicantReviewStatus CHECK
-        (ApplicantReviewStatus IN ('DISABLED','OPEN','CLOSED')),
+        (ApplicantReviewStatus IN (''DISABLED'',''OPEN'',''CLOSED'')),
     CONSTRAINT CK_FellowshipCall_InternalSelectionStatus CHECK
-        (InternalSelectionStatus IN ('DISABLED','OPEN','LOCKED')),
+        (InternalSelectionStatus IN (''DISABLED'',''OPEN'',''LOCKED'')),
     CONSTRAINT CK_FellowshipCall_AnalysisProfileCode CHECK
-        (AnalysisProfileCode IN ('ehf-standard-v1'));
+        (AnalysisProfileCode IN (''ehf-standard-v1''));
+');
 
 ALTER TABLE dbo.Applicant ADD FellowshipCallId uniqueidentifier NULL;
+EXEC(N'
 IF EXISTS
 (
     SELECT application_row.ApplicantId
@@ -68,7 +71,7 @@ IF EXISTS
     GROUP BY application_row.ApplicantId
     HAVING COUNT(DISTINCT application_row.FellowshipCallId) > 1
 )
-    THROW 54502, 'An applicant is already linked to more than one fellowship call.', 1;
+    THROW 54502, ''An applicant is already linked to more than one fellowship call.'', 1;
 
 UPDATE applicant_row
 SET FellowshipCallId = application_row.FellowshipCallId
@@ -76,7 +79,7 @@ FROM dbo.Applicant AS applicant_row
 JOIN dbo.Application AS application_row ON application_row.ApplicantId = applicant_row.ApplicantId;
 
 IF EXISTS (SELECT 1 FROM dbo.Applicant WHERE FellowshipCallId IS NULL)
-    THROW 54503, 'Every applicant must belong to exactly one fellowship call.', 1;
+    THROW 54503, ''Every applicant must belong to exactly one fellowship call.'', 1;
 
 ALTER TABLE dbo.Applicant ALTER COLUMN FellowshipCallId uniqueidentifier NOT NULL;
 ALTER TABLE dbo.Applicant ADD
@@ -86,6 +89,7 @@ ALTER TABLE dbo.Applicant ADD
 ALTER TABLE dbo.Application ADD
     CONSTRAINT FK_Application_CallApplicant FOREIGN KEY (FellowshipCallId, ApplicantId)
         REFERENCES dbo.Applicant (FellowshipCallId, ApplicantId);
+');
 
 CREATE TABLE dbo.FellowshipCallGroupGrant
 (
