@@ -63,6 +63,7 @@ try:
             JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId
             JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId
             WHERE a.FellowshipCallId=?
+              AND o.SourceCode IN ('GOOGLE_SCHOLAR','BIORXIV','MEDRXIV')
         )
         SELECT COUNT(*) FROM latest WHERE row_number=1
     """, call_id).fetchone()[0]
@@ -122,14 +123,14 @@ try:
     print(f'Audited latest dispositions: {audited_published}/{audited_preprint}/{audited_preparation}/{audited_nonpublication}/{audited_pending}')
     print(f'Citation topology errors: {citation_topology_count}; metadata topology errors: {metadata_topology_count}; preprint status errors: {preprint_status_error_count}')
     print(f'bioRxiv unavailable/not-found/not-applicable: {biorxiv_unavailable}/{biorxiv_not_found}/{biorxiv_not_applicable}; medRxiv unavailable/not-found/not-applicable: {medrxiv_unavailable}/{medrxiv_not_found}/{medrxiv_not_applicable}')
-    if (applications != 36 or publications != 1049 or occurrences < 1669 or metadata < 1049
-            or citations != 3147 or doi_rows < 708
+    if (applications != 36 or publications != 1032 or occurrences < 1668 or metadata < 1032
+            or citations != 3096 or doi_rows < 708
             or citation_topology_count != 0 or metadata_topology_count != 0
             or source_type_error_count != 0
             or orphan_count != 0 or duplicate_doi_count != 0 or conflicts != 0
-            or audited_total != 1049 or audited_published != 705
+            or audited_total != 1032 or audited_published != 704
             or audited_preprint != 46 or audited_preparation != 9
-            or audited_nonpublication != 268 or audited_pending != 21):
+            or audited_nonpublication != 252 or audited_pending != 21):
         raise RuntimeError('publication import verification contract failed')
 finally:
     connection.close()

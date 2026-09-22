@@ -728,6 +728,22 @@ def test_master_degree_thesis_is_not_a_publication() -> None:
     assert classify_publication(parsed, section_status="PUBLISHED").disposition == "NON_PUBLICATION"
 
 
+def test_dphil_thesis_is_not_a_publication() -> None:
+    """Break caught: an Oxford DPhil thesis was counted as a published journal paper."""
+    parsed = ParsedPublication(
+        authors=("Example E",),
+        title="Engineering molecular RNA sensors",
+        journal="DPhil thesis, University of Oxford (2022, link)",
+        year=2022,
+        raw_citation=(
+            "Example E. Engineering molecular RNA sensors. "
+            "DPhil thesis, University of Oxford (2022, link)."
+        ),
+    )
+
+    assert classify_publication(parsed, section_status="PUBLISHED").disposition == "NON_PUBLICATION"
+
+
 def test_administrative_heading_is_not_a_credible_pending_paper_title() -> None:
     parsed = ParsedPublication(
         authors=("Example E",),

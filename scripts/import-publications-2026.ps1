@@ -97,12 +97,12 @@ fi
     $Rows = @(Import-Csv -LiteralPath $LocalQueueTemp -Encoding utf8)
     $ExpectedHeaders = @('applicant', 'final_work_id', 'doi', 'title', 'year', 'google_scholar_search_url', 'citation_status', 'citation_count', 'result_url', 'observed_at_utc', 'reviewer')
     $ActualHeaders = @($Rows[0].PSObject.Properties.Name)
-    if ($Rows.Count -ne 1049 -or ($ActualHeaders -join ',') -ne ($ExpectedHeaders -join ',')) {
+    if ($Rows.Count -ne 1048 -or ($ActualHeaders -join ',') -ne ($ExpectedHeaders -join ',')) {
         throw 'The retrieved Google Scholar review queue has an invalid row count or header.'
     }
     $WorkIds = @($Rows | ForEach-Object { $_.final_work_id })
     if (($WorkIds | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -ne 0 -or
-        ($WorkIds | Sort-Object -Unique).Count -ne 1049) {
+        ($WorkIds | Sort-Object -Unique).Count -ne 1048) {
         throw 'The retrieved Google Scholar review queue has missing or duplicate final_work_id values.'
     }
     if (Test-Path -LiteralPath $QueueFullPath -PathType Leaf) {

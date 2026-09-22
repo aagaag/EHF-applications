@@ -28,9 +28,9 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--apply", action="store_true")
     parser.add_argument("--sql-admin-credential-file", type=Path)
     parser.add_argument("--expected-applicants", type=int, default=36)
-    parser.add_argument("--expected-works", type=int, default=1049)
-    parser.add_argument("--expected-occurrences", type=int, default=1669)
-    parser.add_argument("--expected-citation-statuses", type=int, default=3147)
+    parser.add_argument("--expected-works", type=int, default=1048)
+    parser.add_argument("--expected-occurrences", type=int, default=1668)
+    parser.add_argument("--expected-citation-statuses", type=int, default=3144)
     return parser
 
 

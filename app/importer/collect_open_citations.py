@@ -36,9 +36,9 @@ def _parser() -> argparse.ArgumentParser:
         default="EHF-applications/2026.4 open-citation-collector",
     )
     parser.add_argument("--expected-applicants", type=int, default=36)
-    parser.add_argument("--expected-works", type=int, default=1049)
-    parser.add_argument("--expected-occurrences", type=int, default=1669)
-    parser.add_argument("--expected-citation-statuses", type=int, default=3147)
+    parser.add_argument("--expected-works", type=int, default=1048)
+    parser.add_argument("--expected-occurrences", type=int, default=1668)
+    parser.add_argument("--expected-citation-statuses", type=int, default=3144)
     return parser
 
 

@@ -56,7 +56,7 @@ Expected result: 36 imported applications, all 162 source occurrences accounted 
 
 ## Publication records
 
-Publication records use a separate manifest lane from the document import. The reviewed `publication-import-manifest.json` contains applicant-derived citations and must remain outside the repository. After the corpus-wide source-PDF re-extraction, the accepted contract is exactly 36 applicants, 1,049 application publication records, 1,669 dossier source occurrences, and 3,147 citation-source status observations. Historical malformed extraction rows remain immutable but carry explicit `NON_PUBLICATION` review decisions; corrected source records are append-only.
+Publication records use a separate manifest lane from the document import. The reviewed `publication-import-manifest.json` contains applicant-derived citations and must remain outside the repository. After the corpus-wide source-PDF re-extraction, the accepted contract is exactly 36 applicants, 1,048 manifest works, 1,668 dossier source occurrences, and 3,144 citation-source status observations. Exact duplicate evidence is retained in the manifest but collapses onto 1,032 canonical application-publication rows. Historical malformed extraction rows remain immutable but carry explicit `NON_PUBLICATION` review decisions; corrected source records are append-only.
 
 Rebuild the private reviewed manifest from every applicant PDF with the layout-aware parser before importing it. The command keeps PDFs, the manifest, and the audit outside the repository. `-ResolvePublicBibliography` sends only individual citation strings to Crossref, never applicant documents. GROBID is optional and restricted to a loopback URL.
 
@@ -117,7 +117,7 @@ powershell -NoProfile -File scripts\import-scholar-reviews-2026.ps1 `
   -Apply
 ```
 
-Verify that each of the 1,049 publications has a latest reviewed Scholar observation and that none remains pending:
+Verify that each of the 1,048 manifest works has a latest reviewed Scholar observation and that none remains pending:
 
 ```powershell
 powershell -NoProfile -File scripts\verify-scholar-reviews-2026.ps1 `
@@ -141,7 +141,7 @@ powershell -NoProfile -File scripts\collect-open-citations-2026.ps1 `
   -OutputPath 'C:\approved\open-citations-2026.csv'
 ```
 
-Validate the complete 1,049-row snapshot without a database write:
+Validate the complete 1,048-row snapshot without a database write:
 
 ```powershell
 powershell -NoProfile -File scripts\import-open-citations-2026.ps1 `

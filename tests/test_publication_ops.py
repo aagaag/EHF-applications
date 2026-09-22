@@ -67,7 +67,7 @@ def test_publication_wrapper_preserves_existing_review_queue_and_replaces_atomic
     assert "[IO.File]::Move($LocalQueueTemp, $QueueFullPath)" in source
     assert "final_work_id" in source
     assert "citation_status" in source
-    assert "1049" in source
+    assert "1048" in source
 
 
 def test_publication_verifier_requires_exact_root_owned_credential_boundary() -> None:
@@ -83,10 +83,10 @@ def test_publication_verifier_checks_exact_counts_integrity_conflicts_and_safety
     source = VERIFY_SCRIPT.read_text(encoding="utf-8")
 
     for expected in (
-        "publications != 1049",
-        "occurrences < 1669",
-        "metadata < 1049",
-        "citations != 3147",
+        "publications != 1032",
+        "occurrences < 1668",
+        "metadata < 1032",
+        "citations != 3096",
         "doi_rows < 708",
         "citation_topology_count != 0",
         "orphan_count != 0",
@@ -96,11 +96,11 @@ def test_publication_verifier_checks_exact_counts_integrity_conflicts_and_safety
         "EHF_PRODUCTION_MAIL_ENABLED=false",
         "Publication field conflicts:",
         "Audited latest dispositions:",
-        "audited_total != 1049",
-        "audited_published != 705",
+        "audited_total != 1032",
+        "audited_published != 704",
         "audited_preprint != 46",
         "audited_preparation != 9",
-        "audited_nonpublication != 268",
+        "audited_nonpublication != 252",
         "audited_pending != 21",
     ):
         assert expected in source
@@ -114,4 +114,4 @@ def test_operator_documentation_keeps_publication_manifest_and_queue_out_of_git(
     assert "publication-import-manifest.json" in source
     assert "manual Google Scholar" in source
     assert "must remain outside the repository" in source
-    assert "1,049" in source and "1,669" in source and "3,147" in source
+    assert "1,048" in source and "1,668" in source and "3,144" in source

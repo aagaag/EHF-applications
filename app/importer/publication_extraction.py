@@ -481,7 +481,7 @@ def classify_publication(
     """Classify bibliographic evidence separately from identifier resolution."""
     raw = _fold(publication.raw_citation)
     if re.search(
-        r"\b(?:(?:doctoral|phd|master'?s?|bachelor'?s?)\s+(?:degree\s+)?thesis|dissertation)\b",
+        r"\b(?:(?:doctoral|phd|d\.?\s*phil\.?|master'?s?|bachelor'?s?)\s+(?:degree\s+)?thesis|dissertation)\b",
         raw,
     ):
         return PublicationClassification("NON_PUBLICATION", 0.99, "explicit thesis or dissertation")

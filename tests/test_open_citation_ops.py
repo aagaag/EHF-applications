@@ -81,10 +81,10 @@ def test_import_wrapper_protects_private_snapshot_and_verifier_requires_openalex
     assert "-m app.importer.run_open_citations" in importer
     assert "The open citation snapshot must remain outside the repository." in importer
     for fragment in (
-        "source_rows != 1049",
+        "source_rows != 1048",
         "OPENALEX",
-        "openalex_rows != 1049",
-        "observation_rows != 1049",
+        "openalex_rows != 1048",
+        "observation_rows != 1048",
         "observation.ImportRunId=?",
         "EHF_INVITATIONS_ENABLED=false",
         "EHF_PRODUCTION_MAIL_ENABLED=false",
