@@ -847,7 +847,7 @@ def exercise_test_status(admin_connection, server: str, database: str, login: st
     cursor.execute("""
 DECLARE @CallId uniqueidentifier=NEWID(),@ApplicantId uniqueidentifier=NEWID(),@ApplicationId uniqueidentifier=NEWID();
 INSERT dbo.FellowshipCall (FellowshipCallId,CallCode,DisplayName,CallStatus,ApplicationDeadlineUtc) VALUES (@CallId,N'SQL-PERM-SYNTHETIC',N'Synthetic SQL permission fixture',N'OPEN',DATEADD(day,1,SYSUTCDATETIME()));
-INSERT dbo.Applicant (ApplicantId,LegalGivenNames,LegalFamilyName) VALUES (@ApplicantId,N'Synthetic',N'Validator');
+INSERT dbo.Applicant (ApplicantId,FellowshipCallId,LegalGivenNames,LegalFamilyName) VALUES (@ApplicantId,@CallId,N'Synthetic',N'Validator');
 INSERT dbo.Application (ApplicationId,FellowshipCallId,ApplicantId,ApplicationStatus) VALUES (@ApplicationId,@CallId,@ApplicantId,'DRAFT');
 SELECT @ApplicationId,RowVersion FROM dbo.Application WHERE ApplicationId=@ApplicationId;
 """)
