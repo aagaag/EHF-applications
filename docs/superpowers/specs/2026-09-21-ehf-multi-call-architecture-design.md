@@ -2,8 +2,8 @@
 
 ## Design specification
 
-Date: 21 September 2026<br>
-Status: Design approved in conversation; written specification awaiting review<br>
+Date: 21 September 2026; written specification approved 22 September 2026<br>
+Status: Approved by Adriano Aguzzi<br>
 Repository: `aagaag/EHF-applications`<br>
 Production hostname: `ehf.isab.science`
 
@@ -265,7 +265,9 @@ uses call-scoped counts and invariants rather than fixed global counts.
 
 ## 10. Migration and compatibility
 
-The change uses an additive expand/contract sequence after migration 038:
+The change uses an additive expand/contract sequence after the current migration
+tip. At approval time, migration 039 is the published-publication disposition
+fix, so multi-call schema work begins at migration 040:
 
 1. Add call registry fields, lifecycle gates, group grants, call-scoped
    applicant ownership, call-scoped identity/access fields, roster tables, and
