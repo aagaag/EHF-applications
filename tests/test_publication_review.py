@@ -166,6 +166,7 @@ def test_published_disposition_does_not_require_a_resolved_doi() -> None:
     assert "DOI resolution is independent of publication disposition" in migration
     assert "@ReviewDisposition='PUBLISHED'" in validator
     assert "ResolutionStatus='UNRESOLVED'" in validator
+    assert "Publication disposition validation" in validator
     assert "DOI-less published paper was omitted from the aggregate metrics" in validator
     assert "DOI-less published paper was omitted from applicant detail" in validator
     assert "PASS 047 decoupled publication disposition" in validator

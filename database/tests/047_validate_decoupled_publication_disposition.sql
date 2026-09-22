@@ -28,7 +28,13 @@ BEGIN TRY
             @PublishedId uniqueidentifier='47000000-0000-4000-8000-000000000005',
             @PendingId uniqueidentifier='47000000-0000-4000-8000-000000000006';
     IF @CallId IS NULL
-        THROW 54724, 'The EHF-2026 validation call is missing.', 1;
+    BEGIN
+        SET @CallId='47000000-0000-4000-8000-000000000001';
+        INSERT dbo.FellowshipCall
+            (FellowshipCallId,CallCode,DisplayName,CallStatus,ApplicationDeadlineUtc)
+        VALUES
+            (@CallId,N'EHF-2026',N'Publication disposition validation','DRAFT','2027-01-31');
+    END;
     INSERT dbo.Applicant (ApplicantId,FellowshipCallId,LegalGivenNames,LegalFamilyName)
     VALUES (@ApplicantId,@CallId,N'Synthetic',N'Disposition Validator');
     INSERT dbo.Application (ApplicationId,FellowshipCallId,ApplicantId,ApplicationStatus)
