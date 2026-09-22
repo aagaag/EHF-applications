@@ -291,9 +291,7 @@ def _integer(value: Any, label: str, *, nullable: bool = False) -> int | None:
     return value
 
 
-def _review_decision(
-    evidence: Mapping[str, Any], resolution_status: str
-) -> PublicationReviewDecision | None:
+def _review_decision(evidence: Mapping[str, Any]) -> PublicationReviewDecision | None:
     present = _REVIEW_EVIDENCE_KEYS.intersection(evidence)
     if not present:
         return None
@@ -308,10 +306,6 @@ def _review_decision(
         _bounded_text(evidence["review_reason"], "review_reason", 2000)
     )
     review_evidence = _mapping(evidence["review_evidence"], "review_evidence")
-    if disposition == "PUBLISHED" and resolution_status != "RESOLVED":
-        raise PublicationImportError(
-            "Only a resolved record may receive an explicit PUBLISHED review decision."
-        )
     return PublicationReviewDecision(disposition, reason, review_evidence)
 
 
@@ -519,8 +513,19 @@ def load_publication_manifest(
             status,
             str(_text(resolution_value["method"], "resolution method")),
             resolution_evidence,
-            _review_decision(resolution_evidence, status),
+            _review_decision(resolution_evidence),
         )
+        if resolution.review is not None and resolution.review.disposition == "PUBLISHED":
+            required_fields = (
+                metadata.authors_text,
+                metadata.title,
+                metadata.journal,
+                metadata.year,
+            )
+            if any(value is None or (isinstance(value, str) and not value.strip()) for value in required_fields):
+                raise PublicationImportError(
+                    "An explicit PUBLISHED decision requires authors, title, journal, and year bibliographic fields."
+                )
         if (status == "RESOLVED") != (doi is not None):
             raise PublicationImportError("Resolution status and DOI presence disagree.")
         work_id = _identifier(item["final_work_id"], "final_work_id", 80)

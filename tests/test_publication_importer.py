@@ -211,11 +211,54 @@ def test_explicit_review_decision_is_strictly_validated_in_plan_mode() -> None:
             },
         }
     )
-    with pytest.raises(PublicationImportError, match="resolved record.*PUBLISHED"):
+    with pytest.raises(PublicationImportError, match="PUBLISHED.*bibliographic fields"):
         load_publication_manifest(
             _rewritten(works=document["works"], summary=document["summary"]),
             expected=FIXTURE_COUNTS,
         )
+
+
+def test_source_verified_published_work_does_not_require_a_doi() -> None:
+    """Publication disposition is evidence-based, not a DOI lookup side effect."""
+    document = json.loads(_fixture_bytes())
+    work = document["works"][0]
+    work["canonical_metadata"]["doi"] = None
+    work["canonical_metadata"]["doi_url"] = None
+    work["resolution"] = {
+        "status": "UNRESOLVED",
+        "method": "LOCAL_LAYOUT_REFERENCE_PARSER",
+        "evidence": {
+            "review_disposition": "PUBLISHED",
+            "review_reason": "Applicant-authored journal paper verified from the source list.",
+            "review_evidence": {
+                "applicant_author": True,
+                "source_page": 4,
+                "title": True,
+                "venue": True,
+                "year": True,
+            },
+        },
+    }
+    document["summary"].update(
+        {
+            "resolved_doi_work_total": 0,
+            "exact_crossref_resolved_work_total": 0,
+            "unresolved_work_total": 1,
+        }
+    )
+    document["summary"]["metadata_completeness"].update(
+        {"doi": 0, "doi_url": 0, "fully_complete_canonical_records": 0}
+    )
+
+    manifest = load_publication_manifest(
+        _rewritten(works=document["works"], summary=document["summary"]),
+        expected=FIXTURE_COUNTS,
+    )
+
+    assert manifest.works[0].canonical_metadata.doi is None
+    assert manifest.works[0].resolution.status == "UNRESOLVED"
+    assert manifest.works[0].resolution.review is not None
+    assert manifest.works[0].resolution.review.disposition == "PUBLISHED"
 
 
 @pytest.mark.parametrize(
