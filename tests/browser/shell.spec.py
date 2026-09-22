@@ -620,6 +620,86 @@ def test_modal_publication_citations_sort_numerically_with_missing_values_last()
             browser.close()
 
 
+def test_modal_publication_filter_shows_only_first_and_last_author_rows() -> None:
+    """Break caught: the author filter could leave middle-author publications visible."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import expect, sync_playwright
+
+    from app.applicant_detail import ApplicantDetail, Publication, render_applicant_detail
+    from app.identity import AuthenticatedIdentity
+    from app.internal_preview import PreviewApplicantMetric, render_internal_preview
+    from app.navigation import INTERNAL_GROUPS
+    from app.preferences import Identity
+
+    application_id = "a7000000-0000-4000-8000-000000000001"
+    principal = AuthenticatedIdentity(
+        Identity("development:administrator", "preview@example.invalid", "Preview"),
+        frozenset({INTERNAL_GROUPS.administrators}),
+    )
+    page_html = render_internal_preview(
+        principal,
+        simulation=True,
+        records=(PreviewApplicantMetric(applicant="Applicant One", application_id=application_id),),
+    )
+    detail_html = render_applicant_detail(
+        ApplicantDetail(
+            application_number="EHF-2026-001",
+            name="Applicant One",
+            publications=(
+                Publication(
+                    title="First author",
+                    year=2025,
+                    authors_text="Applicant One; Collaborator Two",
+                ),
+                Publication(
+                    title="Middle author",
+                    year=2024,
+                    authors_text="Collaborator Two; Applicant One; Collaborator Three",
+                ),
+                Publication(
+                    title="Last author",
+                    year=2023,
+                    authors_text="Collaborator Two; Applicant One",
+                ),
+            ),
+        ),
+        current_year=2026,
+    )
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as error:  # pragma: no cover
+            pytest.skip(f"Pinned Playwright Chromium runtime unavailable: {error}")
+        try:
+            page = browser.new_page(viewport={"width": 1366, "height": 768})
+            page.set_content(page_html, wait_until="domcontentloaded")
+            page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+            page.evaluate(
+                """detail => { window.fetch = async url => String(url).endsWith('/review-artifacts')
+                    ? {ok: true, json: async () => ({available: []})}
+                    : {ok: true, text: async () => detail}; }""",
+                detail_html,
+            )
+            page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
+            page.locator("[data-report-row]").dblclick()
+
+            all_authors = page.get_by_role("button", name="All")
+            lead_authors = page.get_by_role("button", name="1st/last")
+            expect(all_authors).to_have_attribute("aria-pressed", "true")
+            lead_authors.click()
+
+            visible_titles = page.locator("[data-publication-row]:visible .publication-title")
+            assert visible_titles.all_inner_texts() == ["First author", "Last author"]
+            expect(lead_authors).to_have_attribute("aria-pressed", "true")
+            expect(all_authors).to_have_attribute("aria-pressed", "false")
+            assert page.locator('[data-publication-row][data-author-position="middle"]').evaluate(
+                "node => getComputedStyle(node).color"
+            ) == "rgb(34, 111, 181)"
+        finally:
+            browser.close()
+
+
 def test_report_field_triangles_sort_text_and_numbers_with_missing_values_last() -> None:
     """Break caught: field sort controls could disappear or order numeric and missing values incorrectly."""
     pytest.importorskip("playwright.sync_api")

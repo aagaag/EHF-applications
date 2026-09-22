@@ -232,6 +232,19 @@
           table.querySelector("[data-publication-citation-header]")?.setAttribute("aria-sort", direction);
         });
       });
+      reportDetails.querySelectorAll("[data-publication-author-filter]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const publications = button.closest(".applicant-publications");
+          const table = publications?.querySelector("[data-publication-table]");
+          if (!table || !publications) return;
+          const showLeadAuthorsOnly = button.dataset.publicationAuthorFilter === "lead";
+          table.querySelectorAll("[data-publication-row]").forEach((row) => {
+            row.hidden = showLeadAuthorsOnly && !["first", "sole", "last"].includes(row.dataset.authorPosition);
+          });
+          publications.querySelectorAll("[data-publication-author-filter]").forEach((control) => control.setAttribute("aria-pressed", "false"));
+          button.setAttribute("aria-pressed", "true");
+        });
+      });
     } catch (_error) {
       reportDetails.innerHTML = '<p class="report-detail-error" role="alert">The complete applicant detail could not be loaded. Please try again.</p>';
     }

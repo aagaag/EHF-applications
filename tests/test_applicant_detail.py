@@ -117,8 +117,8 @@ def test_every_modal_graph_explains_axes_size_color_and_unavailable_values() -> 
     assert "Dashed outline: citation count unavailable" in html
 
 
-def test_render_detail_marks_confident_first_and_last_author_publications() -> None:
-    """Break caught: applicant lead-author publications could be indistinguishable in review."""
+def test_render_detail_exposes_author_filter_and_marks_known_author_positions() -> None:
+    """Break caught: middle-author publications could not be filtered or distinguished."""
     detail = ApplicantDetail(
         application_number="EHF-2026-007",
         name="Ada Researcher",
@@ -131,10 +131,14 @@ def test_render_detail_marks_confident_first_and_last_author_publications() -> N
 
     html = render_applicant_detail(detail, current_year=2024)
 
+    assert 'role="group" aria-label="Publication author filter"' in html
+    assert 'data-publication-author-filter="all" aria-pressed="true">All<' in html
+    assert 'data-publication-author-filter="lead" aria-pressed="false">1st/last<' in html
     assert 'data-author-position="first"' in html
     assert 'data-author-position="last"' in html
-    assert 'data-author-position="middle"' not in html
+    assert 'data-author-position="middle"' in html
     assert html.count("applicant-publication-row--lead-author") == 2
+    assert "applicant-publication-row--middle-author" in html
 
 
 def test_render_detail_marks_an_author_with_an_abbreviated_middle_name() -> None:

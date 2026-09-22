@@ -202,7 +202,12 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .applicant-detail-chart .journal-scatter-point--citation-unavailable { stroke-dasharray: 3 2; }
 .applicant-detail-chart .journal-scatter-point:focus { outline: none; stroke: var(--focus); stroke-width: 3; }
 .journal-scatter-accessible-list { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
-.applicant-publications h2 { margin: 0 0 .6rem; font-size: 1rem; }
+.applicant-publications-heading { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .65rem; margin: 0 0 .6rem; }
+.applicant-publications h2 { margin: 0; font-size: 1rem; }
+.publication-author-filter { display: inline-flex; gap: .2rem; }
+.publication-author-filter button { min-height: 30px; border: 1px solid var(--line); border-radius: .35rem; padding: .2rem .5rem; background: var(--surface-soft); color: var(--text); cursor: pointer; font: inherit; font-size: .74rem; font-weight: 800; }
+.publication-author-filter button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-quiet); }
+.publication-author-legend { margin: 0; color: var(--muted); font-size: .72rem; }
 .applicant-publication-list { display: grid; max-height: min(24rem, 40vh); overflow: auto; border: 1px solid var(--line); border-radius: .6rem; }
 .applicant-publication-header, .applicant-publication-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(9rem, .7fr) minmax(7rem, auto); gap: .75rem; align-items: center; }
 .applicant-publication-header { position: sticky; z-index: 1; top: 0; padding: .55rem .65rem; background: var(--nav-background); color: var(--nav-text); font-size: .78rem; font-weight: 800; }
@@ -214,6 +219,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .publication-title { font-weight: 750; }
 .applicant-publication-row--lead-author { color: var(--missing); }
 .applicant-publication-row--lead-author .publication-meta { color: var(--missing); }
+.applicant-publication-row--middle-author { color: #226fb5; }
+.applicant-publication-row--middle-author .publication-meta { color: #164f86; }
 .publication-meta { color: var(--muted); white-space: nowrap; }
 .publication-citations { text-align: right; font-variant-numeric: tabular-nums; }
 .report-detail-error { color: var(--missing); font-weight: 800; }
