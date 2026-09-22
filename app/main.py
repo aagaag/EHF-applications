@@ -45,6 +45,7 @@ from app.identity import (
 from app.internal_preview import render_internal_preview
 from app.applicant_detail import render_applicant_detail, render_full_page_chart
 from app.metrics import EmptyMetricRepository, MetricRepository, SqlMetricRepository
+from app.calls import CallCatalog, InMemoryCallCatalog, SqlCallCatalog
 from app.navigation import INTERNAL_GROUPS
 from app.preferences import AppearancePreference, Identity, PreferenceRepository, SqlPreferenceRepository
 from app.preview_register import load_preview_register
@@ -162,6 +163,7 @@ def create_app(
     applicant_approval_service: ApplicantApprovalService | None = None,
     applicant_access_service: ApplicantAccessService | None = None,
     synthetic_applicant_service: SyntheticApplicantWorkspaceService | None = None,
+    call_catalog: CallCatalog | None = None,
 ) -> FastAPI:
     """Create the HTTP service without starting application workflows."""
     resolved_settings = settings or Settings.from_environment()
@@ -210,8 +212,14 @@ def create_app(
         if resolved_settings.environment == "production"
         else EmptyReportAuditRepository()
     )
+    calls = call_catalog or (
+        SqlCallCatalog(lambda: connect(resolved_settings))
+        if resolved_settings.environment == "production"
+        else InMemoryCallCatalog()
+    )
     readiness_gate = ReadinessGate(resolved_checks)
     application = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    application.state.call_catalog = calls
     application.add_middleware(SecurityMiddleware, settings=resolved_settings)
     application.add_exception_handler(StarletteHTTPException, http_exception_handler)
     application.add_exception_handler(RequestValidationError, validation_exception_handler)
