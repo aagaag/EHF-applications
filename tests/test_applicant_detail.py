@@ -141,6 +141,26 @@ def test_render_detail_exposes_author_filter_and_marks_known_author_positions() 
     assert "applicant-publication-row--middle-author" in html
 
 
+def test_render_detail_marks_preprints_with_a_distinct_row_class() -> None:
+    """Break caught: accepted preprints could be silently indistinguishable from published papers."""
+    detail = ApplicantDetail(
+        application_number="EHF-2026-007",
+        name="Ada Researcher",
+        publications=(
+            Publication(
+                title="Accepted preprint",
+                year=2025,
+                review_disposition="ACCEPTED_PREPRINT",
+            ),
+        ),
+    )
+
+    html = render_applicant_detail(detail, current_year=2025)
+
+    assert "Dark yellow italics: preprint" in html
+    assert 'class="applicant-publication-row applicant-publication-row--preprint"' in html
+
+
 def test_render_detail_marks_an_author_with_an_abbreviated_middle_name() -> None:
     """Break caught: a published middle initial hid the applicant's lead role."""
     detail = ApplicantDetail(

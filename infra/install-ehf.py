@@ -101,6 +101,7 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/038_trustee_shortlist_groups.sql",
     "database/migrations/039_publication_promotion_dispositions.sql",
     "database/migrations/040_multi_call_foundation.sql",
+    "database/migrations/041_publication_status_metrics.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -141,6 +142,7 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/038_validate_trustee_shortlist_groups.sql",
     "database/tests/039_validate_publication_promotion_dispositions.sql",
     "database/tests/040_validate_multi_call_foundation.sql",
+    "database/tests/041_validate_publication_status_metrics.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",

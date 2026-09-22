@@ -128,7 +128,7 @@ class _Connection:
         assert role == "EHF-Trustees"
         return SimpleNamespace(
             fetchall=lambda: [
-                ("Example Applicant", "PhD", 31, 4.5, None, 2, 0, 7, 5, 101, None, 110, "reviewed", 125, "OPENALEX", None, 6, "a7000000-0000-4000-8000-000000000001", "EHF-2026-001")
+                ("Example Applicant", "PhD", 31, 4.5, None, 2, 0, 7, 5, 101, None, 110, "reviewed", 125, "OPENALEX", None, 6, 2, "a7000000-0000-4000-8000-000000000001", "EHF-2026-001")
             ]
         )
 
@@ -143,6 +143,7 @@ def test_sql_metric_repository_maps_role_scoped_projection() -> None:
     assert records[0].verified_citations == 125
     assert records[0].verified_citation_source == "OPENALEX"
     assert records[0].validated_published_papers == 6
+    assert records[0].validated_preprint_papers == 2
     assert records[0].application_number == "EHF-2026-001"
 
 
@@ -175,6 +176,7 @@ class _ActiveCutoffWithoutEligibleWorksConnection:
                     None,
                     "OPENALEX",
                     None,
+                    0,
                     0,
                     "a7000000-0000-4000-8000-000000000002",
                     "EHF-2026-002",
@@ -216,6 +218,11 @@ class _DetailCursor:
                 9,
                 '{"counts_by_year":{"2024":4,"2025":5}}',
                 "Example Applicant; Ben Biologist",
+                None,
+                None,
+                None,
+                None,
+                "ACCEPTED_PREPRINT",
             )
         ]
 
@@ -243,3 +250,4 @@ def test_sql_metric_repository_maps_annual_citation_detail() -> None:
     assert detail.publications[0].doi == "10.1000/example"
     assert detail.publications[0].citations_by_year == ((2024, 4), (2025, 5))
     assert detail.publications[0].authors_text == "Example Applicant; Ben Biologist"
+    assert detail.publications[0].review_disposition == "ACCEPTED_PREPRINT"

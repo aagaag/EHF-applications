@@ -28,6 +28,7 @@ class Publication:
     journal_openalex_name: str | None = None
     journal_two_year_mean_citedness: float | None = None
     journal_metric_observed_at_utc: str | None = None
+    review_disposition: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +70,7 @@ def render_applicant_detail(
         '<button type="button" data-publication-author-filter="all" aria-pressed="true">All</button>'
         '<button type="button" data-publication-author-filter="lead" aria-pressed="false">1st/last</button>'
         '</div>'
-        '<p class="publication-author-legend">Red: 1st/last · Blue: other author</p>'
+        '<p class="publication-author-legend">Red: 1st/last · Blue: other author · Dark yellow italics: preprint</p>'
         '</div>'
         '<div class="applicant-publication-list" role="table" aria-label="Applicant publications" data-publication-table>'
         '<div class="applicant-publication-header" role="row">'
@@ -453,10 +454,15 @@ def _publication_row(publication: Publication, applicant_name: str) -> str:
         if author_position == "middle"
         else ""
     )
+    preprint_class = (
+        " applicant-publication-row--preprint"
+        if publication.review_disposition == "ACCEPTED_PREPRINT"
+        else ""
+    )
     citations = _number(publication.citation_count)
     citation_sort = "" if publication.citation_count is None else str(publication.citation_count)
     return (
-        f'<div class="applicant-publication-row{lead_author_class}{middle_author_class}" role="row" data-publication-row '
+        f'<div class="applicant-publication-row{lead_author_class}{middle_author_class}{preprint_class}" role="row" data-publication-row '
         f'data-publication-citations="{citation_sort}" '
         f'data-double-clickable="true" tabindex="0"{href_markup}{position_markup} '
         f'aria-label="Open publication: {_text(label)}" title="Double-click to open publication">'

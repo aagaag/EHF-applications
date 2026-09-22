@@ -148,6 +148,7 @@ def run_validators(connection) -> None:
         "038_validate_trustee_shortlist_groups.sql",
         "039_validate_publication_promotion_dispositions.sql",
         "040_validate_multi_call_foundation.sql",
+        "041_validate_publication_status_metrics.sql",
     ]:
         raise BootstrapError("The EHF validator set is incomplete or unexpected.")
     try:

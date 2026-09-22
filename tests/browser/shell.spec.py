@@ -257,8 +257,8 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             browser.close()
 
 
-def test_applicant_detail_keeps_three_charts_side_by_side_and_colours_lead_authors_red() -> None:
-    """Break caught: the compact modal could stack the new chart or lose author emphasis."""
+def test_applicant_detail_keeps_three_charts_side_by_side_and_distinguishes_preprints() -> None:
+    """Break caught: the compact modal could stack charts or render preprints like journal papers."""
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
@@ -285,6 +285,11 @@ def test_applicant_detail_keeps_three_charts_side_by_side_and_colours_lead_autho
                     authors_text="Ben Biologist; Ada Researcher; Cara Chemist",
                     journal_openalex_name="Other Journal",
                     journal_two_year_mean_citedness=1.5,
+                ),
+                Publication(
+                    title="Accepted preprint",
+                    year=2023,
+                    review_disposition="ACCEPTED_PREPRINT",
                 ),
             ),
         ),
@@ -319,6 +324,9 @@ def test_applicant_detail_keeps_three_charts_side_by_side_and_colours_lead_autho
             assert page.locator(".journal-scatter-point--other-author").evaluate(
                 "node => getComputedStyle(node).fill"
             ) == "rgb(34, 111, 181)"
+            preprint = page.locator(".applicant-publication-row--preprint")
+            assert preprint.evaluate("node => getComputedStyle(node).color") == "rgb(122, 92, 0)"
+            assert preprint.evaluate("node => getComputedStyle(node).fontStyle") == "italic"
             assert bubble.evaluate("node => { node.focus(); return document.activeElement === node }")
         finally:
             browser.close()

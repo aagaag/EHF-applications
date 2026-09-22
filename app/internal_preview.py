@@ -39,6 +39,7 @@ class PreviewApplicantMetric:
     verified_citation_source: str | None = None
     verified_citation_profile_url: str | None = None
     validated_published_papers: int | None = None
+    validated_preprint_papers: int | None = 0
     application_id: str | None = None
     application_number: str | None = None
 
@@ -129,7 +130,7 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: Shortl
         ("Applicant", "text"), ("Degree", "text"), ("Age", "number"),
         ("Academic age (years)", "number"), ("Gender", "text"),
         ("First / last author papers", "number"),
-        ("Applicant-reported / validated published papers", "number"),
+        ("Published papers/preprints", "number"),
         ("h-index", "number"),
         ("OpenAlex citations (20 Sep 2026)", "number"),
     )
@@ -219,9 +220,9 @@ def _report_row(
             None,
         ),
         (
-            (record.total_papers, record.validated_published_papers),
+            (record.validated_published_papers, record.validated_preprint_papers),
             _combined_metric_markup(
-                record.total_papers, record.validated_published_papers
+                record.validated_published_papers, record.validated_preprint_papers
             ),
             _number(record.validated_published_papers),
             None,

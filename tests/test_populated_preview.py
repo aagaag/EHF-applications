@@ -31,6 +31,7 @@ def test_overview_starts_with_three_reports_and_uses_compact_combined_metrics() 
             last_author_papers=0,
             total_papers=18,
             validated_published_papers=16,
+            validated_preprint_papers=2,
             h_index=12,
             orcid="0000-0002-1825-0097",
             google_scholar_citations=710,
@@ -73,10 +74,11 @@ def test_overview_starts_with_three_reports_and_uses_compact_combined_metrics() 
     assert "Citations by academic age" in html
     assert "Academic age versus anagraphic age" in html
     assert "First / last author papers" in html
-    assert "Applicant-reported / validated published papers" in html
+    assert "Published papers/preprints" in html
+    assert "Applicant-reported / validated published papers" not in html
     assert "OpenAlex citations (20 Sep 2026)" in html
     assert "2 / 0" in html
-    assert "18 / 16" in html
+    assert "16 / 2" in html
     assert ">656<" in html
     assert "Citation source" not in html
     assert "ORCID" not in html

@@ -61,8 +61,9 @@ class SqlMetricRepository:
                 verified_citation_source=_text(row[14]),
                 verified_citation_profile_url=_text(row[15]),
                 validated_published_papers=_integer(row[16]),
-                application_id=_text(row[17]) if len(row) > 17 else None,
-                application_number=_text(row[18]) if len(row) > 18 else None,
+                validated_preprint_papers=_integer(row[17]) if len(row) > 17 else None,
+                application_id=_text(row[18]) if len(row) > 18 else None,
+                application_number=_text(row[19]) if len(row) > 19 else None,
             )
             for row in rows
         )
@@ -106,6 +107,7 @@ def _publication(row: Any) -> Publication:
         journal_openalex_name=_text(row[10]) if len(row) > 10 else None,
         journal_two_year_mean_citedness=_number(row[11]) if len(row) > 11 else None,
         journal_metric_observed_at_utc=_text(row[12]) if len(row) > 12 else None,
+        review_disposition=_text(row[13]) if len(row) > 13 else None,
     )
 
 

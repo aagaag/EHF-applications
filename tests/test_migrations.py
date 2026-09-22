@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_publication_preview() ->
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 37
-    assert sorted(connection.records) == list(range(1, 41))
+    assert applied == 38
+    assert sorted(connection.records) == list(range(1, 42))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_thirty_eight_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 41))
-    assert applied == 40
+    assert [migration.version for migration in migrations] == list(range(1, 42))
+    assert applied == 41
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -311,7 +311,7 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     """Break caught: a later metrics filter could remove the authoritative academic-age derivation."""
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
-    assert [migration.path.name for migration in migrations[-18:]] == [
+    assert [migration.path.name for migration in migrations[-19:]] == [
         "023_open_citation_sources.sql",
         "024_applicant_citation_profiles.sql",
         "025_publication_review_workflow.sql",
@@ -330,6 +330,7 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
         "038_trustee_shortlist_groups.sql",
         "039_publication_promotion_dispositions.sql",
         "040_multi_call_foundation.sql",
+        "041_publication_status_metrics.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -528,6 +529,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "038_trustee_shortlist_groups.sql",
         "039_publication_promotion_dispositions.sql",
         "040_multi_call_foundation.sql",
+        "041_publication_status_metrics.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -570,6 +572,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "038_validate_trustee_shortlist_groups.sql",
         "039_validate_publication_promotion_dispositions.sql",
         "040_validate_multi_call_foundation.sql",
+        "041_validate_publication_status_metrics.sql",
     ]
 
 
@@ -888,7 +891,9 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "039_validate_publication_promotion_dispositions.sql" in script
     assert "040_multi_call_foundation.sql" in script
     assert "040_validate_multi_call_foundation.sql" in script
-    assert "Applied 40 migration\\(s\\)\\." in script
+    assert "041_publication_status_metrics.sql" in script
+    assert "041_validate_publication_status_metrics.sql" in script
+    assert "Applied 41 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1258,8 +1263,8 @@ def test_database_contract_validator_reports_version_thirty_eight() -> None:
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 40" in validator
-    assert "WHERE MigrationCount = 40 AND CurrentVersion = 40" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 41" in validator
+    assert "WHERE MigrationCount = 41 AND CurrentVersion = 41" in validator
 
 
 def test_multi_call_foundation_exposes_call_ownership_and_authorized_catalog_contract() -> None:
@@ -1325,6 +1330,23 @@ def test_applicant_journal_metric_migration_projects_latest_openalex_evidence_sa
         assert fragment in migration
     assert "GetInternalApplicantMetricDetail" in validator
     assert "JournalTwoYearMeanCitedness" in validator
+
+
+def test_publication_status_metric_migration_separates_totals_from_citation_evidence() -> None:
+    """Break caught: an unobserved paper or accepted preprint could disappear from review totals."""
+    migration = MIGRATION_DIRECTORY / "041_publication_status_metrics.sql"
+    validator = VALIDATION_DIRECTORY / "041_validate_publication_status_metrics.sql"
+
+    assert migration.is_file()
+    assert validator.is_file()
+    source = migration.read_text(encoding="utf-8")
+    validation = validator.read_text(encoding="utf-8")
+    assert "ValidatedPreprintPaperCount" in source
+    assert "COUNT_BIG(CASE WHEN latest_review.ReviewDisposition=''PUBLISHED'' THEN 1 END)" in source
+    assert "COUNT_BIG(CASE WHEN latest_review.ReviewDisposition=''ACCEPTED_PREPRINT'' THEN 1 END)" in source
+    assert "latest_review.ReviewDisposition IN (''PUBLISHED'', ''ACCEPTED_PREPRINT'')" in source
+    assert "ValidatedPreprintPaperCount" in validation
+    assert "ACCEPTED_PREPRINT" in validation
 
 
 def test_citation_cutoff_migration_requires_a_complete_single_source_import_run() -> None:

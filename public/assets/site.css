@@ -224,6 +224,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .applicant-publication-row--lead-author .publication-meta { color: var(--missing); }
 .applicant-publication-row--middle-author { color: #226fb5; }
 .applicant-publication-row--middle-author .publication-meta { color: #164f86; }
+.applicant-publication-row--preprint { color: #7a5c00; font-style: italic; }
+.applicant-publication-row--preprint .publication-meta { color: #7a5c00; }
 .publication-meta { color: var(--muted); white-space: nowrap; }
 .publication-citations { text-align: right; font-variant-numeric: tabular-nums; }
 .report-detail-error { color: var(--missing); font-weight: 800; }

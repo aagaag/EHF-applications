@@ -99,6 +99,7 @@ MIGRATIONS = {
     "038_trustee_shortlist_groups.sql": (38, "trustee_shortlist_groups"),
     "039_publication_promotion_dispositions.sql": (39, "publication_promotion_dispositions"),
     "040_multi_call_foundation.sql": (40, "multi_call_foundation"),
+    "041_publication_status_metrics.sql": (41, "publication_status_metrics"),
 }
 COMMANDS = (
     "inspect-production",
@@ -163,6 +164,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "038_validate_trustee_shortlist_groups.sql",
         "039_validate_publication_promotion_dispositions.sql",
         "040_validate_multi_call_foundation.sql",
+        "041_validate_publication_status_metrics.sql",
     }
 )
 
