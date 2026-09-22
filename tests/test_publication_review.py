@@ -17,6 +17,8 @@ PROMOTION_MIGRATION = ROOT / "database" / "migrations" / "039_publication_promot
 PROMOTION_VALIDATOR = ROOT / "database" / "tests" / "039_validate_publication_promotion_dispositions.sql"
 DISPOSITION_MIGRATION = ROOT / "database" / "migrations" / "047_decouple_publication_disposition.sql"
 DISPOSITION_VALIDATOR = ROOT / "database" / "tests" / "047_validate_decoupled_publication_disposition.sql"
+REVIEW_PERMISSION_MIGRATION = ROOT / "database" / "migrations" / "048_restrict_publication_review_permission.sql"
+REVIEW_PERMISSION_VALIDATOR = ROOT / "database" / "tests" / "048_validate_publication_review_permission.sql"
 
 
 def test_resolver_accepts_vs_abbreviation_and_online_to_issue_year_transition() -> None:
@@ -167,3 +169,17 @@ def test_published_disposition_does_not_require_a_resolved_doi() -> None:
     assert "DOI-less published paper was omitted from the aggregate metrics" in validator
     assert "DOI-less published paper was omitted from applicant detail" in validator
     assert "PASS 047 decoupled publication disposition" in validator
+
+
+def test_low_level_publication_review_writer_is_not_runtime_callable() -> None:
+    """Break caught: the runtime role briefly received a direct low-level review grant."""
+    assert REVIEW_PERMISSION_MIGRATION.is_file()
+    assert REVIEW_PERMISSION_VALIDATOR.is_file()
+
+    migration = REVIEW_PERMISSION_MIGRATION.read_text(encoding="utf-8")
+    validator = REVIEW_PERMISSION_VALIDATOR.read_text(encoding="utf-8")
+
+    assert "REVOKE EXECUTE ON dbo.RecordApplicationPublicationReview" in migration
+    assert "DATABASE_PRINCIPAL_ID(N'EHFApplicationRuntime')" in validator
+    assert "RecordPendingPublicationReview" in validator
+    assert "PASS 048 publication review permission" in validator
