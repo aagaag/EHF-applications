@@ -10,7 +10,8 @@ IF OBJECT_ID(N'dbo.ListAuthorizedFellowshipCalls', N'P') IS NULL
    OR OBJECT_ID(N'dbo.GetAuthorizedFellowshipCallBySlug', N'P') IS NULL
    OR OBJECT_ID(N'dbo.GetPublicFellowshipCallBySlug', N'P') IS NULL
     THROW 54542, 'Call lookup procedures are missing.', 1;
-IF NOT EXISTS
+IF EXISTS (SELECT 1 FROM dbo.FellowshipCall)
+AND NOT EXISTS
 (
     SELECT 1 FROM dbo.FellowshipCall
     WHERE CallCode=N'EHF-2026' AND PublicSlug='ehf-2026'
@@ -18,6 +19,8 @@ IF NOT EXISTS
 )
     THROW 54543, 'The legacy EHF-2026 call was not safely backfilled.', 1;
 
+IF EXISTS (SELECT 1 FROM dbo.FellowshipCall WHERE CallCode=N'EHF-2026')
+BEGIN
 BEGIN TRANSACTION;
 BEGIN TRY
     DECLARE @AdminRows TABLE (FellowshipCallId uniqueidentifier, CallCode nvarchar(50), PublicSlug varchar(80), DisplayName nvarchar(200), CompactTitle nvarchar(120), CallStatus varchar(20), ApplicantReviewStatus varchar(20), InternalSelectionStatus varchar(20), InvitationsEnabled bit, AnalysisProfileCode varchar(40), ApplicationDeadlineUtc datetime2(7), ApplicantReviewDeadlineUtc datetime2(7), RowVersion binary(8));
@@ -32,5 +35,6 @@ BEGIN CATCH
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
     THROW;
 END CATCH;
+END;
 
 PRINT 'PASS 040 multi-call foundation';

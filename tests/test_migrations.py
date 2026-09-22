@@ -396,6 +396,12 @@ def test_sql_validators_do_not_mix_table_and_scalar_declarations() -> None:
     assert offenders == []
 
 
+def test_multi_call_validator_allows_an_empty_isolated_database() -> None:
+    validator = (VALIDATION_DIRECTORY / "040_validate_multi_call_foundation.sql").read_text(encoding="utf-8")
+    assert "IF EXISTS (SELECT 1 FROM dbo.FellowshipCall)" in validator
+    assert "IF EXISTS (SELECT 1 FROM dbo.FellowshipCall WHERE CallCode=N'EHF-2026')" in validator
+
+
 def test_connection_string_uses_only_ehf_names_and_task_2_secret_reader() -> None:
     """Break caught: EHF could inherit the Finances 2 database identity or credential path."""
     module = importlib.import_module("app.db")
