@@ -32,6 +32,7 @@ def test_call_navigation_validator_checks_the_runtime_contract() -> None:
     assert "dbo.SetCallNavigationPreference" in sql
     assert "resume-last-opened" in sql
     assert "latest-application-deadline" in sql
+    assert "LastFellowshipCallId IS NULL AND @CallId IS NULL" in sql
     assert "PASS 044 call navigation preferences" in sql
 
 

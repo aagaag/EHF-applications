@@ -34,7 +34,8 @@ IF NOT EXISTS
     SELECT 1 FROM dbo.UserPreference
     WHERE IdentityKey = N'validator-call-navigation'
       AND DefaultCallMode = 'latest-application-deadline'
-      AND LastFellowshipCallId = @CallId
+      AND (LastFellowshipCallId = @CallId
+           OR LastFellowshipCallId IS NULL AND @CallId IS NULL)
 )
     THROW 54614, 'The call navigation preference was not stored.', 1;
 EXEC dbo.GetCallNavigationPreference @IdentityKey = N'validator-call-navigation';
