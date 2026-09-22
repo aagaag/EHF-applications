@@ -15,6 +15,10 @@ IF OBJECT_ID(N'dbo.GetInternalApplicationMetrics', N'P') IS NULL
     THROW 51519, 'The internal-metrics procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.GetInternalApplicantMetricDetail', N'P') IS NULL
     THROW 51524, 'The internal applicant-metric detail procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.ListPendingPublicationReviews', N'P') IS NULL
+    THROW 51528, 'The pending-publication list procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.RecordPendingPublicationReview', N'P') IS NULL
+    THROW 51529, 'The pending-publication review procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.RecordReportExportAudit', N'P') IS NULL
     THROW 51520, 'The report-export audit procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.ListInternalApplicantDocuments', N'P') IS NULL
@@ -45,6 +49,7 @@ INSERT @ApprovedProcedures VALUES
     (N'RuntimeHealth'), (N'SetUserPreference'), (N'GetUserPreference'),
     (N'SetApplicationStatus'), (N'ValidateApplicationInvitation'),
     (N'GetInternalApplicationMetrics'), (N'GetInternalApplicantMetricDetail'),
+    (N'ListPendingPublicationReviews'), (N'RecordPendingPublicationReview'),
     (N'RecordReportExportAudit'),
     (N'ListInternalApplicantDocuments'), (N'GetInternalApplicantDocument'),
     (N'RecordInternalDocumentAccessOutcome'),
