@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_publication_preview() ->
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 42
-    assert sorted(connection.records) == list(range(1, 46))
+    assert applied == 43
+    assert sorted(connection.records) == list(range(1, 47))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_thirty_eight_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 46))
-    assert applied == 45
+    assert [migration.version for migration in migrations] == list(range(1, 47))
+    assert applied == 46
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -312,7 +312,6 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
     assert [migration.path.name for migration in migrations[-20:]] == [
-        "026_internal_document_access.sql",
         "027_internal_document_audit_payload.sql",
         "028_openalex_work_cutoff_metrics.sql",
         "029_openalex_missing_observation_guard.sql",
@@ -332,6 +331,7 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
         "043_pending_publication_review_queue.sql",
         "044_call_navigation_preferences.sql",
         "045_fix_call_navigation_preference_insert.sql",
+        "046_fix_call_navigation_audit_payload.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -546,6 +546,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "043_pending_publication_review_queue.sql",
         "044_call_navigation_preferences.sql",
         "045_fix_call_navigation_preference_insert.sql",
+        "046_fix_call_navigation_audit_payload.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -593,6 +594,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "043_validate_pending_publication_review_queue.sql",
         "044_validate_call_navigation_preferences.sql",
         "045_validate_call_navigation_preference_insert.sql",
+        "046_validate_call_navigation_audit_payload.sql",
     ]
 
 
@@ -921,7 +923,9 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "044_validate_call_navigation_preferences.sql" in script
     assert "045_fix_call_navigation_preference_insert.sql" in script
     assert "045_validate_call_navigation_preference_insert.sql" in script
-    assert "Applied 45 migration\\(s\\)\\." in script
+    assert "046_fix_call_navigation_audit_payload.sql" in script
+    assert "046_validate_call_navigation_audit_payload.sql" in script
+    assert "Applied 46 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1291,8 +1295,8 @@ def test_database_contract_validator_reports_version_thirty_eight() -> None:
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 45" in validator
-    assert "WHERE MigrationCount = 45 AND CurrentVersion = 45" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 46" in validator
+    assert "WHERE MigrationCount = 46 AND CurrentVersion = 46" in validator
 
 
 def test_multi_call_foundation_exposes_call_ownership_and_authorized_catalog_contract() -> None:

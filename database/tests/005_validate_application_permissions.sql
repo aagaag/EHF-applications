@@ -47,6 +47,7 @@ DECLARE @RuntimeUserId int = DATABASE_PRINCIPAL_ID(N'ehf_app');
 DECLARE @ApprovedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
 INSERT @ApprovedProcedures VALUES
     (N'RuntimeHealth'), (N'SetUserPreference'), (N'GetUserPreference'),
+    (N'SetCallNavigationPreference'), (N'GetCallNavigationPreference'),
     (N'SetApplicationStatus'), (N'ValidateApplicationInvitation'),
     (N'GetInternalApplicationMetrics'), (N'GetInternalApplicantMetricDetail'),
     (N'ListPendingPublicationReviews'), (N'RecordPendingPublicationReview'),
