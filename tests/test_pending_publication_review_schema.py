@@ -15,7 +15,7 @@ def test_pending_publication_queue_is_a_role_scoped_append_only_sql_boundary() -
     for fragment in (
         "CREATE PROCEDURE dbo.ListPendingPublicationReviews",
         "CREATE PROCEDURE dbo.RecordPendingPublicationReview",
-        "ReviewDisposition = 'PENDING_REVIEW'",
+        "ReviewDisposition = ''PENDING_REVIEW''",
         "WITH (UPDLOCK, HOLDLOCK)",
         "dbo.RecordApplicationPublicationReview",
         "EHF-Administrators",
@@ -30,3 +30,4 @@ def test_pending_publication_queue_is_a_role_scoped_append_only_sql_boundary() -
     ):
         assert fragment in source
     assert "PASS 043 pending publication review queue" in validator
+    assert "/* ReviewDisposition" not in source

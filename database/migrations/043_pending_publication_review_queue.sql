@@ -9,7 +9,7 @@ AS BEGIN
  OUTER APPLY(SELECT TOP(1) SnapshotJson FROM dbo.ApplicationSectionVersion WHERE ApplicationId=x.ApplicationId AND SectionCode=''identity'' ORDER BY VersionNumber DESC) i
  OUTER APPLY(SELECT TOP(1) RawCitation FROM dbo.ApplicationPublicationSourceOccurrence WHERE ApplicationPublicationId=p.ApplicationPublicationId ORDER BY RecordedAtUtc DESC,ApplicationPublicationSourceOccurrenceId DESC) s
  OUTER APPLY(SELECT TOP(1) ReviewDisposition FROM dbo.ApplicationPublicationReview WHERE ApplicationPublicationId=p.ApplicationPublicationId ORDER BY RecordedAtUtc DESC,ApplicationPublicationReviewId DESC) r
- WHERE r.ReviewDisposition = ''PENDING_REVIEW'' /* ReviewDisposition = 'PENDING_REVIEW' */ ORDER BY a.LegalFamilyName,a.LegalGivenNames,p.Title,p.ApplicationPublicationId;
+ WHERE r.ReviewDisposition = ''PENDING_REVIEW'' ORDER BY a.LegalFamilyName,a.LegalGivenNames,p.Title,p.ApplicationPublicationId;
 END;');
 EXEC(N'
 CREATE PROCEDURE dbo.RecordPendingPublicationReview @ApplicationPublicationId uniqueidentifier,@ReviewDisposition varchar(32),@ReviewerIdentity nvarchar(255),@ActorGroup nvarchar(128)
