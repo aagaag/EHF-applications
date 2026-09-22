@@ -23,6 +23,7 @@ from pypdf import PdfReader
 _YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 _YEAR_COLUMN_RE = re.compile(r"^\s*(?:19|20)\s*\d\s*\d\s+\S")
 _ENUMERATOR_RE = re.compile(r"^\s*(?:[•●▪◦‣]|\d{1,3}[.)])\s+")
+_BARE_ENUMERATOR_RE = re.compile(r"^\s*\d{1,3}\s+(?=[A-ZÀ-ÖØ-Þ])")
 _PAGE_NUMBER_RE = re.compile(r"^\s*(?:page\s+)?\d+(?:\s*/\s*\d+)?\s*$", re.IGNORECASE)
 
 _PUBLICATION_HEADINGS = {
@@ -36,10 +37,10 @@ _PUBLICATION_HEADINGS = {
     "originalarticles": "PUBLISHED",
     "researcharticles": "PUBLISHED",
     "journalarticles": "PUBLISHED",
-    "bookchapters": "PUBLISHED",
     "conferencepapers": "PUBLISHED",
     "conferenceworkshoppapers": "PUBLISHED",
     "journalandconferencepublications": "PUBLISHED",
+    "additionalpublicationsinpeerreviewedscientificjournals": "PUBLISHED",
     "workshoppapers": "PUBLISHED",
     "review": "PUBLISHED",
     "reviews": "PUBLISHED",
@@ -62,7 +63,17 @@ _STOP_HEADINGS = {
     "fellowshipsandawards",
     "grants",
     "invitedpresentations",
+    "letterofrecommendation",
+    "letterofsupport",
+    "recommendationletter",
+    "supportletter",
+    "motivationletter",
+    "coverletter",
     "patents",
+    "peerreviewedbooks",
+    "books",
+    "bookchapter",
+    "bookchapters",
     "presentations",
     "conferencepresentations",
     "selectedconferencepresentations",
@@ -71,6 +82,8 @@ _STOP_HEADINGS = {
     "referees",
     "researchandworkexperience",
     "researchplan",
+    "researchproposal",
+    "researchstatement",
     "studentsupervision",
     "teaching",
     "workexperience",
@@ -172,6 +185,38 @@ class _SourceLine:
 
 _DOI_RE = re.compile(r"(?i)\b10\.\d{4,9}/[-._;()/:a-z0-9]+")
 _URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+_INLINE_SECTION_PATTERNS = (
+    (
+        re.compile(
+            r"(?i)\b(additional\s+publications\s+in\s+peer[- ]reviewed\s+scientific\s+journals)\s*:\s*$"
+        ),
+        "PUBLISHED",
+    ),
+    (
+        re.compile(
+            r"(?i)\b(unpublished\s+(?:work|manuscripts?)\s*(?:\([^)]*\))?)\s*:\s*"
+        ),
+        "UNDER_PREPARATION",
+    ),
+    (
+        re.compile(r"(?i)\b(unpublished\s+manuscripts\b.*)$"),
+        "ACCEPTED_PREPRINT",
+    ),
+)
+_INLINE_STOP_PATTERNS = (
+    re.compile(r"(?i)\b(INTELLECTUAL\s+PROPERTY)\b"),
+)
+
+
+def _clean_doi(value: str | None) -> str | None:
+    match = _DOI_RE.search(value or "")
+    if match is None:
+        return None
+    doi = match.group(0).rstrip(".,;)").casefold()
+    suffix = doi.partition("/")[2]
+    if len(suffix) < 4 or suffix.endswith(("-", "_", "/")):
+        return None
+    return doi
 
 
 def _tei_text(element: ET.Element | None) -> str | None:
@@ -226,9 +271,7 @@ def parse_grobid_tei(xml: str, *, raw_citation: str = "") -> ParsedPublication:
     doi_element = _tei_first(root, ".//tei:idno[@type='DOI']")
     if doi_element is None:
         doi_element = _tei_first(root, ".//tei:idno[@type='doi']")
-    doi = _tei_text(doi_element)
-    doi_match = _DOI_RE.search(doi or "")
-    doi = doi_match.group(0).rstrip(".,;") if doi_match else doi
+    doi = _clean_doi(_tei_text(doi_element))
     url = _tei_text(_tei_first(root, ".//tei:ptr[@type='web']"))
     if url is None:
         pointer = _tei_first(root, ".//tei:ptr")
@@ -262,46 +305,133 @@ def parse_grobid_tei(xml: str, *, raw_citation: str = "") -> ParsedPublication:
 
 def fallback_parse_candidate(candidate: PublicationCandidate) -> ParsedPublication:
     """Conservatively recover common author-title-venue-year citation fields."""
-    raw = candidate.raw_citation.strip()
+    raw = _clean_ocr_text(candidate.raw_citation.strip())
+    parsed_year = candidate.year
+    if (
+        parsed_year is not None
+        and parsed_year < 2000
+        and re.search(
+            r"(?i)\b(?:in\s+preparation|preprint|submitted|under\s+(?:review|revision)|in\s+revision|accepted\s+(?:in|for|by))\b",
+            raw,
+        )
+    ):
+        parsed_year = None
     raw_without_year_prefix = re.sub(r"^(?:19|20)\d{2}\s+", "", raw)
-    doi_match = _DOI_RE.search(raw_without_year_prefix)
-    doi = doi_match.group(0).rstrip(".,;") if doi_match else None
+    doi = _clean_doi(raw_without_year_prefix)
     url_match = _URL_RE.search(raw_without_year_prefix)
     url = url_match.group(0).rstrip(".,;)") if url_match else None
     body = _DOI_RE.sub("", raw_without_year_prefix)
+    body = _URL_RE.sub("", body)
     body = re.sub(r"(?i)\bdoi\s*:\s*", "", body)
-    colon = re.search(r"\s*:\s+", body)
-    period = re.search(r"\.\s+", body)
-    if (
-        colon
-        and (period is None or colon.start() < period.start())
-        and ("," in body[: colon.start()] or re.search(r"\band\b", body[: colon.start()], re.I))
+    title: str | None = None
+    journal: str | None = None
+    comma_year = re.search(r"\s*\((?:19|20)\d{2}[^)]*\)\s*$", body)
+    comma_parts = (
+        body[: comma_year.start()].rstrip(" ,").rsplit(",", 2)
+        if comma_year is not None
+        else []
+    )
+    comma_style = bool(
+        len(comma_parts) == 3
+        and len(re.findall(r"[^\W\d_]{3,}", comma_parts[1], re.UNICODE)) >= 3
+        and 2 <= len(comma_parts[2].strip()) <= 100
+    )
+    first_sentence = re.match(r"^(.{20,}?)\.\s+(.+)$", body)
+    variants = _author_variants(candidate.applicant_name)
+    if comma_style:
+        author_text, title, journal = (part.strip(" ,;:") for part in comma_parts)
+        citation_body = ""
+    elif (
+        first_sentence
+        and len(re.findall(r"[^\W\d_]{3,}", first_sentence.group(1), re.UNICODE)) >= 4
+        and first_sentence.group(1).count(",") < 2
+        and not _contains_applicant(first_sentence.group(1), variants)
+        and _contains_applicant(first_sentence.group(2), variants)
     ):
-        author_text, citation_body = body[: colon.start()], body[colon.end() :]
-    else:
-        first_period = re.match(r"^(.{5,}?)\.\s+(.+)$", body)
-        if first_period:
-            author_text, citation_body = first_period.groups()
+        title = first_sentence.group(1).strip(" ,;:")
+        remainder = first_sentence.group(2)
+        venue_matches = list(
+            re.finditer(
+                r"(?:^|\.\s+)([A-ZÀ-ÖØ-Þ][^.]{2,100}?)\.\s*(?=(?:19|20)\d{2}(?:\b|;))",
+                remainder,
+            )
+        )
+        if venue_matches:
+            venue = venue_matches[-1]
+            author_text = remainder[: venue.start()].strip(" .,;:")
+            journal = venue.group(1).strip(" ,;:")
         else:
-            author_text, citation_body = body, ""
+            comma_venue = re.search(
+                r"\.\s+((?:eLife|iScience|npj\s+\S+|[A-ZÀ-ÖØ-Þ])[^.]{0,100}?),"
+                r"\s*(?=(?:19|20)\d{2}\b)",
+                remainder,
+            )
+            if comma_venue:
+                author_text = remainder[: comma_venue.start()].strip(" .,;:")
+                journal = comma_venue.group(1).strip(" ,;:")
+            else:
+                author_text = remainder
+        citation_body = ""
+    else:
+        apa_year = re.search(r"\s*\((?:19|20)\d{2}\)\.?\s+", body)
+        if apa_year:
+            author_text = body[: apa_year.start()].rstrip(" .")
+            citation_body = body[apa_year.end() :]
+        else:
+            colon = re.search(r"\s*:\s+", body)
+            period = re.search(r"\.[*†‡#]*\s+(?=[A-Z])", body)
+            if (
+                colon
+                and (period is None or colon.start() < period.start())
+                and ("," in body[: colon.start()] or re.search(r"\band\b", body[: colon.start()], re.I))
+            ):
+                author_text, citation_body = body[: colon.start()], body[colon.end() :]
+            else:
+                first_period = re.match(r"^(.{5,}?)\.[*†‡#]*\s+(.+)$", body)
+                if first_period:
+                    author_text, citation_body = first_period.groups()
+                else:
+                    author_text, citation_body = body, ""
     segments = [
         part.strip(" ,;:")
         for part in re.split(r"\.\s+(?=[A-Z0-9])", citation_body)
         if part.strip(" ,;:")
     ]
     authors: tuple[str, ...] = ()
-    title: str | None = None
-    journal: str | None = None
     if author_text:
         authors = tuple(
             part.strip()
             for part in re.split(r"\s*,\s*|\s+and\s+", author_text)
             if part.strip()
         )
-    if segments:
+    if title is None and segments:
         title = segments[0]
-    if len(segments) >= 2:
+    if journal is None and len(segments) >= 2:
         journal = segments[1]
+    if title and journal is None:
+        trailing_venue = re.match(
+            r"^(.+?)\.\s+((?:npj|eLife|iScience|bioRxiv|medRxiv)\b.+?)\.?$",
+            title,
+            re.IGNORECASE,
+        )
+        if trailing_venue:
+            title, journal = (
+                trailing_venue.group(1).strip(" ,;:"),
+                trailing_venue.group(2).strip(" ,;:"),
+            )
+    if title:
+        title = re.sub(
+            r"(?i)^\s*(?:publication\s+list(?:\s*\(continued\))?\s+)?"
+            r"(?:(?:research|review)\s+articles\s+)?",
+            "",
+            title,
+        ).strip()
+        title = re.sub(r"(?i)\bsubmitted\b\s*", "", title)
+        title = re.sub(r"(?<!\w)#\d+\s*", "", title).strip()
+    if journal:
+        journal = journal.strip(" ,;:.")
+        if not re.search(r"[^\W\d_]", journal, re.UNICODE):
+            journal = None
     volume = issue = pages = None
     volume_match = re.search(
         r"(?<!\d)(\d{1,4})\s*(?:\(([^)]+)\))?\s*:\s*([A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?)",
@@ -324,7 +454,7 @@ def fallback_parse_candidate(candidate: PublicationCandidate) -> ParsedPublicati
             ("authors", authors),
             ("title", title),
             ("journal", journal),
-            ("year", candidate.year),
+            ("year", parsed_year),
             ("doi", doi),
         )
         if value
@@ -336,7 +466,7 @@ def fallback_parse_candidate(candidate: PublicationCandidate) -> ParsedPublicati
         volume=volume,
         issue=issue,
         pages=pages,
-        year=candidate.year,
+        year=parsed_year,
         doi=doi,
         url=url,
         raw_citation=raw,
@@ -350,17 +480,71 @@ def classify_publication(
 ) -> PublicationClassification:
     """Classify bibliographic evidence separately from identifier resolution."""
     raw = _fold(publication.raw_citation)
-    if re.search(r"\b(?:doctoral|phd|master'?s?)\s+thesis\b|\bdissertation\b", raw):
+    if re.search(
+        r"\b(?:(?:doctoral|phd|master'?s?|bachelor'?s?)\s+(?:degree\s+)?thesis|dissertation)\b",
+        raw,
+    ):
         return PublicationClassification("NON_PUBLICATION", 0.99, "explicit thesis or dissertation")
+    if re.search(r"\b(?:patents?|intellectual\s+property)\b", raw) or re.search(
+        r"(?i)\b(?:WO|EP|US)\d{6,}[A-Z]\d\b", publication.journal or ""
+    ):
+        return PublicationClassification("NON_PUBLICATION", 0.99, "explicit patent record")
+    title_words = re.findall(r"[^\W\d_]{3,}", publication.title or "", re.UNICODE)
+    title_key = "".join(
+        character for character in _fold(publication.title or "") if character.isalnum()
+    )
+    author_initials = re.findall(r"\b[A-ZÀ-ÖØ-Þ]\s*\.", publication.title or "")
+    author_fragment = bool(
+        re.search(r",\s*[A-ZÀ-ÖØ-Þ]{1,3}\b", publication.title or "")
+        or (publication.title or "").count(",") >= 3
+        or re.match(
+            r"(?i)^\s*[*#†§]*\s*:?[ ]*(?:contributed\s+equally|corresponding\s+author|co[- ]?supervised)",
+            publication.title or "",
+        )
+    )
+    administrative_title = bool(
+        re.search(
+            r"(?i)\b(?:anschrift|bankverbindung|postal\s+address|current\s+position|"
+            r"curriculum\s+vitae|contact\s+details)\b",
+            publication.title or "",
+        )
+    )
+    title_quality = bool(
+        publication.title
+        and len(title_key) >= 8
+        and title_words
+        and len(author_initials) < 3
+        and not author_fragment
+        and not administrative_title
+    )
+    narrative = bool(
+        re.search(
+            r"\b(?:dear\s+(?:members|dr)|selection\s+committee|letter\s+of\s+support|"
+            r"fellowship\s+application|outstanding\s+(?:candidate|research)|to\s+whom\s+it\s+may\s+concern)\b",
+            raw,
+        )
+    )
+    venue_quality = bool(
+        publication.journal
+        and len(re.findall(r"[^\W\d_]{2,}", publication.journal, re.UNICODE)) >= 1
+        and len(publication.journal.strip()) >= 3
+    )
+    quality_failure = not title_quality or narrative
     if re.search(r"\bin\s+preparation\b|\bmanuscript\s+in\s+preparation\b", raw):
+        if quality_failure:
+            return PublicationClassification("PENDING_REVIEW", 0.2, "low-quality title or narrative context")
         return PublicationClassification("UNDER_PREPARATION", 0.99, "explicit in-preparation status")
     preprint_signal = re.search(
-        r"\b(?:preprint|biorxiv|medrxiv|arxiv|ssrn|submitted|under\s+(?:review|revision)|in\s+revision|accepted\s+(?:in|for|by)|forthcoming|revised\s+and\s+resubmitted)\b",
+        r"\b(?:preprint|biorxiv|medrxiv|arxiv|ssrn|submitted|under\s+(?:review|revision)|in\s+(?:review|revision)|accepted\s+(?:in|for|by)|forthcoming|revised\s+and\s+resubmitted)\b",
         raw,
     )
     if preprint_signal or section_status == "ACCEPTED_PREPRINT":
+        if quality_failure:
+            return PublicationClassification("PENDING_REVIEW", 0.2, "low-quality title or narrative context")
         return PublicationClassification("ACCEPTED_PREPRINT", 0.97, "explicit preprint or review status")
     if section_status == "UNDER_PREPARATION":
+        if quality_failure:
+            return PublicationClassification("PENDING_REVIEW", 0.2, "low-quality title or narrative context")
         return PublicationClassification("UNDER_PREPARATION", 0.95, "in-preparation section")
 
     missing: list[str] = []
@@ -370,8 +554,14 @@ def classify_publication(
         missing.append("title")
     if not publication.journal:
         missing.append("journal")
+    elif not venue_quality:
+        missing.append("credible journal or proceedings venue")
     if publication.year is None:
         missing.append("year")
+    if not title_quality:
+        missing.append("credible title")
+    if narrative:
+        missing.append("non-narrative citation context")
     if not missing:
         return PublicationClassification(
             "PUBLISHED", 0.96, "authors, title, venue, and publication year present"
@@ -386,6 +576,12 @@ def classify_publication(
 def _fold(value: str) -> str:
     decomposed = unicodedata.normalize("NFKD", value.casefold())
     return "".join(character for character in decomposed if not unicodedata.combining(character))
+
+
+def _clean_ocr_text(value: str) -> str:
+    return value.translate(
+        str.maketrans({"Ɵ": "ti", "Ʃ": "tt", "ﬁ": "fi", "ﬂ": "fl", "ﬀ": "ff"})
+    )
 
 
 def _heading_key(value: str) -> str:
@@ -410,9 +606,17 @@ def choose_page_text(plain_text: str, layout_text: str) -> tuple[str, str]:
     layout_lines = len(layout.splitlines())
     plain_tokens = len(plain.split())
     layout_tokens = len(layout.split())
+    plain_blank_lines = sum(not line.strip() for line in plain.splitlines())
+    layout_blank_lines = sum(not line.strip() for line in layout.splitlines())
     if plain_tokens >= 6 and layout_tokens < max(2, int(plain_tokens * 0.55)):
         return plain, "plain"
     if plain_lines <= 3 and layout_lines >= plain_lines + 4:
+        return layout, "layout"
+    if (
+        layout_tokens >= int(plain_tokens * 0.9)
+        and layout_lines >= plain_lines + 2
+        and layout_blank_lines >= plain_blank_lines + 2
+    ):
         return layout, "layout"
     return plain, "plain"
 
@@ -471,6 +675,8 @@ def _author_variants(applicant_name: str) -> tuple[str, ...]:
     if len(tokens) >= 2:
         values.add(" ".join(tokens[-2:]))
         values.add("".join(tokens[-2:]))
+        values.add(" ".join(tokens[:2]))
+        values.add("".join(tokens[:2]))
     return tuple(sorted((value for value in values if len(value) >= 5), key=len, reverse=True))
 
 
@@ -492,14 +698,19 @@ def _has_terminal_evidence(raw: str) -> bool:
     return bool(
         terminal_year
         or re.search(
-            r"(?i)(?:doi\s*:|https?://doi\.org/|arxiv\s*:|in\s+preparation|under\s+revision|accepted\s+(?:in|for|by)\b)[^\n]*$",
+            r"(?i)(?:doi\s*:|https?://doi\.org/|arxiv\s*:|in\s+preparation|under\s+(?:review|revision)|in\s+review|accepted\s+(?:in|for|by)\b)[^\n]*$",
+            tail,
+        )
+        or re.search(
+            r"(?i)\b\d{1,4}\s*(?:\([^)]+\))?\s*[,:]\s*(?:[a-z]\d{3,}|\d+(?:\s*[-–]\s*\d+)?)\.?"
+            r"(?:\s*\([^)]*(?:equal|contribut)[^)]*\))?\s*$",
             tail,
         )
     )
 
 
 def _looks_like_entry_start(line: str) -> bool:
-    if _ENUMERATOR_RE.match(line) or _YEAR_COLUMN_RE.match(line):
+    if _ENUMERATOR_RE.match(line) or _BARE_ENUMERATOR_RE.match(line) or _YEAR_COLUMN_RE.match(line):
         return True
     stripped = line.strip()
     prefix = stripped[:100]
@@ -514,6 +725,7 @@ def _join_lines(lines: Sequence[_SourceLine]) -> str:
     for source_line in lines:
         value = source_line.text.strip()
         value = _ENUMERATOR_RE.sub("", value, count=1)
+        value = _BARE_ENUMERATOR_RE.sub("", value, count=1)
         if not value:
             continue
         if output.endswith("-") and value[:1].islower():
@@ -533,10 +745,11 @@ def _candidate_from_lines(
     status_hint: str,
     variants: Sequence[str],
     segmentation_method: str,
+    inherited_year: int | None = None,
 ) -> PublicationCandidate | None:
     raw = _join_lines(lines)
     year_matches = [(int(match.group(0)), match.start()) for match in _YEAR_RE.finditer(raw)]
-    year = year_matches[-1][0] if year_matches else None
+    year = year_matches[0][0] if year_matches else inherited_year
     if status_hint == "UNDER_PREPARATION" and not (
         year_matches and year_matches[0][1] <= 8 and year_matches[0][0] >= 2000
     ):
@@ -553,6 +766,8 @@ def _candidate_from_lines(
         or (year is None and not year_optional)
         or not _contains_applicant(raw, variants)
     ):
+        return None
+    if "orcid.org/" in raw.casefold() and ("@" in raw or "postdoctoral" in raw.casefold()):
         return None
     if raw.count(".") + raw.count(":") < 2:
         return None
@@ -593,6 +808,7 @@ def extract_candidates_from_pages(
     status_hint = "PUBLISHED" if dedicated else ""
     active = dedicated
     method = "section-boundary"
+    column_year: int | None = None
 
     def flush(reason: str) -> None:
         nonlocal buffer, method
@@ -605,6 +821,7 @@ def extract_candidates_from_pages(
                 status_hint=status_hint,
                 variants=variants,
                 segmentation_method=reason or method,
+                inherited_year=column_year,
             )
             if candidate is not None:
                 candidates.append(candidate)
@@ -614,6 +831,45 @@ def extract_candidates_from_pages(
     for page_number, text in selected:
         for line_number, original in enumerate(text.splitlines(), start=1):
             stripped = original.strip()
+            inline_stop = next(
+                (match for pattern in _INLINE_STOP_PATTERNS if (match := pattern.search(original))),
+                None,
+            )
+            if active and inline_stop is not None:
+                prefix = original[: inline_stop.start()].strip()
+                if prefix:
+                    buffer.append(
+                        _SourceLine(page_number, line_number, prefix, len(original) - len(original.lstrip()))
+                    )
+                flush("inline-stop-heading")
+                active = False
+                column_year = None
+                continue
+            inline_section = next(
+                (
+                    (match, inline_status)
+                    for pattern, inline_status in _INLINE_SECTION_PATTERNS
+                    if (match := pattern.search(original)) is not None
+                ),
+                None,
+            )
+            if active and inline_section is not None:
+                inline_heading, inline_status = inline_section
+                prefix = original[: inline_heading.start()].strip()
+                suffix = original[inline_heading.end() :].strip()
+                if prefix:
+                    buffer.append(
+                        _SourceLine(page_number, line_number, prefix, len(original) - len(original.lstrip()))
+                    )
+                flush("inline-section-heading")
+                section_label = inline_heading.group(1)
+                status_hint = inline_status
+                active = True
+                if suffix:
+                    buffer.append(
+                        _SourceLine(page_number, line_number, suffix, len(original) - len(original.lstrip()))
+                    )
+                continue
             key = _heading_key(stripped)
             if (
                 stripped
@@ -626,10 +882,12 @@ def extract_candidates_from_pages(
                 flush("section-heading")
                 section_label, status_hint = heading
                 active = True
+                column_year = None
                 continue
             if _is_stop_heading(stripped):
                 flush("stop-heading")
                 active = False
+                column_year = None
                 continue
             if not active or _is_explanatory_line(stripped):
                 continue
@@ -639,12 +897,20 @@ def extract_candidates_from_pages(
                 continue
 
             current = _join_lines(buffer)
-            strong_start = bool(_ENUMERATOR_RE.match(original) or _YEAR_COLUMN_RE.match(original))
+            strong_start = bool(
+                _ENUMERATOR_RE.match(original)
+                or _BARE_ENUMERATOR_RE.match(original)
+                or _YEAR_COLUMN_RE.match(original)
+            )
             terminal_transition = bool(
                 buffer and _has_terminal_evidence(current) and _looks_like_entry_start(original)
             )
             if buffer and (strong_start or terminal_transition):
                 flush("enumerator-or-terminal-year")
+            if _YEAR_COLUMN_RE.match(original):
+                year_match = _YEAR_RE.search(_normalize_spaced_years(original[:20]))
+                if year_match is not None:
+                    column_year = int(year_match.group(0))
             buffer.append(
                 _SourceLine(page_number, line_number, original, len(original) - len(original.lstrip()))
             )

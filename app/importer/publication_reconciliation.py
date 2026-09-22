@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import argparse
 import copy
 import csv
 import hashlib
+import html
 import json
+import logging
 import re
 import unicodedata
 from collections import Counter
@@ -27,6 +30,7 @@ from app.importer.publication_extraction import (
     iter_candidates,
 )
 from app.importer.publications import ManifestCounts, load_publication_manifest
+from app.importer.publication_resolution import CrossrefBibliographicResolver
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +87,85 @@ def _fold(value: str) -> str:
 def normalize_title(value: str | None) -> str:
     if not value:
         return ""
-    return "".join(character for character in _fold(value) if character.isalnum())
+    plain = re.sub(r"<[^>]*>", "", html.unescape(value))
+    return "".join(character for character in _fold(plain) if character.isalnum())
+
+
+def _review_rank(work: Mapping[str, Any]) -> int:
+    disposition = work["resolution"]["evidence"].get("review_disposition")
+    return {
+        "PUBLISHED": 5,
+        "ACCEPTED_PREPRINT": 4,
+        "UNDER_PREPARATION": 3,
+        "PENDING_REVIEW": 2,
+        "NON_PUBLICATION": 1,
+    }.get(disposition, 0)
+
+
+def _quarantine_empty_legacy_works(document: dict[str, Any]) -> set[str]:
+    """Mark fieldless legacy parser rows as non-publication artifacts."""
+    touched: set[str] = set()
+    for work in document["works"]:
+        metadata = work["canonical_metadata"]
+        meaningful = any(
+            metadata.get(field) not in (None, "")
+            for field in ("doi", "authors_text", "title", "journal", "year")
+        )
+        evidence = work["resolution"]["evidence"]
+        disposition = evidence.get("review_disposition")
+        if meaningful or disposition not in (None, "PENDING_REVIEW"):
+            continue
+        evidence.update(
+            {
+                "review_disposition": "NON_PUBLICATION",
+                "review_reason": "Empty legacy parser artifact with no bibliographic fields.",
+                "review_evidence": {
+                    "verification_method": "CORPUS_PDF_REEXTRACTION_EMPTY_ARTIFACT",
+                    "previous_disposition": disposition,
+                },
+            }
+        )
+        touched.add(work["applicant_folder"])
+    return touched
+
+
+def _deduplicate_exact_title_works(document: dict[str, Any]) -> set[str]:
+    """Quarantine applicant-scoped exact-title copies without deleting database identities."""
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for work in document["works"]:
+        title = normalize_title(work["canonical_metadata"].get("title"))
+        if len(title) >= 16:
+            grouped.setdefault((work["applicant_folder"], title), []).append(work)
+
+    touched: set[str] = set()
+    for (folder, _title), works in grouped.items():
+        if len(works) < 2:
+            continue
+        primary = max(
+            works,
+            key=lambda work: (
+                _review_rank(work),
+                bool(work["canonical_metadata"].get("doi")),
+                work["resolution"]["status"] == "RESOLVED",
+            ),
+        )
+        primary_id = primary["final_work_id"]
+        for duplicate in works:
+            if duplicate is primary:
+                continue
+            evidence = duplicate["resolution"]["evidence"]
+            evidence.update(
+                {
+                    "review_disposition": "NON_PUBLICATION",
+                    "review_reason": f"Exact-title duplicate of canonical work {primary_id}.",
+                    "review_evidence": {
+                        "verification_method": "CORPUS_EXACT_TITLE_DUPLICATE",
+                        "canonical_work_id": primary_id,
+                    },
+                }
+            )
+            touched.add(folder)
+    return touched
 
 
 def _stable_token(*values: object) -> str:
@@ -149,9 +231,10 @@ def _parse_candidate(
 
 
 def _canonical_metadata(parsed: ParsedPublication) -> dict[str, Any]:
+    doi = parsed.doi.casefold() if parsed.doi else None
     return {
-        "doi": parsed.doi,
-        "doi_url": f"https://doi.org/{parsed.doi}" if parsed.doi else None,
+        "doi": doi,
+        "doi_url": f"https://doi.org/{doi}" if doi else None,
         "authors_text": _authors_text(parsed),
         "title": parsed.title,
         "journal": parsed.journal,
@@ -208,8 +291,14 @@ def _match_work(
     *,
     applicant_folder: str,
     parsed: ParsedPublication,
+    raw_citation: str,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    applicant_works = [work for work in works if work["applicant_folder"] == applicant_folder]
+    applicant_works = [
+        work
+        for work in works
+        if work["applicant_folder"] == applicant_folder
+        and work["resolution"]["evidence"].get("review_disposition") != "NON_PUBLICATION"
+    ]
     if parsed.doi:
         doi = parsed.doi.casefold()
         doi_matches = [
@@ -220,14 +309,33 @@ def _match_work(
         if len(doi_matches) == 1:
             return doi_matches[0], "MATCHED_DOI"
 
-    title = normalize_title(parsed.title)
-    if not title:
-        return None, None
-    title_matches = [
-        work
-        for work in applicant_works
-        if normalize_title(work["canonical_metadata"].get("title")) == title
+    raw_key = normalize_title(raw_citation)
+    embedded_by_title: dict[str, list[dict[str, Any]]] = {}
+    for work in applicant_works:
+        existing_title = normalize_title(work["canonical_metadata"].get("title"))
+        if len(existing_title) >= 16 and existing_title in raw_key:
+            embedded_by_title.setdefault(existing_title, []).append(work)
+    maximal_titles = {
+        title
+        for title in embedded_by_title
+        if not any(title != other and title in other for other in embedded_by_title)
+    }
+    if len(maximal_titles) > 1:
+        return None, "AMBIGUOUS_MULTIPLE_TITLES"
+    embedded_all = [
+        work for title in maximal_titles for work in embedded_by_title[title]
     ]
+
+    title = normalize_title(parsed.title)
+    title_matches = (
+        [
+            work
+            for work in applicant_works
+            if normalize_title(work["canonical_metadata"].get("title")) == title
+        ]
+        if title
+        else []
+    )
     compatible: list[dict[str, Any]] = []
     for work in title_matches:
         existing_year = work["canonical_metadata"].get("year")
@@ -241,6 +349,20 @@ def _match_work(
         ]
         if len(exact) == 1:
             return exact[0], "MATCHED_TITLE"
+
+    embedded: list[dict[str, Any]] = []
+    for work in embedded_all:
+        existing_title = normalize_title(work["canonical_metadata"].get("title"))
+        existing_year = work["canonical_metadata"].get("year")
+        year_compatible = (
+            parsed.year is None
+            or existing_year is None
+            or abs(parsed.year - existing_year) <= 1
+        )
+        if existing_title and year_compatible:
+            embedded.append(work)
+    if len(embedded) == 1:
+        return embedded[0], "MATCHED_TITLE_IN_CITATION"
     return None, None
 
 
@@ -265,7 +387,7 @@ def _add_occurrence(
         "source_artifact": candidate.filename,
         "source_record_index": candidate.line_start,
         "source_record_position": candidate.page_start,
-        "normalized_doi_candidates": [parsed.doi] if parsed.doi else [],
+        "normalized_doi_candidates": [parsed.doi.casefold()] if parsed.doi else [],
         "normalized_raw_citation": candidate.raw_citation,
         "source_record": {
             "raw_citation": candidate.raw_citation,
@@ -295,6 +417,12 @@ def _reconcile_review(
     current = evidence.get("review_disposition")
     if current and current != "PENDING_REVIEW":
         return "PRESERVED_EXPLICIT_REVIEW"
+    if (
+        current is None
+        and work["resolution"]["status"] == "RESOLVED"
+        and classification.disposition == "PENDING_REVIEW"
+    ):
+        return "PRESERVED_RESOLVED_PUBLICATION"
     classification = _classification_for_metadata(classification, work["canonical_metadata"])
     evidence.update(_review_values(candidate, parsed, classification))
     return "PROMOTED_PENDING" if current == "PENDING_REVIEW" else "ADDED_EXPLICIT_REVIEW"
@@ -395,15 +523,21 @@ def reconcile_publication_manifest(
     candidates: Iterable[PublicationCandidate],
     *,
     citation_parser: Callable[[str], ParsedPublication] | None = None,
+    bibliographic_resolver: Callable[
+        [PublicationCandidate, ParsedPublication], ParsedPublication | None
+    ]
+    | None = None,
     generated_at_utc: str | None = None,
 ) -> ReconciliationResult:
     """Reconcile parsed candidates additively and return an import-ready manifest."""
     document: dict[str, Any] = copy.deepcopy(dict(base_document))
+    repaired_folders = _quarantine_empty_legacy_works(document)
+    repaired_folders.update(_deduplicate_exact_title_works(document))
     applicant_by_name = {
         applicant["workbook_applicant"]: applicant for applicant in document["applicants"]
     }
     audit_rows: list[dict[str, Any]] = []
-    touched_folders: set[str] = set()
+    touched_folders: set[str] = set(repaired_folders)
     ordered = sorted(
         candidates,
         key=lambda item: (
@@ -422,8 +556,85 @@ def reconcile_publication_manifest(
         classification = classify_publication(parsed, section_status=candidate.status_hint)
         folder = applicant["applicant_folder"]
         work, match_action = _match_work(
-            document["works"], applicant_folder=folder, parsed=parsed
+            document["works"],
+            applicant_folder=folder,
+            parsed=parsed,
+            raw_citation=candidate.raw_citation,
         )
+        if match_action == "AMBIGUOUS_MULTIPLE_TITLES":
+            audit_rows.append(
+                {
+                    "applicant": candidate.applicant_name,
+                    "source_artifact": candidate.filename,
+                    "page_start": candidate.page_start,
+                    "page_end": candidate.page_end,
+                    "raw_citation": candidate.raw_citation,
+                    "parsed_title": parsed.title,
+                    "parsed_journal": parsed.journal,
+                    "parsed_year": parsed.year,
+                    "parsed_doi": parsed.doi,
+                    "classification": "PENDING_REVIEW",
+                    "confidence": 0.0,
+                    "final_work_id": None,
+                    "source_occurrence_id": None,
+                    "action": "SKIPPED_AMBIGUOUS_CITATION",
+                    "decision_action": "SKIPPED_AMBIGUOUS_CITATION",
+                }
+            )
+            continue
+        if work is None and bibliographic_resolver is not None:
+            try:
+                resolved = bibliographic_resolver(candidate, parsed)
+            except Exception:
+                resolved = None
+            if resolved is not None:
+                parsed = resolved
+                classification = classify_publication(
+                    parsed, section_status=candidate.status_hint
+                )
+                work, match_action = _match_work(
+                    document["works"],
+                    applicant_folder=folder,
+                    parsed=parsed,
+                    raw_citation=candidate.raw_citation,
+                )
+        low_quality_pending = bool(
+            classification.disposition == "PENDING_REVIEW"
+            and (
+                not parsed.title
+                or classification.confidence <= 0.2
+                or "credible title" in classification.reason
+                or "non-narrative" in classification.reason
+            )
+        )
+        if work is None and (
+            classification.disposition == "NON_PUBLICATION" or low_quality_pending
+        ):
+            action = (
+                "SKIPPED_NON_PUBLICATION"
+                if classification.disposition == "NON_PUBLICATION"
+                else "SKIPPED_UNPARSABLE_CITATION"
+            )
+            audit_rows.append(
+                {
+                    "applicant": candidate.applicant_name,
+                    "source_artifact": candidate.filename,
+                    "page_start": candidate.page_start,
+                    "page_end": candidate.page_end,
+                    "raw_citation": candidate.raw_citation,
+                    "parsed_title": parsed.title,
+                    "parsed_journal": parsed.journal,
+                    "parsed_year": parsed.year,
+                    "parsed_doi": parsed.doi,
+                    "classification": classification.disposition,
+                    "confidence": classification.confidence,
+                    "final_work_id": None,
+                    "source_occurrence_id": None,
+                    "action": action,
+                    "decision_action": action,
+                }
+            )
+            continue
         if work is None:
             work_id = _final_work_id(candidate, parsed)
             metadata = _canonical_metadata(parsed)
@@ -452,6 +663,8 @@ def reconcile_publication_manifest(
             for field, value in _canonical_metadata(parsed).items():
                 if metadata.get(field) in (None, "") and value not in (None, ""):
                     metadata[field] = value
+            if metadata.get("doi"):
+                work["resolution"]["status"] = "RESOLVED"
             decision_action = _reconcile_review(
                 work, candidate, parsed, classification
             )
@@ -621,6 +834,7 @@ def run_corpus_reconciliation(
     output_directory: Path,
     *,
     grobid_url: str | None = None,
+    resolve_public_bibliography: bool = False,
     stem: str = "p260922",
 ) -> CorpusRunResult:
     """Extract every mapped PDF, reconcile it, validate it, and write private artifacts."""
@@ -638,8 +852,18 @@ def run_corpus_reconciliation(
         raise ValueError(f"Applicant source-folder mapping is incomplete: {missing}.")
     audits = extract_corpus(source_root, mapping)
     parser = GrobidCitationParser(grobid_url).parse if grobid_url else None
+    public_resolver = (
+        CrossrefBibliographicResolver(
+            cache_path=output_directory / f"{stem}-crossref-cache.json"
+        ).resolve
+        if resolve_public_bibliography
+        else None
+    )
     result = reconcile_publication_manifest(
-        base_document, iter_candidates(audits), citation_parser=parser
+        base_document,
+        iter_candidates(audits),
+        citation_parser=parser,
+        bibliographic_resolver=public_resolver,
     )
     final_counts = _manifest_counts(result.document)
     load_publication_manifest(
@@ -659,3 +883,45 @@ def run_corpus_reconciliation(
         output_directory, result, audits, stem=stem
     )
     return CorpusRunResult(paths, final_counts, before, after)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Re-extract and reconcile applicant publication PDFs into a private manifest."
+    )
+    parser.add_argument("--base-manifest", required=True, type=Path)
+    parser.add_argument("--source-root", required=True, type=Path)
+    parser.add_argument("--output-directory", required=True, type=Path)
+    parser.add_argument("--grobid-url")
+    parser.add_argument("--resolve-public-bibliography", action="store_true")
+    parser.add_argument("--stem", default="p260922")
+    arguments = parser.parse_args(argv)
+    logging.getLogger("pypdf").setLevel(logging.CRITICAL)
+    result = run_corpus_reconciliation(
+        arguments.base_manifest,
+        arguments.source_root,
+        arguments.output_directory,
+        grobid_url=arguments.grobid_url,
+        resolve_public_bibliography=arguments.resolve_public_bibliography,
+        stem=arguments.stem,
+    )
+    counts = result.manifest_counts
+    print(
+        json.dumps(
+            {
+                "paths": {name: str(path) for name, path in result.paths.items()},
+                "counts": {
+                    "applicants": counts.applicants,
+                    "works": counts.works,
+                    "source_occurrences": counts.source_occurrences,
+                    "citation_statuses": counts.citation_statuses,
+                },
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

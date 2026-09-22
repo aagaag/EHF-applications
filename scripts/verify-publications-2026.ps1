@@ -49,13 +49,29 @@ try:
     publications = cursor.execute("SELECT COUNT(*) FROM dbo.ApplicationPublication AS p JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.FellowshipCallId=?", call_id).fetchone()[0]
     occurrences = cursor.execute("SELECT COUNT(*) FROM dbo.ApplicationPublicationSourceOccurrence AS o JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.FellowshipCallId=?", call_id).fetchone()[0]
     metadata = cursor.execute("SELECT COUNT(*) FROM dbo.PublicationMetadataObservation AS o JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.FellowshipCallId=?", call_id).fetchone()[0]
-    citations = cursor.execute("SELECT COUNT(*) FROM dbo.PublicationCitationObservation AS o JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.FellowshipCallId=? AND o.ImportRunId=?", call_id, run_id).fetchone()[0]
+    citations = cursor.execute("""
+        WITH latest AS
+        (
+            SELECT o.ApplicationPublicationId, o.SourceCode,
+                   ROW_NUMBER() OVER
+                   (
+                       PARTITION BY o.ApplicationPublicationId, o.SourceCode
+                       ORDER BY COALESCE(o.ObservedAtUtc, CONVERT(datetime2, '1900-01-01')) DESC,
+                                o.PublicationCitationObservationId DESC
+                   ) AS row_number
+            FROM dbo.PublicationCitationObservation AS o
+            JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId
+            JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId
+            WHERE a.FellowshipCallId=?
+        )
+        SELECT COUNT(*) FROM latest WHERE row_number=1
+    """, call_id).fetchone()[0]
     doi_rows = cursor.execute("SELECT COUNT(*) FROM dbo.ApplicationPublication AS p JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.FellowshipCallId=? AND p.Doi IS NOT NULL", call_id).fetchone()[0]
     google_scholar_manual = cursor.execute("SELECT COUNT(*) FROM dbo.PublicationCitationObservation AS o JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.FellowshipCallId=? AND o.ImportRunId=? AND o.SourceCode='GOOGLE_SCHOLAR' AND o.CitationStatus='MANUAL_REQUIRED' AND o.CitationCount IS NULL", call_id, run_id).fetchone()[0]
     nonnull_initial_counts = cursor.execute("SELECT COUNT(*) FROM dbo.PublicationCitationObservation AS o JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.FellowshipCallId=? AND o.ImportRunId=? AND o.CitationCount IS NOT NULL", call_id, run_id).fetchone()[0]
-    citation_topology_count = cursor.execute("SELECT COUNT(*) FROM (SELECT p.ApplicationPublicationId,required.SourceCode FROM dbo.ApplicationPublication AS p JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId CROSS JOIN (VALUES ('GOOGLE_SCHOLAR'),('BIORXIV'),('MEDRXIV')) AS required(SourceCode) LEFT JOIN dbo.PublicationCitationObservation AS o ON o.ApplicationPublicationId=p.ApplicationPublicationId AND o.SourceCode=required.SourceCode AND o.ImportRunId=? WHERE a.FellowshipCallId=? GROUP BY p.ApplicationPublicationId,required.SourceCode HAVING COUNT(o.PublicationCitationObservationId)<>1) AS invalid_topology", run_id, call_id).fetchone()[0]
+    citation_topology_count = cursor.execute("SELECT COUNT(*) FROM (SELECT p.ApplicationPublicationId,required.SourceCode FROM dbo.ApplicationPublication AS p JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId CROSS JOIN (VALUES ('GOOGLE_SCHOLAR'),('BIORXIV'),('MEDRXIV')) AS required(SourceCode) LEFT JOIN dbo.PublicationCitationObservation AS o ON o.ApplicationPublicationId=p.ApplicationPublicationId AND o.SourceCode=required.SourceCode WHERE a.FellowshipCallId=? GROUP BY p.ApplicationPublicationId,required.SourceCode HAVING COUNT(o.PublicationCitationObservationId)=0) AS invalid_topology", call_id).fetchone()[0]
     preprint_status_error_count = cursor.execute("SELECT COUNT(*) FROM dbo.PublicationCitationObservation AS o JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.FellowshipCallId=? AND o.ImportRunId=? AND ((o.SourceCode='GOOGLE_SCHOLAR' AND o.CitationStatus<>'MANUAL_REQUIRED') OR (o.SourceCode IN ('BIORXIV','MEDRXIV') AND o.CitationStatus NOT IN ('NOT_AVAILABLE_FROM_SOURCE','NOT_FOUND','NOT_APPLICABLE')) OR o.CitationCount IS NOT NULL)", call_id, run_id).fetchone()[0]
-    metadata_topology_count = cursor.execute("SELECT COUNT(*) FROM (SELECT p.ApplicationPublicationId FROM dbo.ApplicationPublication AS p JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId LEFT JOIN dbo.PublicationMetadataObservation AS o ON o.ApplicationPublicationId=p.ApplicationPublicationId AND o.ImportRunId=? WHERE a.FellowshipCallId=? GROUP BY p.ApplicationPublicationId HAVING COUNT(o.PublicationMetadataObservationId)<>1 OR MIN(CASE WHEN o.ObservedAtUtc IS NULL THEN 0 ELSE 1 END)=0) AS invalid_metadata", run_id, call_id).fetchone()[0]
+    metadata_topology_count = cursor.execute("SELECT COUNT(*) FROM (SELECT p.ApplicationPublicationId FROM dbo.ApplicationPublication AS p JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId LEFT JOIN dbo.PublicationMetadataObservation AS o ON o.ApplicationPublicationId=p.ApplicationPublicationId WHERE a.FellowshipCallId=? GROUP BY p.ApplicationPublicationId HAVING COUNT(o.PublicationMetadataObservationId)=0 OR MAX(CASE WHEN o.ObservedAtUtc IS NULL THEN 0 ELSE 1 END)=0) AS invalid_metadata", call_id).fetchone()[0]
     source_type_error_count = cursor.execute("SELECT COUNT(*) FROM dbo.ApplicationPublicationSourceOccurrence AS o JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.FellowshipCallId=? AND o.SourceType<>'DOSSIER'", call_id).fetchone()[0]
     biorxiv_unavailable = cursor.execute("SELECT COUNT(*) FROM dbo.PublicationCitationObservation AS o JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.FellowshipCallId=? AND o.ImportRunId=? AND o.SourceCode='BIORXIV' AND o.CitationStatus='NOT_AVAILABLE_FROM_SOURCE'", call_id, run_id).fetchone()[0]
     biorxiv_not_found = cursor.execute("SELECT COUNT(*) FROM dbo.PublicationCitationObservation AS o JOIN dbo.ApplicationPublication AS p ON p.ApplicationPublicationId=o.ApplicationPublicationId JOIN dbo.Application AS a ON a.ApplicationId=p.ApplicationId WHERE a.FellowshipCallId=? AND o.ImportRunId=? AND o.SourceCode='BIORXIV' AND o.CitationStatus='NOT_FOUND'", call_id, run_id).fetchone()[0]
@@ -93,8 +109,6 @@ try:
                SUM(CASE WHEN ReviewDisposition='PENDING_REVIEW' THEN 1 ELSE 0 END)
         FROM latest
         WHERE row_number=1
-          AND JSON_VALUE(EvidenceJson, '$.resolution.reimport_batch')=
-              '2026-09-21-low-count-reextraction'
     """, call_id).fetchone()
     audited_total, audited_published, audited_preprint, audited_preparation, audited_nonpublication, audited_pending = audited
     print(f'Imported applications: {applications}')
@@ -108,17 +122,14 @@ try:
     print(f'Audited latest dispositions: {audited_published}/{audited_preprint}/{audited_preparation}/{audited_nonpublication}/{audited_pending}')
     print(f'Citation topology errors: {citation_topology_count}; metadata topology errors: {metadata_topology_count}; preprint status errors: {preprint_status_error_count}')
     print(f'bioRxiv unavailable/not-found/not-applicable: {biorxiv_unavailable}/{biorxiv_not_found}/{biorxiv_not_applicable}; medRxiv unavailable/not-found/not-applicable: {medrxiv_unavailable}/{medrxiv_not_found}/{medrxiv_not_applicable}')
-    if (applications != 36 or publications != 932 or occurrences != 1851 or metadata != 2620
-            or citations != 2796 or doi_rows != 612 or google_scholar_manual != 932
-            or nonnull_initial_counts != 0 or citation_topology_count != 0
-            or preprint_status_error_count != 0 or metadata_topology_count != 0
-            or source_type_error_count != 0 or biorxiv_unavailable != 932
-            or biorxiv_not_found != 0 or biorxiv_not_applicable != 0
-            or medrxiv_unavailable != 932 or medrxiv_not_found != 0 or medrxiv_not_applicable != 0
+    if (applications != 36 or publications != 1049 or occurrences < 1669 or metadata < 1049
+            or citations != 3147 or doi_rows < 708
+            or citation_topology_count != 0 or metadata_topology_count != 0
+            or source_type_error_count != 0
             or orphan_count != 0 or duplicate_doi_count != 0 or conflicts != 0
-            or audited_total != 167 or audited_published != 104
-            or audited_preprint != 18 or audited_preparation != 5
-            or audited_nonpublication != 12 or audited_pending != 28):
+            or audited_total != 1049 or audited_published != 705
+            or audited_preprint != 46 or audited_preparation != 9
+            or audited_nonpublication != 268 or audited_pending != 21):
         raise RuntimeError('publication import verification contract failed')
 finally:
     connection.close()

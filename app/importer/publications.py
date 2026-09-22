@@ -35,7 +35,7 @@ class ManifestCounts:
     citation_statuses: int
 
 
-PRODUCTION_COUNTS = ManifestCounts(36, 932, 968, 2796)
+PRODUCTION_COUNTS = ManifestCounts(36, 1049, 1669, 3147)
 
 
 @dataclass(frozen=True, slots=True)

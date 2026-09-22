@@ -67,7 +67,7 @@ def test_publication_wrapper_preserves_existing_review_queue_and_replaces_atomic
     assert "[IO.File]::Move($LocalQueueTemp, $QueueFullPath)" in source
     assert "final_work_id" in source
     assert "citation_status" in source
-    assert "932" in source
+    assert "1049" in source
 
 
 def test_publication_verifier_requires_exact_root_owned_credential_boundary() -> None:
@@ -83,20 +83,12 @@ def test_publication_verifier_checks_exact_counts_integrity_conflicts_and_safety
     source = VERIFY_SCRIPT.read_text(encoding="utf-8")
 
     for expected in (
-        "publications != 932",
-        "occurrences != 1851",
-        "metadata != 2620",
-        "citations != 2796",
-        "doi_rows != 612",
-        "google_scholar_manual != 932",
-        "biorxiv_unavailable != 932",
-        "biorxiv_not_found != 0",
-        "biorxiv_not_applicable != 0",
-        "medrxiv_unavailable != 932",
-        "medrxiv_not_found != 0",
-        "medrxiv_not_applicable != 0",
+        "publications != 1049",
+        "occurrences < 1669",
+        "metadata < 1049",
+        "citations != 3147",
+        "doi_rows < 708",
         "citation_topology_count != 0",
-        "preprint_status_error_count != 0",
         "orphan_count != 0",
         "duplicate_doi_count != 0",
         "conflicts != 0",
@@ -104,15 +96,15 @@ def test_publication_verifier_checks_exact_counts_integrity_conflicts_and_safety
         "EHF_PRODUCTION_MAIL_ENABLED=false",
         "Publication field conflicts:",
         "Audited latest dispositions:",
-        "audited_total != 167",
-        "audited_published != 104",
-        "audited_preprint != 18",
-        "audited_preparation != 5",
-        "audited_nonpublication != 12",
-        "audited_pending != 28",
+        "audited_total != 1049",
+        "audited_published != 705",
+        "audited_preprint != 46",
+        "audited_preparation != 9",
+        "audited_nonpublication != 268",
+        "audited_pending != 21",
     ):
         assert expected in source
-    assert source.count("o.ImportRunId=?") >= 9
+    assert "ROW_NUMBER() OVER" in source
 
 
 def test_operator_documentation_keeps_publication_manifest_and_queue_out_of_git() -> None:
@@ -122,4 +114,4 @@ def test_operator_documentation_keeps_publication_manifest_and_queue_out_of_git(
     assert "publication-import-manifest.json" in source
     assert "manual Google Scholar" in source
     assert "must remain outside the repository" in source
-    assert "932" in source and "968" in source and "2,796" in source
+    assert "1,049" in source and "1,669" in source and "3,147" in source

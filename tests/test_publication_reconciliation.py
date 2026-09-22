@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from pypdf import PdfWriter
 
@@ -14,6 +15,7 @@ from app.importer.publication_extraction import (
     PublicationCandidate,
 )
 from app.importer.publication_reconciliation import (
+    main,
     map_applicant_folders,
     reconcile_publication_manifest,
     run_corpus_reconciliation,
@@ -86,6 +88,161 @@ def test_matching_pending_work_is_promoted_without_requiring_a_doi() -> None:
     assert revised["resolution"]["evidence"]["review_disposition"] == "PUBLISHED"
     assert result.audit_rows[0]["action"] == "MATCHED_TITLE"
     _assert_loads(result.document)
+
+
+def test_title_matching_ignores_safe_html_markup_in_existing_metadata() -> None:
+    """Break caught: formatted Crossref titles duplicated the same plain-text PDF paper."""
+    document = _load_fixture()
+    work = document["works"][0]
+    work["canonical_metadata"]["title"] = (
+        "A fixture <i>publication</i> with formatted metadata"
+    )
+    candidate = _candidate(
+        "Example A, Researcher B. A fixture publication with formatted metadata. "
+        "Fixture Journal. 2025."
+    )
+
+    result = reconcile_publication_manifest(
+        document, [candidate], generated_at_utc="2026-09-22T12:00:00Z"
+    )
+
+    assert len(result.document["works"]) == 1
+    assert result.audit_rows[0]["action"] == "MATCHED_TITLE"
+    _assert_loads(result.document)
+
+
+def test_exact_preexisting_title_duplicates_are_quarantined_before_reconciliation() -> None:
+    """Break caught: a DOI-less copy and a DOI copy counted the same paper twice."""
+    document = _load_fixture()
+    duplicate = copy.deepcopy(document["works"][0])
+    duplicate["final_work_id"] = "work-duplicate"
+    duplicate["canonical_metadata"]["doi"] = None
+    duplicate["canonical_metadata"]["doi_url"] = None
+    duplicate["resolution"]["status"] = "UNRESOLVED"
+    duplicate["source_occurrence_ids"] = ["occ-duplicate"]
+    duplicate["source_work_ids"] = ["source-duplicate"]
+    duplicate["representative_source_occurrence_id"] = "occ-duplicate"
+    document["works"].append(duplicate)
+    occurrence = copy.deepcopy(document["source_occurrences"][0])
+    occurrence["source_occurrence_id"] = "occ-duplicate"
+    occurrence["source_work_id"] = "source-duplicate"
+    occurrence["final_work_id"] = "work-duplicate"
+    document["source_occurrences"].append(occurrence)
+    duplicate_statuses = []
+    for row in document["citation_source_statuses"]:
+        copied = copy.deepcopy(row)
+        copied["final_work_id"] = "work-duplicate"
+        duplicate_statuses.append(copied)
+    document["citation_source_statuses"].extend(duplicate_statuses)
+
+    result = reconcile_publication_manifest(
+        document,
+        [_candidate("Example A, Researcher B. A fixture publication. Fixture Journal. 2025.")],
+        generated_at_utc="2026-09-22T12:00:00Z",
+    )
+
+    assert len(result.document["works"]) == 2
+    assert len(result.document["source_occurrences"]) == 4
+    assert len(result.document["citation_source_statuses"]) == 6
+    duplicate_after = next(
+        work for work in result.document["works"] if work["final_work_id"] == "work-duplicate"
+    )
+    assert duplicate_after["resolution"]["evidence"]["review_disposition"] == "NON_PUBLICATION"
+    assert result.audit_rows[0]["final_work_id"] == "work-001"
+    assert result.audit_rows[0]["action"] == "MATCHED_TITLE"
+    _assert_loads(result.document)
+
+
+def test_empty_pending_legacy_record_is_quarantined_as_non_publication() -> None:
+    """Break caught: titleless parser artifacts clogged the pending-paper review page."""
+    document = _load_fixture()
+    work = document["works"][0]
+    work["canonical_metadata"] = {
+        name: None
+        for name in ("doi", "doi_url", "authors_text", "title", "journal", "volume", "pages", "year")
+    }
+    work["resolution"] = {
+        "status": "UNRESOLVED",
+        "method": "LEGACY_PARSER",
+        "evidence": {
+            "review_disposition": "PENDING_REVIEW",
+            "review_reason": "No fields were parsed.",
+            "review_evidence": {"source": "legacy"},
+        },
+    }
+
+    result = reconcile_publication_manifest(
+        document, [], generated_at_utc="2026-09-22T12:00:00Z"
+    )
+
+    evidence = result.document["works"][0]["resolution"]["evidence"]
+    assert evidence["review_disposition"] == "NON_PUBLICATION"
+    assert "empty legacy parser artifact" in evidence["review_reason"].casefold()
+    _assert_loads(result.document)
+
+
+def test_unmatched_unparsable_fragment_is_audited_without_creating_a_work() -> None:
+    """Break caught: impact-factor and header fragments clogged pending-paper review."""
+    document = _load_fixture()
+    result = reconcile_publication_manifest(
+        document,
+        [_candidate("Example A. IF 7.749. Preprint header. 2025.")],
+        generated_at_utc="2026-09-22T12:00:00Z",
+    )
+
+    assert len(result.document["works"]) == 1
+    assert result.audit_rows[0]["action"] == "SKIPPED_UNPARSABLE_CITATION"
+    assert result.audit_rows[0]["final_work_id"] is None
+    _assert_loads(result.document)
+
+
+def test_reconciliation_cli_runs_private_corpus_with_explicit_public_resolution(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    """Break caught: the audited parser existed only as an ad-hoc Python invocation."""
+    captured = {}
+
+    def fake_run(base, source, output, **options):
+        captured.update(base=base, source=source, output=output, **options)
+        return SimpleNamespace(
+            paths={"manifest": output / "run-manifest.json"},
+            manifest_counts=ManifestCounts(36, 10, 20, 30),
+        )
+
+    monkeypatch.setattr(
+        "app.importer.publication_reconciliation.run_corpus_reconciliation", fake_run
+    )
+    base = tmp_path / "base.json"
+    source = tmp_path / "source"
+    output = tmp_path / "output"
+
+    exit_code = main(
+        [
+            "--base-manifest",
+            str(base),
+            "--source-root",
+            str(source),
+            "--output-directory",
+            str(output),
+            "--resolve-public-bibliography",
+            "--stem",
+            "run",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["base"] == base
+    assert captured["source"] == source
+    assert captured["output"] == output
+    assert captured["resolve_public_bibliography"] is True
+    assert captured["stem"] == "run"
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["counts"] == {
+        "applicants": 36,
+        "works": 10,
+        "source_occurrences": 20,
+        "citation_statuses": 30,
+    }
 
 
 def test_reconciliation_is_idempotent_for_the_same_document_occurrence() -> None:
@@ -305,3 +462,171 @@ def test_corpus_runner_audits_every_mapped_pdf_and_validates_output(tmp_path) ->
     assert run.manifest_counts == ManifestCounts(1, 1, 2, 3)
     assert run.accepted_counts_before == run.accepted_counts_after
     _assert_loads(json.loads(run.paths["manifest"].read_text(encoding="utf-8")))
+
+
+def test_reconciliation_normalizes_doi_and_url_to_the_same_lowercase_value() -> None:
+    """Break caught: uppercase source DOIs made the generated manifest fail strict validation."""
+    result = reconcile_publication_manifest(
+        _load_fixture(),
+        [
+            _candidate(
+                "Example A, Researcher B. A DOI case paper. Case Journal. 2025. doi:10.1234/UPPER.ABC"
+            )
+        ],
+        generated_at_utc="2026-09-22T12:00:00Z",
+    )
+
+    metadata = result.document["works"][-1]["canonical_metadata"]
+    assert metadata["doi"] == "10.1234/upper.abc"
+    assert metadata["doi_url"] == "https://doi.org/10.1234/upper.abc"
+    _assert_loads(result.document)
+
+
+def test_new_doi_promotes_matched_unresolved_work_to_resolved() -> None:
+    """Break caught: filling a DOI left resolution status inconsistent with canonical metadata."""
+    document = _load_fixture()
+    work = document["works"][0]
+    work["canonical_metadata"]["doi"] = None
+    work["canonical_metadata"]["doi_url"] = None
+    work["resolution"]["status"] = "UNRESOLVED"
+
+    result = reconcile_publication_manifest(
+        document,
+        [
+            _candidate(
+                "Example A, Researcher B. A fixture publication. Fixture Journal. 2025. doi:10.1000/EXAMPLE"
+            )
+        ],
+        generated_at_utc="2026-09-22T12:00:00Z",
+    )
+
+    revised = result.document["works"][0]
+    assert revised["canonical_metadata"]["doi"] == "10.1000/example"
+    assert revised["resolution"]["status"] == "RESOLVED"
+    _assert_loads(result.document)
+
+
+def test_existing_canonical_title_inside_citation_prevents_parser_drift_duplicate() -> None:
+    """Break caught: APA-style author/year order created a duplicate of an existing work."""
+    candidate = _candidate(
+        "Example A, Researcher B. (2025). A fixture publication. Fixture Journal 12: 10-20."
+    )
+
+    result = reconcile_publication_manifest(
+        _load_fixture(), [candidate], generated_at_utc="2026-09-22T12:00:00Z"
+    )
+
+    assert len(result.document["works"]) == 1
+    assert result.audit_rows[0]["action"] == "MATCHED_TITLE"
+    _assert_loads(result.document)
+
+
+def test_ambiguous_parser_result_does_not_downgrade_implicitly_published_doi_work() -> None:
+    """Break caught: parser uncertainty hid an already DOI-resolved publication."""
+    candidate = _candidate(
+        "Example A, Researcher B — A fixture publication (2025)"
+    )
+
+    result = reconcile_publication_manifest(
+        _load_fixture(), [candidate], generated_at_utc="2026-09-22T12:00:00Z"
+    )
+
+    evidence = result.document["works"][0]["resolution"]["evidence"]
+    assert "review_disposition" not in evidence
+    assert result.audit_rows[0]["decision_action"] == "PRESERVED_RESOLVED_PUBLICATION"
+    _assert_loads(result.document)
+
+
+def test_public_bibliographic_resolution_runs_only_after_local_matching_misses() -> None:
+    """Break caught: parser drift created a duplicate before canonical public validation."""
+    candidate = _candidate(
+        "Example A, Researcher B. (2025). A fixtur publication with formatting drift."
+    )
+    calls = []
+
+    def resolve_public(item: PublicationCandidate, fallback: ParsedPublication) -> ParsedPublication:
+        calls.append((item, fallback))
+        return ParsedPublication(
+            authors=("Alex Example", "Bea Researcher"),
+            title="A fixture publication",
+            journal="Fixture Journal",
+            volume="12",
+            pages="10-20",
+            year=2025,
+            doi="10.1000/example",
+            raw_citation=item.raw_citation,
+            parser_method="crossref-bibliographic",
+        )
+
+    result = reconcile_publication_manifest(
+        _load_fixture(),
+        [candidate],
+        bibliographic_resolver=resolve_public,
+        generated_at_utc="2026-09-22T12:00:00Z",
+    )
+
+    assert len(calls) == 1
+    assert len(result.document["works"]) == 1
+    assert result.audit_rows[0]["action"] == "MATCHED_DOI"
+    _assert_loads(result.document)
+
+
+def test_candidate_containing_multiple_existing_titles_is_audited_not_added() -> None:
+    """Break caught: a merged PDF block became a third, bogus publication record."""
+    first = reconcile_publication_manifest(
+        _load_fixture(),
+        [
+            _candidate(
+                "Example A, Researcher B. A second genuinely distinct publication. Second Journal. 2024.",
+                year=2024,
+                page=4,
+            )
+        ],
+        generated_at_utc="2026-09-22T12:00:00Z",
+    )
+    merged = _candidate(
+        "Example A. A fixture publication. Fixture Journal. 2025. "
+        "Example A. A second genuinely distinct publication. Second Journal. 2024.",
+        year=2024,
+        page=8,
+    )
+
+    second = reconcile_publication_manifest(
+        first.document, [merged], generated_at_utc="2026-09-22T12:00:00Z"
+    )
+
+    assert len(second.document["works"]) == 2
+    assert second.audit_rows[0]["action"] == "SKIPPED_AMBIGUOUS_CITATION"
+    assert second.audit_rows[0]["final_work_id"] is None
+    _assert_loads(second.document)
+
+
+def test_long_exact_title_wins_over_existing_title_nested_inside_it() -> None:
+    """Break caught: a paper title containing a shorter title was falsely treated as two citations."""
+    long_title = "Towards Scalable Screening: A fixture publication"
+    first = reconcile_publication_manifest(
+        _load_fixture(),
+        [
+            _candidate(
+                "Example A, Researcher B. An unrelated second long title. Long Journal. 2025.",
+                page=4,
+            )
+        ],
+        generated_at_utc="2026-09-22T12:00:00Z",
+    )
+    first.document["works"][-1]["canonical_metadata"]["title"] = long_title
+
+    second = reconcile_publication_manifest(
+        first.document,
+        [
+            _candidate(
+                f"Example A, Researcher B. {long_title}. Long Journal. 2025.",
+                page=8,
+            )
+        ],
+        generated_at_utc="2026-09-22T12:00:00Z",
+    )
+
+    assert len(second.document["works"]) == 2
+    assert second.audit_rows[0]["action"] == "MATCHED_TITLE"
+    _assert_loads(second.document)
