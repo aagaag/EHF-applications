@@ -1341,6 +1341,7 @@ def test_verified_h_index_migration_ranks_each_papers_cutoff_citations() -> None
     assert "An active cutoff with zero qualifying works must return zero metrics." in validator
     assert "A missing cutoff must retain a missing H-index." in validator
     assert "An active citation cutoff returned a missing H-index." in validator
+    assert "CONVERT(int,citation_metric.HIndex)" in validator
 
 
 def test_applicant_journal_metric_migration_projects_latest_openalex_evidence_safely() -> None:

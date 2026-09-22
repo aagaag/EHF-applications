@@ -8,7 +8,7 @@ DECLARE @Definition nvarchar(max)=
     OBJECT_DEFINITION(OBJECT_ID(N'dbo.GetInternalApplicationMetrics', N'P'));
 IF @Definition NOT LIKE N'%ROW_NUMBER() OVER (ORDER BY observation.CitationCount DESC%'
    OR @Definition NOT LIKE N'%ranked.CitationCount >= ranked.CitationRank%'
-   OR @Definition NOT LIKE N'%CONVERT(int,metric.HIndex)%'
+   OR @Definition NOT LIKE N'%CONVERT(int,citation_metric.HIndex)%'
     THROW 53611, 'The internal metrics procedure does not derive H-index from cutoff work evidence.', 1;
 
 DECLARE @Citations TABLE (CitationCount bigint NOT NULL);
