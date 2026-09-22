@@ -76,7 +76,7 @@
   const reportArtifactStatus = reportModal?.querySelector("[data-report-artifact-status]");
   let activeReportRow = null;
   let artifactRequest = 0;
-  const resetReportArtifacts = (message = "Checking document availability…", applicationId = null) => {
+  const resetReportArtifacts = (message = "", applicationId = null) => {
     reportArtifactLinks.forEach((link) => {
       if (link.dataset.reportArtifact === "application" && applicationId) {
         link.href = `/api/internal/applicants/${encodeURIComponent(applicationId)}/documents/package/view`;
@@ -114,9 +114,9 @@
   });
   const loadReportArtifacts = async (applicationId) => {
     const request = ++artifactRequest;
-    resetReportArtifacts("Checking document availability…", applicationId);
+    resetReportArtifacts("", applicationId);
     if (!applicationId) {
-      resetReportArtifacts("No reviewed PDFs are available for this applicant.");
+      resetReportArtifacts("", null);
       return;
     }
     try {
@@ -132,13 +132,10 @@
         link.href = `/api/internal/applicants/${encodeURIComponent(applicationId)}/review-artifacts/${encodeURIComponent(category)}/view`;
         link.setAttribute("aria-disabled", "false");
       });
-      const count = reportArtifactLinks.filter((link) => link.dataset.reportArtifact !== "application" && link.getAttribute("aria-disabled") === "false").length;
-      if (reportArtifactStatus) reportArtifactStatus.textContent = count
-        ? `Full application PDF is available. ${count} reviewed supporting PDF${count === 1 ? " is" : "s are"} available.`
-        : "Full application PDF is available. No reviewed supporting PDFs are available.";
+      if (reportArtifactStatus) reportArtifactStatus.textContent = "";
     } catch (_error) {
       if (request !== artifactRequest) return;
-      resetReportArtifacts("Full application PDF is available. Supporting document availability could not be loaded. Please try again.", applicationId);
+      resetReportArtifacts("Supporting document availability could not be loaded. Please try again.", applicationId);
     }
   };
   const fallbackReportDetails = (row) => {
@@ -160,6 +157,7 @@
   };
   const openReportDetails = async (row) => {
     if (!reportModal || !reportDetails || !reportTitle) return;
+    reportModal.querySelector("[data-report-summary] .applicant-detail-identity")?.remove();
     const cells = [...row.querySelectorAll('[role="cell"]')];
     reportTitle.textContent = cells[0]?.textContent.trim() || "Application details";
     activeReportRow = row;
@@ -175,6 +173,9 @@
       const response = await fetch(url, { credentials: "same-origin" });
       if (!response.ok) throw new Error("Applicant detail unavailable");
       reportDetails.innerHTML = await response.text();
+      const identity = reportDetails.querySelector(".applicant-detail-identity");
+      const reportSummary = reportModal.querySelector("[data-report-summary]");
+      if (identity && reportSummary) reportSummary.append(identity);
       reportDetails.querySelectorAll("[data-full-page-chart]").forEach((chart) => {
         const openFullPageChart = () => {
           const chartIndex = [...reportDetails.querySelectorAll("[data-full-page-chart]")].indexOf(chart);

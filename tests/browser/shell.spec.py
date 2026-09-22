@@ -241,12 +241,9 @@ def test_report_row_double_click_opens_all_details_and_emphasizes_missing_values
             expect(curriculum).to_have_attribute("aria-disabled", "true")
             expect(curriculum).not_to_have_attribute("href", re.compile(".+"))
             expect(publications).to_have_attribute("aria-disabled", "false")
-            expect(
-                modal.get_by_text(
-                    "Full application PDF is available. 1 reviewed supporting PDF is available.",
-                    exact=False,
-                )
-            ).to_be_visible()
+            artifact_status = modal.locator("[data-report-artifact-status]")
+            expect(artifact_status).to_have_text("")
+            assert artifact_status.evaluate("node => getComputedStyle(node).display") == "none"
 
             missing = modal.locator(".missing-value")
             assert missing.evaluate("node => getComputedStyle(node).color") == "rgb(180, 35, 24)"
@@ -488,7 +485,7 @@ def test_modal_chart_opens_as_a_full_page_graph_in_a_new_tab() -> None:
 
 
 def test_modal_identity_items_stay_compact_on_one_desktop_line() -> None:
-    """Break caught: identity fields could expand into unused modal width."""
+    """Break caught: document controls and applicant facts could stack or duplicate."""
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import expect, sync_playwright
 
@@ -538,13 +535,45 @@ def test_modal_identity_items_stay_compact_on_one_desktop_line() -> None:
             identity = page.locator(".applicant-detail-identity")
             items = identity.locator(":scope > span")
             expect(items).to_have_count(4)
+            summary = page.locator("[data-report-summary]")
+            expect(summary.locator(".report-document-action")).to_have_count(3)
+            controls = summary.locator(
+                ".report-document-action, .applicant-detail-identity > span"
+            )
+            expect(controls).to_have_count(7)
             boxes = [item.bounding_box() for item in items.all()]
             assert all(box is not None for box in boxes)
             assert len({round(box["y"]) for box in boxes if box is not None}) == 1
-            assert identity.evaluate("node => getComputedStyle(node).flexWrap") == "nowrap"
-            assert boxes[1] is not None and boxes[1]["width"] < identity.bounding_box()["width"] * 0.4
-            page.set_viewport_size({"width": 390, "height": 844})
+            control_boxes = [control.bounding_box() for control in controls.all()]
+            assert all(box is not None for box in control_boxes)
+            centers = [
+                box["y"] + box["height"] / 2
+                for box in control_boxes
+                if box is not None
+            ]
+            assert max(centers) - min(centers) < 2
             assert identity.evaluate("node => getComputedStyle(node).flexWrap") == "wrap"
+            identity_box = identity.bounding_box()
+            assert boxes[1] is not None and identity_box is not None
+            assert boxes[1]["width"] < identity_box["width"] * 0.4
+
+            page.get_by_role("button", name="Close details").click()
+            page.locator("[data-report-row]").dblclick()
+            expect(summary.locator(".applicant-detail-identity")).to_have_count(1)
+            expect(summary.locator(".applicant-detail-identity > span")).to_have_count(4)
+
+            page.set_viewport_size({"width": 390, "height": 844})
+            assert summary.evaluate(
+                "node => node.scrollWidth === node.clientWidth"
+            ), summary.evaluate(
+                "node => ({client: node.clientWidth, scroll: node.scrollWidth, "
+                "width: node.getBoundingClientRect().width})"
+            )
+            assert summary.evaluate(
+                "node => { const rects = [...node.children].map(child => "
+                "child.getBoundingClientRect()); return rects.some(rect => "
+                "Math.abs(rect.top - rects[0].top) > 2); }"
+            )
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
         finally:
             browser.close()

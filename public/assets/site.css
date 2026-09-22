@@ -162,11 +162,14 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .report-details-header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 1rem; }
 .report-details-header h3 { margin: 0; overflow-wrap: anywhere; }
 .report-details-close { display: inline-grid; flex: 0 0 44px; width: 44px; height: 44px; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--surface-soft); color: var(--text); cursor: pointer; font: 800 1.35rem/1 Aptos, "Segoe UI", system-ui, sans-serif; }
-.report-document-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+.report-summary { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: .65rem; margin-top: 1rem; }
+.report-document-actions { display: flex; flex: 0 1 auto; min-width: 0; flex-wrap: wrap; gap: .5rem; }
 .report-document-action { display: inline-flex; min-height: 44px; align-items: center; border: 1px solid var(--accent); border-radius: .6rem; padding: .55rem .8rem; background: var(--accent-quiet); color: var(--text); cursor: pointer; font-weight: 800; text-decoration: none; }
 .report-document-action[aria-disabled="true"] { border-color: var(--line); background: var(--surface-soft); color: var(--muted); cursor: not-allowed; opacity: .65; }
-.report-document-status { margin: .45rem 0 0; color: var(--muted); font-size: .82rem; }
+.report-document-status { margin: .35rem 0 0; color: var(--missing); font-size: .82rem; }
+.report-document-status:empty { display: none; }
 .report-details-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; margin: 1rem 0 0; }
+.report-summary .applicant-detail-identity { flex: 0 1 auto; flex-wrap: wrap; }
 .report-details-item { display: grid; min-width: 0; gap: .2rem; border: 1px solid var(--line); border-radius: .7rem; padding: .7rem; overflow-wrap: anywhere; }
 .report-details-item dt { color: var(--muted); font-size: .72rem; font-weight: 800; text-transform: uppercase; }
 .report-details-item dd { margin: 0; }
