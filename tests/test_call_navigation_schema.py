@@ -63,4 +63,5 @@ def test_audit_follow_up_uses_only_allowlisted_payload_keys() -> None:
     assert "beforeMode" not in migration
     assert "afterMode" not in migration
     assert "CALL_NAVIGATION_PREFERENCE_SET" in validator
+    assert "JSON_VALUE(PayloadJson, '$.after.callId') IS NULL AND @CallId IS NULL" in validator
     assert "PASS 046 call navigation audit payload" in validator

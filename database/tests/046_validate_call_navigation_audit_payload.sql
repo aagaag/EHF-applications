@@ -17,7 +17,8 @@ IF NOT EXISTS
     WHERE EventType = 'CALL_NAVIGATION_PREFERENCE_SET'
       AND ActorIdentity = N'validator-call-navigation-audit'
       AND JSON_VALUE(PayloadJson, '$.after.status') = 'latest-application-deadline'
-      AND JSON_VALUE(PayloadJson, '$.after.callId') = CONVERT(nvarchar(36), @CallId)
+      AND (JSON_VALUE(PayloadJson, '$.after.callId') = CONVERT(nvarchar(36), @CallId)
+           OR JSON_VALUE(PayloadJson, '$.after.callId') IS NULL AND @CallId IS NULL)
 )
     THROW 54630, 'The call navigation audit event is missing or malformed.', 1;
 ROLLBACK TRANSACTION;
