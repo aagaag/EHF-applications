@@ -89,6 +89,7 @@ def test_retired_internal_destinations_are_not_linked_or_routable() -> None:
         assert f'href="{href}"' not in internal.text
     assert tuple(entry.key for entry in filtered_inventory({INTERNAL_GROUPS.administrators})) == (
         "overview",
+        "review-pending-papers",
     )
     assert client.get("/internal/applicants").status_code == 404
     assert client.get("/internal/applicant-review").status_code == 404

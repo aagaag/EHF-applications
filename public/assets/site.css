@@ -341,3 +341,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 @media (max-width: 520px) { .report-header { grid-template-columns: minmax(0, 1fr); } .report-data-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; } }
+.pending-paper-page { max-width: 76rem; }
+.pending-paper-card { background: var(--surface, #fff); border: 1px solid var(--border, #d8d4cb); border-radius: .75rem; margin: 1rem 0; padding: 1rem 1.15rem; }
+.pending-paper-card h2 { margin: 0 0 .5rem; }
+.pending-paper-citation { font-size: 1.05rem; line-height: 1.55; }
+.pending-paper-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .85rem; }
+.pending-paper-actions button { min-width: 8rem; }
+.pending-paper-actions button[data-decision="remove"] { border-color: #9b1c1c; color: #9b1c1c; }
+.pending-paper-error { color: #9b1c1c; font-weight: 650; }

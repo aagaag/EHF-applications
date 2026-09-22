@@ -36,6 +36,13 @@ _INTERNAL_INVENTORY = (
         "See the 2026 call and current intake at a glance.",
         frozenset({INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}),
     ),
+    NavigationEntry(
+        "review-pending-papers",
+        "Review Pending Papers",
+        "/internal/review-pending-papers",
+        "Classify papers awaiting internal review.",
+        frozenset({INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}),
+    ),
 )
 
 

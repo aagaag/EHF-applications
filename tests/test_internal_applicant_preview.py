@@ -338,7 +338,7 @@ def test_internal_surfaces_keep_the_same_primary_navigation_while_details_use_lo
         assert match is not None
         return re.findall(r'<a[^>]*>([^<]+)</a>', match.group(1))
 
-    expected = ["Overview"]
+    expected = ["Overview", "Review Pending Papers"]
     assert labels(overview.text) == expected
     assert labels(detail.text) == expected
     assert 'aria-label="Applicant details"' in detail.text

@@ -69,6 +69,12 @@ from app.routes.applicant_entra import register_applicant_entra_routes
 from app.routes.internal_approval import register_internal_approval_routes
 from app.routes.internal_synthetic import register_internal_synthetic_routes
 from app.routes.applicant_access import register_applicant_access_routes
+from app.routes.pending_publication_review import register_pending_publication_review_routes
+from app.pending_publication_review import (
+    EmptyPendingPublicationReviewRepository,
+    PendingPublicationReviewRepository,
+    SqlPendingPublicationReviewRepository,
+)
 from app.http import SecurityMiddleware, is_same_origin_write
 from app.shortlist import (
     EmptyShortlistRepository,
@@ -164,6 +170,7 @@ def create_app(
     applicant_access_service: ApplicantAccessService | None = None,
     synthetic_applicant_service: SyntheticApplicantWorkspaceService | None = None,
     call_catalog: CallCatalog | None = None,
+    pending_publication_review_repository: PendingPublicationReviewRepository | None = None,
 ) -> FastAPI:
     """Create the HTTP service without starting application workflows."""
     resolved_settings = settings or Settings.from_environment()
@@ -216,6 +223,11 @@ def create_app(
         SqlCallCatalog(lambda: connect(resolved_settings))
         if resolved_settings.environment == "production"
         else InMemoryCallCatalog()
+    )
+    pending_publications = pending_publication_review_repository or (
+        SqlPendingPublicationReviewRepository(lambda: connect(resolved_settings))
+        if resolved_settings.environment == "production"
+        else EmptyPendingPublicationReviewRepository()
     )
     readiness_gate = ReadinessGate(resolved_checks)
     application = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -329,6 +341,13 @@ def create_app(
             approval=applicant_approval_service,
             documents=applicant_document_service,
         )
+
+    register_pending_publication_review_routes(
+        application,
+        authenticated=authenticated,
+        repository=pending_publications,
+        page=public_root / "internal" / "review-pending-papers.html",
+    )
 
     @application.get("/", response_class=RedirectResponse)
     def home(request: Request) -> RedirectResponse:
