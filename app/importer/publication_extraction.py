@@ -10,10 +10,13 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
+from urllib.parse import urlsplit
 
+import httpx
 from pypdf import PdfReader
 
 
@@ -36,6 +39,7 @@ _PUBLICATION_HEADINGS = {
     "bookchapters": "PUBLISHED",
     "conferencepapers": "PUBLISHED",
     "conferenceworkshoppapers": "PUBLISHED",
+    "journalandconferencepublications": "PUBLISHED",
     "workshoppapers": "PUBLISHED",
     "review": "PUBLISHED",
     "reviews": "PUBLISHED",
@@ -60,6 +64,8 @@ _STOP_HEADINGS = {
     "invitedpresentations",
     "patents",
     "presentations",
+    "conferencepresentations",
+    "selectedconferencepresentations",
     "professionalexperience",
     "references",
     "referees",
@@ -107,11 +113,274 @@ class DocumentExtractionAudit:
 
 
 @dataclass(frozen=True, slots=True)
+class ParsedPublication:
+    authors: tuple[str, ...] = ()
+    title: str | None = None
+    journal: str | None = None
+    volume: str | None = None
+    issue: str | None = None
+    pages: str | None = None
+    year: int | None = None
+    doi: str | None = None
+    url: str | None = None
+    raw_citation: str = ""
+    parser_method: str = "deterministic"
+    field_evidence: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationClassification:
+    disposition: str
+    confidence: float
+    reason: str
+
+
+class GrobidCitationParser:
+    """Adapter for a local-only GROBID processCitation service."""
+
+    def __init__(
+        self,
+        base_url: str = "http://127.0.0.1:8070",
+        *,
+        client: httpx.Client | None = None,
+        timeout_seconds: float = 20.0,
+    ) -> None:
+        endpoint = base_url.rstrip("/")
+        hostname = urlsplit(endpoint).hostname
+        if hostname not in {"127.0.0.1", "localhost", "::1"}:
+            raise ValueError("GROBID must use a loopback endpoint for applicant privacy.")
+        self._endpoint = endpoint
+        self._client = client or httpx.Client(timeout=timeout_seconds)
+
+    def parse(self, raw_citation: str) -> ParsedPublication:
+        response = self._client.post(
+            f"{self._endpoint}/api/processCitation",
+            data={"citations": raw_citation},
+            headers={"Accept": "application/xml"},
+        )
+        response.raise_for_status()
+        return parse_grobid_tei(response.text, raw_citation=raw_citation)
+
+
+@dataclass(frozen=True, slots=True)
 class _SourceLine:
     page: int
     number: int
     text: str
     indent: int
+
+
+_DOI_RE = re.compile(r"(?i)\b10\.\d{4,9}/[-._;()/:a-z0-9]+")
+_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+
+
+def _tei_text(element: ET.Element | None) -> str | None:
+    if element is None:
+        return None
+    value = " ".join(" ".join(element.itertext()).split())
+    return value or None
+
+
+def _tei_first(root: ET.Element, expression: str) -> ET.Element | None:
+    return root.find(expression, {"tei": "http://www.tei-c.org/ns/1.0"})
+
+
+def parse_grobid_tei(xml: str, *, raw_citation: str = "") -> ParsedPublication:
+    """Normalize GROBID's TEI citation response without relying on child order."""
+    root = ET.fromstring(xml)
+    if root.tag.endswith("TEI"):
+        citation = _tei_first(root, ".//tei:biblStruct")
+        if citation is not None:
+            root = citation
+
+    authors: list[str] = []
+    for author in root.findall(".//tei:analytic/tei:author", {"tei": "http://www.tei-c.org/ns/1.0"}):
+        person = _tei_first(author, ".//tei:persName")
+        name = _tei_text(person if person is not None else author)
+        if name:
+            authors.append(name)
+
+    title = _tei_text(_tei_first(root, ".//tei:analytic/tei:title[@level='a']"))
+    journal = _tei_text(_tei_first(root, ".//tei:monogr/tei:title[@level='j']"))
+    if journal is None:
+        journal = _tei_text(_tei_first(root, ".//tei:monogr/tei:title"))
+
+    def scope(unit: str) -> str | None:
+        element = _tei_first(root, f".//tei:imprint/tei:biblScope[@unit='{unit}']")
+        if element is None:
+            return None
+        value = _tei_text(element)
+        if value:
+            return value
+        start = element.get("from")
+        end = element.get("to")
+        return f"{start}-{end}" if start and end else start or end
+
+    date = _tei_first(root, ".//tei:imprint/tei:date[@type='published']")
+    if date is None:
+        date = _tei_first(root, ".//tei:imprint/tei:date")
+    date_value = date.get("when") if date is not None else None
+    if not date_value:
+        date_value = _tei_text(date)
+    year_match = _YEAR_RE.search(date_value or "")
+    doi_element = _tei_first(root, ".//tei:idno[@type='DOI']")
+    if doi_element is None:
+        doi_element = _tei_first(root, ".//tei:idno[@type='doi']")
+    doi = _tei_text(doi_element)
+    doi_match = _DOI_RE.search(doi or "")
+    doi = doi_match.group(0).rstrip(".,;") if doi_match else doi
+    url = _tei_text(_tei_first(root, ".//tei:ptr[@type='web']"))
+    if url is None:
+        pointer = _tei_first(root, ".//tei:ptr")
+        url = pointer.get("target") if pointer is not None else None
+    evidence = tuple(
+        name
+        for name, value in (
+            ("authors", authors),
+            ("title", title),
+            ("journal", journal),
+            ("year", year_match),
+            ("doi", doi),
+        )
+        if value
+    )
+    return ParsedPublication(
+        authors=tuple(authors),
+        title=title,
+        journal=journal,
+        volume=scope("volume"),
+        issue=scope("issue"),
+        pages=scope("page"),
+        year=int(year_match.group(0)) if year_match else None,
+        doi=doi,
+        url=url,
+        raw_citation=raw_citation,
+        parser_method="grobid",
+        field_evidence=evidence,
+    )
+
+
+def fallback_parse_candidate(candidate: PublicationCandidate) -> ParsedPublication:
+    """Conservatively recover common author-title-venue-year citation fields."""
+    raw = candidate.raw_citation.strip()
+    raw_without_year_prefix = re.sub(r"^(?:19|20)\d{2}\s+", "", raw)
+    doi_match = _DOI_RE.search(raw_without_year_prefix)
+    doi = doi_match.group(0).rstrip(".,;") if doi_match else None
+    url_match = _URL_RE.search(raw_without_year_prefix)
+    url = url_match.group(0).rstrip(".,;)") if url_match else None
+    body = _DOI_RE.sub("", raw_without_year_prefix)
+    body = re.sub(r"(?i)\bdoi\s*:\s*", "", body)
+    colon = re.search(r"\s*:\s+", body)
+    period = re.search(r"\.\s+", body)
+    if (
+        colon
+        and (period is None or colon.start() < period.start())
+        and ("," in body[: colon.start()] or re.search(r"\band\b", body[: colon.start()], re.I))
+    ):
+        author_text, citation_body = body[: colon.start()], body[colon.end() :]
+    else:
+        first_period = re.match(r"^(.{5,}?)\.\s+(.+)$", body)
+        if first_period:
+            author_text, citation_body = first_period.groups()
+        else:
+            author_text, citation_body = body, ""
+    segments = [
+        part.strip(" ,;:")
+        for part in re.split(r"\.\s+(?=[A-Z0-9])", citation_body)
+        if part.strip(" ,;:")
+    ]
+    authors: tuple[str, ...] = ()
+    title: str | None = None
+    journal: str | None = None
+    if author_text:
+        authors = tuple(
+            part.strip()
+            for part in re.split(r"\s*,\s*|\s+and\s+", author_text)
+            if part.strip()
+        )
+    if segments:
+        title = segments[0]
+    if len(segments) >= 2:
+        journal = segments[1]
+    volume = issue = pages = None
+    volume_match = re.search(
+        r"(?<!\d)(\d{1,4})\s*(?:\(([^)]+)\))?\s*:\s*([A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?)",
+        raw_without_year_prefix,
+    )
+    if volume_match:
+        volume = volume_match.group(1)
+        issue = volume_match.group(2)
+        pages = re.sub(r"\s+", "", volume_match.group(3)).replace("–", "-")
+        if journal and volume_match.start() >= raw_without_year_prefix.find(journal):
+            journal_volume = re.search(
+                r"(?<!\d)\d{1,4}\s*(?:\([^)]+\))?\s*:\s*[A-Za-z]?\d+",
+                journal,
+            )
+            if journal_volume:
+                journal = journal[: journal_volume.start()].strip(" ,;:")
+    evidence = tuple(
+        name
+        for name, value in (
+            ("authors", authors),
+            ("title", title),
+            ("journal", journal),
+            ("year", candidate.year),
+            ("doi", doi),
+        )
+        if value
+    )
+    return ParsedPublication(
+        authors=authors,
+        title=title,
+        journal=journal,
+        volume=volume,
+        issue=issue,
+        pages=pages,
+        year=candidate.year,
+        doi=doi,
+        url=url,
+        raw_citation=raw,
+        parser_method="deterministic",
+        field_evidence=evidence,
+    )
+
+
+def classify_publication(
+    publication: ParsedPublication, *, section_status: str = ""
+) -> PublicationClassification:
+    """Classify bibliographic evidence separately from identifier resolution."""
+    raw = _fold(publication.raw_citation)
+    if re.search(r"\b(?:doctoral|phd|master'?s?)\s+thesis\b|\bdissertation\b", raw):
+        return PublicationClassification("NON_PUBLICATION", 0.99, "explicit thesis or dissertation")
+    if re.search(r"\bin\s+preparation\b|\bmanuscript\s+in\s+preparation\b", raw):
+        return PublicationClassification("UNDER_PREPARATION", 0.99, "explicit in-preparation status")
+    preprint_signal = re.search(
+        r"\b(?:preprint|biorxiv|medrxiv|arxiv|ssrn|submitted|under\s+(?:review|revision)|in\s+revision|accepted\s+(?:in|for|by)|forthcoming|revised\s+and\s+resubmitted)\b",
+        raw,
+    )
+    if preprint_signal or section_status == "ACCEPTED_PREPRINT":
+        return PublicationClassification("ACCEPTED_PREPRINT", 0.97, "explicit preprint or review status")
+    if section_status == "UNDER_PREPARATION":
+        return PublicationClassification("UNDER_PREPARATION", 0.95, "in-preparation section")
+
+    missing: list[str] = []
+    if not publication.authors:
+        missing.append("authors")
+    if not publication.title:
+        missing.append("title")
+    if not publication.journal:
+        missing.append("journal")
+    if publication.year is None:
+        missing.append("year")
+    if not missing:
+        return PublicationClassification(
+            "PUBLISHED", 0.96, "authors, title, venue, and publication year present"
+        )
+    return PublicationClassification(
+        "PENDING_REVIEW",
+        0.35,
+        "; ".join(f"missing {field}" for field in missing),
+    )
 
 
 def _fold(value: str) -> str:
@@ -174,7 +443,9 @@ def _is_explanatory_line(line: str) -> bool:
     return (
         key.startswith("researchhighlight")
         or key.startswith("equalcontribution")
+        or key.startswith("authorscontributedequally")
         or key.startswith("applicantnameshown")
+        or (key.startswith("conferencepublications") and "archival" in key)
         or ("papers" in key and "peerreviewed" in key and "typically" in key)
     )
 
@@ -220,7 +491,10 @@ def _has_terminal_evidence(raw: str) -> bool:
     )
     return bool(
         terminal_year
-        or re.search(r"(?i)(?:doi\s*:|https?://doi\.org/|arxiv\s*:|in\s+preparation)\S*\s*$", tail)
+        or re.search(
+            r"(?i)(?:doi\s*:|https?://doi\.org/|arxiv\s*:|in\s+preparation|under\s+revision|accepted\s+(?:in|for|by)\b)[^\n]*$",
+            tail,
+        )
     )
 
 
@@ -267,7 +541,13 @@ def _candidate_from_lines(
         year_matches and year_matches[0][1] <= 8 and year_matches[0][0] >= 2000
     ):
         year = None
-    year_optional = status_hint in {"ACCEPTED_PREPRINT", "UNDER_PREPARATION"}
+    inline_unpublished = re.search(
+        r"(?i)\b(?:in\s+preparation|preprint|submitted|under\s+(?:review|revision)|in\s+revision|accepted\s+(?:in|for|by))\b",
+        raw,
+    )
+    year_optional = status_hint in {"ACCEPTED_PREPRINT", "UNDER_PREPARATION"} or bool(
+        inline_unpublished
+    )
     if (
         len(raw) < 40
         or (year is None and not year_optional)

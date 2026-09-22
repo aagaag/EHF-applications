@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import httpx
+import pytest
 from pypdf import PdfWriter
 
 from app.importer.publication_extraction import (
+    GrobidCitationParser,
+    ParsedPublication,
     PdfPageText,
+    classify_publication,
     choose_page_text,
     extract_candidates_from_pages,
     extract_document,
+    fallback_parse_candidate,
+    parse_grobid_tei,
 )
 
 
@@ -215,3 +222,260 @@ def test_empty_pdf_is_audited_without_inventing_candidates(tmp_path) -> None:
     assert audit.candidates == ()
     assert audit.issues == ("NO_EXTRACTABLE_TEXT",)
     assert len(audit.source_sha256) == 64
+
+
+def test_parses_structured_grobid_citation_fields_independent_of_xml_order() -> None:
+    """Break caught: reordered TEI fields or truncated authors erased citation metadata."""
+    tei = """<?xml version="1.0" encoding="UTF-8"?>
+<biblStruct xmlns="http://www.tei-c.org/ns/1.0">
+  <monogr>
+    <imprint>
+      <biblScope unit="page" from="44" to="51" />
+      <date type="published" when="2024" />
+      <biblScope unit="volume">12</biblScope>
+    </imprint>
+    <title level="j">Journal of Reliable Results</title>
+  </monogr>
+  <analytic>
+    <author><persName><forename type="first">Erika</forename><surname>Example</surname></persName></author>
+    <author><persName><forename type="first">Alex</forename><surname>Alpha</surname></persName></author>
+    <author><persName><surname>et al.</surname></persName></author>
+    <title level="a">A robust citation parser</title>
+  </analytic>
+  <idno type="DOI">10.1234/example.2024.9</idno>
+</biblStruct>"""
+
+    parsed = parse_grobid_tei(tei, raw_citation="Example E, et al. Citation")
+
+    assert parsed.authors == ("Erika Example", "Alex Alpha", "et al.")
+    assert parsed.title == "A robust citation parser"
+    assert parsed.journal == "Journal of Reliable Results"
+    assert parsed.volume == "12"
+    assert parsed.pages == "44-51"
+    assert parsed.year == 2024
+    assert parsed.doi == "10.1234/example.2024.9"
+    assert parsed.parser_method == "grobid"
+
+
+def test_fallback_parser_recovers_fields_when_grobid_is_unavailable() -> None:
+    """Break caught: a local parser outage forced otherwise clear citations to pending."""
+    candidate = extract_candidates_from_pages(
+        (
+            _page(
+                1,
+                """PUBLICATIONS
+Example E, Alpha A, Beta B. A deterministic fallback paper. Journal One. 2025; 14(2): 101-109. doi:10.1234/fallback.1
+""",
+            ),
+        ),
+        applicant_name="Erika Example",
+        filename="cv.pdf",
+    )[0]
+
+    parsed = fallback_parse_candidate(candidate)
+
+    assert parsed.authors == ("Example E", "Alpha A", "Beta B")
+    assert parsed.title == "A deterministic fallback paper"
+    assert parsed.journal == "Journal One"
+    assert parsed.volume == "14"
+    assert parsed.issue == "2"
+    assert parsed.pages == "101-109"
+    assert parsed.year == 2025
+    assert parsed.doi == "10.1234/fallback.1"
+    assert parsed.parser_method == "deterministic"
+
+
+def test_classification_uses_bibliographic_evidence_not_doi_resolution() -> None:
+    """Break caught: DOI-less papers and proceedings were downgraded to pending."""
+    cases = (
+        (
+            ParsedPublication(
+                authors=("Example E", "Alpha A"),
+                title="A DOI-less journal article",
+                journal="Journal One",
+                year=2025,
+                raw_citation="Example E, Alpha A. A DOI-less journal article. Journal One. 2025.",
+                parser_method="deterministic",
+            ),
+            "PUBLISHED",
+        ),
+        (
+            ParsedPublication(
+                authors=("Example E", "Alpha A"),
+                title="A proceedings paper",
+                journal="Proceedings of ExampleConf",
+                year=2024,
+                raw_citation="Example E, Alpha A. A proceedings paper. Proceedings of ExampleConf. 2024.",
+                parser_method="grobid",
+            ),
+            "PUBLISHED",
+        ),
+    )
+
+    for parsed, expected in cases:
+        classification = classify_publication(parsed, section_status="PUBLISHED")
+        assert classification.disposition == expected
+        assert classification.confidence >= 0.9
+
+
+def test_inline_status_signals_override_publication_section_heading() -> None:
+    """Break caught: an item inherited PUBLISHED despite explicit manuscript wording."""
+    cases = (
+        (
+            "Example E, Alpha A. A future paper. In preparation.",
+            ParsedPublication(
+                authors=("Example E", "Alpha A"),
+                title="A future paper",
+                journal=None,
+                year=None,
+                raw_citation="Example E, Alpha A. A future paper. In preparation.",
+                parser_method="deterministic",
+            ),
+            "UNDER_PREPARATION",
+        ),
+        (
+            "Example E, Alpha A. A revision. bioRxiv. 2025. In revision.",
+            ParsedPublication(
+                authors=("Example E", "Alpha A"),
+                title="A revision",
+                journal="bioRxiv",
+                year=2025,
+                raw_citation="Example E, Alpha A. A revision. bioRxiv. 2025. In revision.",
+                parser_method="deterministic",
+            ),
+            "ACCEPTED_PREPRINT",
+        ),
+        (
+            "Example E. Doctoral thesis. Example University. 2023.",
+            ParsedPublication(
+                authors=("Example E",),
+                title="Doctoral thesis",
+                journal="Example University",
+                year=2023,
+                raw_citation="Example E. Doctoral thesis. Example University. 2023.",
+                parser_method="deterministic",
+            ),
+            "NON_PUBLICATION",
+        ),
+    )
+
+    for raw, parsed, expected in cases:
+        assert parsed.raw_citation == raw
+        classification = classify_publication(parsed, section_status="PUBLISHED")
+        assert classification.disposition == expected
+
+
+def test_ambiguous_incomplete_candidate_stays_pending_review() -> None:
+    """Break caught: incomplete narrative text was accepted as a paper."""
+    parsed = ParsedPublication(
+        authors=("Example E",),
+        title="An ambiguous item",
+        journal=None,
+        year=None,
+        raw_citation="Example E. An ambiguous item.",
+        parser_method="deterministic",
+    )
+
+    classification = classify_publication(parsed, section_status="PUBLISHED")
+
+    assert classification.disposition == "PENDING_REVIEW"
+    assert "missing journal" in classification.reason
+    assert "missing year" in classification.reason
+
+
+def test_local_grobid_client_converts_service_response_to_parsed_publication() -> None:
+    """Break caught: the local GROBID adapter sent the wrong API payload or ignored TEI."""
+    tei = """<biblStruct xmlns="http://www.tei-c.org/ns/1.0">
+      <analytic><author><persName><forename>Erika</forename><surname>Example</surname></persName></author>
+      <title level="a">A parsed paper</title></analytic>
+      <monogr><title level="j">Journal One</title><imprint><date when="2025"/></imprint></monogr>
+    </biblStruct>"""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/processCitation"
+        assert b"citations=Example+E" in request.content
+        return httpx.Response(200, text=tei)
+
+    client = httpx.Client(transport=httpx.MockTransport(handle))
+    parser = GrobidCitationParser("http://127.0.0.1:8070", client=client)
+
+    parsed = parser.parse("Example E. A parsed paper. Journal One. 2025.")
+
+    assert parsed.title == "A parsed paper"
+    assert parsed.journal == "Journal One"
+    assert parsed.raw_citation == "Example E. A parsed paper. Journal One. 2025."
+
+
+def test_grobid_client_refuses_non_loopback_endpoints() -> None:
+    """Break caught: private applicant citations could be sent to a remote parser."""
+    with pytest.raises(ValueError, match="loopback"):
+        GrobidCitationParser("https://parser.example.test")
+
+
+def test_segments_colon_style_entries_after_under_revision_and_stops_at_decorated_heading() -> None:
+    """Break caught: consecutive revision items and later talks collapsed into one paper."""
+    pages = (
+        _page(
+            1,
+            """JOURNAL AND CONFERENCE PUBLICATIONS
+* authors contributed equally
+Example E, Alpha A: A first colon-style paper. Nat Protocols. Under revision
+Beta B, Example E: A second colon-style paper. Nat Commun 12: 3827, 2021.
+SELECTED CONFERENCE PRESENTATIONS
+Example E. A conference talk. Example University. 2025.
+""",
+        ),
+    )
+
+    candidates = extract_candidates_from_pages(
+        pages, applicant_name="Erika Example", filename="cv.pdf"
+    )
+
+    assert len(candidates) == 2
+    assert candidates[0].raw_citation.startswith("Example E")
+    assert candidates[0].raw_citation.endswith("Under revision")
+    assert "authors contributed equally" not in candidates[0].raw_citation
+    assert "conference talk" not in candidates[1].raw_citation
+
+
+def test_fallback_parser_handles_author_title_colon_and_compact_venue_metadata() -> None:
+    """Break caught: colon-formatted papers lost title and journal and stayed pending."""
+    candidate = extract_candidates_from_pages(
+        (
+            _page(
+                1,
+                """PUBLICATIONS
+Example E, Alpha A and Beta B: Phase separation properties of proteins. Nat Struct Mol Biol 30: 451–462, 2023.
+""",
+            ),
+        ),
+        applicant_name="Erika Example",
+        filename="cv.pdf",
+    )[0]
+
+    parsed = fallback_parse_candidate(candidate)
+    classification = classify_publication(parsed, section_status=candidate.status_hint)
+
+    assert parsed.authors == ("Example E", "Alpha A", "Beta B")
+    assert parsed.title == "Phase separation properties of proteins"
+    assert parsed.journal == "Nat Struct Mol Biol"
+    assert parsed.volume == "30"
+    assert parsed.pages == "451-462"
+    assert classification.disposition == "PUBLISHED"
+
+
+def test_accepted_and_under_revision_manuscripts_are_preprints_not_published() -> None:
+    """Break caught: accepted but not yet published manuscripts inflated published totals."""
+    for wording in ("Accepted in Nature", "Under revision"):
+        parsed = ParsedPublication(
+            authors=("Example E", "Alpha A"),
+            title="A manuscript",
+            journal="Nature",
+            year=2026,
+            raw_citation=f"Example E, Alpha A. A manuscript. Nature. {wording}.",
+            parser_method="deterministic",
+        )
+        assert (
+            classify_publication(parsed, section_status="PUBLISHED").disposition
+            == "ACCEPTED_PREPRINT"
+        )
