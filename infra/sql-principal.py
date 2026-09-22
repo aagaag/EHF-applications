@@ -103,6 +103,7 @@ MIGRATIONS = {
     "042_multi_call_compatibility.sql": (42, "multi_call_compatibility"),
     "043_pending_publication_review_queue.sql": (43, "pending_publication_review_queue"),
     "044_call_navigation_preferences.sql": (44, "call_navigation_preferences"),
+    "045_fix_call_navigation_preference_insert.sql": (45, "fix_call_navigation_preference_insert"),
 }
 COMMANDS = (
     "inspect-production",
@@ -171,6 +172,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "042_validate_multi_call_compatibility.sql",
         "043_validate_pending_publication_review_queue.sql",
         "044_validate_call_navigation_preferences.sql",
+        "045_validate_call_navigation_preference_insert.sql",
     }
 )
 
