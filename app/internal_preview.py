@@ -8,6 +8,7 @@ from math import ceil, floor, isfinite, log10
 
 from app.citation_plots import CitationPlotPoint, citation_plot_points
 from app.identity import AuthenticatedIdentity
+from app.calls import CallContext, CallSummary
 from app.navigation import (
     NavigationEntry,
     authorization_groups,
@@ -16,6 +17,7 @@ from app.navigation import (
     navigation_entries,
 )
 from app.shortlist import ShortlistState, editable_trustee
+from app.preferences import CallNavigationPreference
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +51,9 @@ def render_internal_preview(
     simulation: bool = False,
     records: tuple[PreviewApplicantMetric, ...] = (),
     shortlist: ShortlistState | None = None,
+    call_summaries: tuple[CallSummary, ...] = (),
+    current_call: CallContext | None = None,
+    call_preference: CallNavigationPreference = CallNavigationPreference(),
 ) -> str:
     """Render every visible internal element from one group-filtered inventory."""
     entries = filtered_inventory(principal.groups)
@@ -74,9 +79,9 @@ def render_internal_preview(
 <button class="app-nav-toggle" type="button" aria-controls="application-navigation" aria-expanded="false" aria-label="Open application navigation"><span aria-hidden="true">☰</span> Menu</button><div class="app-nav-backdrop" hidden></div>
 <aside class="app-nav" id="application-navigation" aria-label="Application navigation" data-open="false" inert>
 <div class="app-nav-top"><a class="app-nav-home" href="/internal/"><img src="/assets/ehf-logo.svg" alt="Ernst Hadorn Foundation"><span class="app-nav-title">EHF Fellowships</span></a><span class="app-nav-domain">ehf.isab.science</span><span class="app-nav-purpose">A secure future workspace for the Ernst Hadorn Foundation.</span></div>
-<div class="app-nav-scroll"><nav class="app-nav-list" aria-label="Primary navigation">{_navigation_links(navigation)}</nav></div>
-<nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation"><span class="app-nav-heading">Settings</span><a class="app-nav-link" href="#appearance">Appearance</a><button class="app-nav-disclosure" type="button" data-disclosure aria-expanded="false" aria-controls="help-links">Help</button><div class="app-nav-submenu" id="help-links" hidden>{_help_links(help_items)}</div>{_authorization_pills(pills)}</nav></aside>
-<main class="site-main" id="main-content" tabindex="-1"><header class="site-hero" id="overview"><h1>Charles Weissmann Fellowships</h1><p>Internal workspace preview for the Ernst Hadorn Foundation.</p></header>
+<div class="app-nav-scroll"><nav class="app-nav-list" aria-label="Application rounds">{_call_navigation_links(call_summaries, current_call)}</nav><nav class="app-nav-list" aria-label="Primary navigation">{_navigation_links(navigation)}</nav></div>
+<nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation"><span class="app-nav-heading">Settings</span>{_call_default_control(call_preference)}<a class="app-nav-link" href="#appearance">Appearance</a><button class="app-nav-disclosure" type="button" data-disclosure aria-expanded="false" aria-controls="help-links">Help</button><div class="app-nav-submenu" id="help-links" hidden>{_help_links(help_items)}</div>{_authorization_pills(pills)}</nav></aside>
+<main class="site-main" id="main-content" tabindex="-1"><header class="site-hero" id="overview"><h1>{escape(current_call.display_name if current_call else "Charles Weissmann Fellowships")}</h1><p>Internal workspace preview for the Ernst Hadorn Foundation.</p></header>
 <div class="preview-notice" role="status">Preview only<span>{escape(notice)} Submission is not active. Communication sending is not active. {escape(record_notice)}</span></div>
 {_report_section(records, shortlist_state)}{_sections(entries, include=frozenset({"operations"}))}<section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance preview</h2><p>Preferences load and save server-side only after secure sign-in is active.</p></div>{_appearance_controls()}</section></main>
 <footer class="site-footer">EHF Fellowships · internal preview · Page last modified: <time data-last-modified></time></footer><script src="/assets/theme.js"></script><script src="/assets/shell.js"></script></body></html>"""
@@ -86,6 +91,41 @@ def _navigation_links(entries: tuple[NavigationEntry, ...]) -> str:
     return "".join(
         f'<a class="app-nav-link" href="{escape(entry.href)}">{escape(entry.label)}</a>'
         for entry in entries
+    )
+
+
+def _call_navigation_links(
+    summaries: tuple[CallSummary, ...], current: CallContext | None
+) -> str:
+    if not summaries:
+        return ""
+    links = "".join(
+        f'<a class="app-nav-link call-nav-link" href="/internal/calls/{escape(summary.context.public_slug)}/"'
+        f'{(" aria-current=\"page\"" if current and summary.context.fellowship_call_id == current.fellowship_call_id else "")}>'
+        f'<span>{escape(summary.context.compact_title)}</span>'
+        f'<small>{escape(summary.context.call_status.title())}</small></a>'
+        for summary in summaries
+    )
+    return (
+        '<span class="app-nav-heading">Application rounds</span>'
+        '<a class="app-nav-link" href="/internal/calls/">All rounds</a>'
+        + links
+    )
+
+
+def _call_default_control(preference: CallNavigationPreference) -> str:
+    options = (
+        ("resume-last-opened", "Last round I used"),
+        ("latest-application-deadline", "Latest application deadline"),
+    )
+    markup = "".join(
+        f'<option value="{value}"{(" selected" if preference.mode == value else "")}>{label}</option>'
+        for value, label in options
+    )
+    return (
+        '<label class="call-default-setting">Default round'
+        f'<select data-call-default-mode>{markup}</select></label>'
+        '<span class="call-default-status" data-call-default-status aria-live="polite"></span>'
     )
 
 
@@ -139,6 +179,8 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: Shortl
         _report_header(index, label, kind)
         for index, (label, kind) in enumerate(headers)
     )
+
+
     shortlist_header = (
         '<span class="report-shortlist-group" role="columnheader" aria-colspan="3">Shortlist</span>'
         + "".join(

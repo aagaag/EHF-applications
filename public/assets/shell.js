@@ -29,6 +29,56 @@
   });
   mobileQuery.addEventListener("change", () => setDrawer(false, false));
 
+  const callDefaultMode = document.querySelector("[data-call-default-mode]");
+  const callDefaultStatus = document.querySelector("[data-call-default-status]");
+  callDefaultMode?.addEventListener("change", async () => {
+    callDefaultMode.disabled = true;
+    if (callDefaultStatus) callDefaultStatus.textContent = "Saving…";
+    try {
+      const response = await fetch("/api/internal/call-navigation-preference", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: callDefaultMode.value }),
+      });
+      if (!response.ok) throw new Error("Preference not saved");
+      if (callDefaultStatus) callDefaultStatus.textContent = "Saved";
+    } catch (_error) {
+      if (callDefaultStatus) callDefaultStatus.textContent = "Could not save";
+    } finally {
+      callDefaultMode.disabled = false;
+    }
+  });
+
+  document.querySelector("[data-call-create]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    try {
+      const fields = new FormData(form);
+      const localDeadline = new Date(String(fields.get("applicationDeadlineUtc")));
+      const response = await fetch("/api/internal/calls", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          callCode: fields.get("callCode"),
+          publicSlug: fields.get("publicSlug"),
+          displayName: fields.get("displayName"),
+          compactTitle: fields.get("compactTitle"),
+          applicationDeadlineUtc: localDeadline.toISOString(),
+        }),
+      });
+      if (!response.ok) throw new Error("Call not created");
+      const created = await response.json();
+      window.location.assign(created.location);
+    } catch (_error) {
+      button.disabled = false;
+      button.textContent = "Could not create — try again";
+    }
+  });
+
   document.querySelectorAll("[data-disclosure]").forEach((button) => {
     button.addEventListener("click", () => {
       const target = document.getElementById(button.getAttribute("aria-controls"));

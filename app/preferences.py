@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
+from uuid import UUID
 
 
 _SKINS = frozenset({"default", "high-contrast", "soft-earth", "blue"})
+_CALL_MODES = frozenset({"resume-last-opened", "latest-application-deadline"})
 
 
 class PreferenceValidationError(ValueError):
@@ -17,6 +19,12 @@ class PreferenceRepository(Protocol):
     def load(self, identity: "Identity") -> "AppearancePreference": ...
 
     def save(self, identity: "Identity", preference: "AppearancePreference") -> "AppearancePreference": ...
+
+    def load_call_navigation(self, identity: "Identity") -> "CallNavigationPreference": ...
+
+    def save_call_navigation(
+        self, identity: "Identity", preference: "CallNavigationPreference"
+    ) -> "CallNavigationPreference": ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +54,20 @@ class AppearancePreference:
             raise PreferenceValidationError("appearance switches must be boolean")
 
 
+@dataclass(frozen=True, slots=True)
+class CallNavigationPreference:
+    mode: str = "resume-last-opened"
+    last_fellowship_call_id: UUID | None = None
+
+    def __post_init__(self) -> None:
+        if self.mode not in _CALL_MODES:
+            raise PreferenceValidationError("call-selection mode is not supported")
+        if self.last_fellowship_call_id is not None and not isinstance(
+            self.last_fellowship_call_id, UUID
+        ):
+            raise PreferenceValidationError("last fellowship call ID is invalid")
+
+
 class SqlPreferenceRepository:
     """Use the audited, ownership-chained SQL procedure rather than browser storage."""
 
@@ -68,6 +90,26 @@ class SqlPreferenceRepository:
             with connection as opened_connection:
                 return self._load_with_connection(opened_connection, identity)
         return self._load_with_connection(connection, identity)
+
+    def load_call_navigation(self, identity: Identity) -> CallNavigationPreference:
+        connection = self._connection_factory()
+        execute = getattr(connection, "execute", None)
+        if execute is None:
+            with connection as opened_connection:
+                return self._load_call_navigation_with_connection(opened_connection, identity)
+        return self._load_call_navigation_with_connection(connection, identity)
+
+    def save_call_navigation(
+        self, identity: Identity, preference: CallNavigationPreference
+    ) -> CallNavigationPreference:
+        connection = self._connection_factory()
+        execute = getattr(connection, "execute", None)
+        if execute is None:
+            with connection as opened_connection:
+                return self._save_call_navigation_with_connection(
+                    opened_connection, identity, preference
+                )
+        return self._save_call_navigation_with_connection(connection, identity, preference)
 
     @staticmethod
     def _load_with_connection(connection: Any, identity: Identity) -> AppearancePreference:
@@ -107,12 +149,51 @@ class SqlPreferenceRepository:
             reduce_motion=bool(row[7]),
         )
 
+    @staticmethod
+    def _load_call_navigation_with_connection(
+        connection: Any, identity: Identity
+    ) -> CallNavigationPreference:
+        row = connection.execute(
+            "EXEC dbo.GetCallNavigationPreference @IdentityKey=?", identity.key
+        ).fetchone()
+        if row is None:
+            return CallNavigationPreference()
+        return CallNavigationPreference(
+            mode=str(row[0]),
+            last_fellowship_call_id=None if row[1] is None else UUID(str(row[1])),
+        )
+
+    @staticmethod
+    def _save_call_navigation_with_connection(
+        connection: Any,
+        identity: Identity,
+        preference: CallNavigationPreference,
+    ) -> CallNavigationPreference:
+        row = connection.execute(
+            "EXEC dbo.SetCallNavigationPreference @IdentityKey=?, @Email=?, @DisplayName=?, "
+            "@DefaultCallMode=?, @LastFellowshipCallId=?, @ActorIdentity=?",
+            identity.key,
+            identity.email,
+            identity.display_name,
+            preference.mode,
+            preference.last_fellowship_call_id,
+            identity.key,
+        ).fetchone()
+        connection.commit()
+        if row is None:
+            return preference
+        return CallNavigationPreference(
+            mode=str(row[0]),
+            last_fellowship_call_id=None if row[1] is None else UUID(str(row[1])),
+        )
+
 
 class InMemoryPreferenceRepository:
     """Identity-scoped preference store for synthetic and local acceptance runs."""
 
     def __init__(self) -> None:
         self._preferences: dict[str, AppearancePreference] = {}
+        self._call_navigation: dict[str, CallNavigationPreference] = {}
 
     def load(self, identity: Identity) -> AppearancePreference:
         return self._preferences.get(identity.key, AppearancePreference())
@@ -121,4 +202,13 @@ class InMemoryPreferenceRepository:
         self, identity: Identity, preference: AppearancePreference
     ) -> AppearancePreference:
         self._preferences[identity.key] = preference
+        return preference
+
+    def load_call_navigation(self, identity: Identity) -> CallNavigationPreference:
+        return self._call_navigation.get(identity.key, CallNavigationPreference())
+
+    def save_call_navigation(
+        self, identity: Identity, preference: CallNavigationPreference
+    ) -> CallNavigationPreference:
+        self._call_navigation[identity.key] = preference
         return preference

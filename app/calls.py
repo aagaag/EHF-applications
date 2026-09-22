@@ -79,12 +79,36 @@ class CallSummary:
     roster_state: str
 
 
+@dataclass(frozen=True, slots=True)
+class NewCall:
+    call_code: str
+    public_slug: str
+    display_name: str
+    compact_title: str
+    application_deadline_utc: datetime
+
+    def __post_init__(self) -> None:
+        validate_public_slug(self.public_slug)
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (self.call_code, self.display_name, self.compact_title)
+        ):
+            raise ValueError("call labels are required")
+        if len(self.call_code) > 50 or len(self.display_name) > 200 or len(self.compact_title) > 120:
+            raise ValueError("call label is too long")
+        if not isinstance(self.application_deadline_utc, datetime):
+            raise ValueError("application deadline is required")
+        object.__setattr__(self, "application_deadline_utc", _utc(self.application_deadline_utc))
+
+
 class CallCatalog(Protocol):
     def list_authorized(self, actor_group: str) -> tuple[CallSummary, ...]: ...
 
     def resolve(self, slug: str, actor_group: str, required_role: str) -> CallContext: ...
 
     def resolve_public(self, slug: str) -> PublicCallContext: ...
+
+    def create(self, request: NewCall, actor_identity: str, actor_group: str) -> CallContext: ...
 
 
 class InMemoryCallCatalog:
@@ -94,13 +118,20 @@ class InMemoryCallCatalog:
         self,
         contexts: tuple[CallContext, ...] = (),
         access: dict[str, frozenset[str]] | None = None,
+        *,
+        summaries: tuple[CallSummary, ...] | None = None,
     ) -> None:
         self._contexts = {context.public_slug: context for context in contexts}
         self._access = access or {}
+        self._summaries = {
+            summary.context.public_slug: summary for summary in (summaries or ())
+        }
 
     def list_authorized(self, actor_group: str) -> tuple[CallSummary, ...]:
         return tuple(
-            CallSummary(context, 0, None, None, 0, "UNAVAILABLE")
+            self._summaries.get(
+                slug, CallSummary(context, 0, None, None, 0, "UNAVAILABLE")
+            )
             for slug, context in self._contexts.items()
             if actor_group in self._access.get(slug, frozenset())
         )
@@ -127,6 +158,32 @@ class InMemoryCallCatalog:
             applicant_review_deadline_utc=context.applicant_review_deadline_utc,
             applicant_review_status=context.applicant_review_status,
         )
+
+    def create(self, request: NewCall, actor_identity: str, actor_group: str) -> CallContext:
+        if actor_group != "EHF-Administrators" or not actor_identity.strip():
+            raise PermissionError("administrator authorization is required")
+        if request.public_slug in self._contexts:
+            raise ValueError("call already exists")
+        context = CallContext(
+            fellowship_call_id=UUID(int=len(self._contexts) + 1),
+            call_code=request.call_code,
+            public_slug=request.public_slug,
+            display_name=request.display_name,
+            compact_title=request.compact_title,
+            call_status="DRAFT",
+            applicant_review_status="DISABLED",
+            internal_selection_status="DISABLED",
+            invitations_enabled=False,
+            analysis_profile_code="ehf-standard-v1",
+            application_deadline_utc=request.application_deadline_utc,
+            applicant_review_deadline_utc=None,
+            row_version=b"new-call",
+        )
+        self._contexts[context.public_slug] = context
+        self._access[context.public_slug] = frozenset(
+            {"EHF-Administrators", "EHF-Trustees"}
+        )
+        return context
 
 
 class SqlCallCatalog:
@@ -170,6 +227,24 @@ class SqlCallCatalog:
             application_deadline_utc=row[3], applicant_review_deadline_utc=row[4],
             applicant_review_status=str(row[5]),
         )
+
+    def create(self, request: NewCall, actor_identity: str, actor_group: str) -> CallContext:
+        with self._connection_factory() as connection:
+            row = connection.execute(
+                "EXEC dbo.CreateFellowshipCall @CallCode=?, @PublicSlug=?, @DisplayName=?, "
+                "@CompactTitle=?, @ApplicationDeadlineUtc=?, @ActorIdentity=?, @ActorGroup=?",
+                request.call_code,
+                request.public_slug,
+                request.display_name,
+                request.compact_title,
+                request.application_deadline_utc,
+                actor_identity,
+                actor_group,
+            ).fetchone()
+            connection.commit()
+        if row is None:
+            raise RuntimeError("created call was not returned")
+        return self._context(row)
 
     @staticmethod
     def _context(row: Any) -> CallContext:

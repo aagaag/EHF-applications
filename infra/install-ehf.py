@@ -104,6 +104,7 @@ REQUIRED_RELEASE_FILES = (
     "database/migrations/041_publication_status_metrics.sql",
     "database/migrations/042_multi_call_compatibility.sql",
     "database/migrations/043_pending_publication_review_queue.sql",
+    "database/migrations/044_call_navigation_preferences.sql",
     "database/tests/001_validate_database_contract.sql",
     "database/tests/002_validate_application_core.sql",
     "database/tests/003_validate_audit_and_preferences.sql",
@@ -147,6 +148,7 @@ REQUIRED_RELEASE_FILES = (
     "database/tests/041_validate_publication_status_metrics.sql",
     "database/tests/042_validate_multi_call_compatibility.sql",
     "database/tests/043_validate_pending_publication_review_queue.sql",
+    "database/tests/044_validate_call_navigation_preferences.sql",
 )
 REQUIRED_CREDENTIALS = (
     "sql-app-password",

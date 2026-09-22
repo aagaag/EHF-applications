@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
 
 def test_preference_model_accepts_only_the_shared_four_skins() -> None:
@@ -101,3 +102,50 @@ def test_sql_preference_repository_reads_and_writes_only_the_current_identity() 
     load_sql, load_parameters = connection.executed[1]
     assert "dbo.GetUserPreference" in load_sql
     assert load_parameters == (identity.key,)
+
+
+def test_call_navigation_preference_defaults_to_resuming_the_last_opened_call() -> None:
+    """Break caught: a new identity could default to an undocumented call-selection rule."""
+    from app.preferences import CallNavigationPreference
+
+    preference = CallNavigationPreference()
+
+    assert preference.mode == "resume-last-opened"
+    assert preference.last_fellowship_call_id is None
+
+
+def test_call_navigation_preference_accepts_only_the_two_supported_modes() -> None:
+    """Break caught: an unsupported mode could make default-call resolution ambiguous."""
+    from app.preferences import CallNavigationPreference, PreferenceValidationError
+
+    call_id = UUID("26000000-0000-4000-8000-000000000001")
+    assert CallNavigationPreference("latest-application-deadline", call_id).mode == (
+        "latest-application-deadline"
+    )
+    try:
+        CallNavigationPreference("first-database-row", call_id)
+    except PreferenceValidationError:
+        pass
+    else:
+        raise AssertionError("unsupported call-selection modes must fail closed")
+
+
+def test_in_memory_call_navigation_preference_is_scoped_by_identity() -> None:
+    """Break caught: one reviewer could inherit another reviewer's last-opened call."""
+    from app.preferences import (
+        CallNavigationPreference,
+        Identity,
+        InMemoryPreferenceRepository,
+    )
+
+    repository = InMemoryPreferenceRepository()
+    first = Identity("entra:first", "first@example.org", "First")
+    second = Identity("entra:second", "second@example.org", "Second")
+    call_id = UUID("26000000-0000-4000-8000-000000000001")
+
+    repository.save_call_navigation(
+        first, CallNavigationPreference("latest-application-deadline", call_id)
+    )
+
+    assert repository.load_call_navigation(first).last_fellowship_call_id == call_id
+    assert repository.load_call_navigation(second) == CallNavigationPreference()

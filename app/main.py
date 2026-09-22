@@ -43,11 +43,19 @@ from app.identity import (
     deny_identity,
 )
 from app.internal_preview import render_internal_preview
+from app.internal_calls import render_call_inventory, render_call_workspace
 from app.applicant_detail import render_applicant_detail, render_full_page_chart
 from app.metrics import EmptyMetricRepository, MetricRepository, SqlMetricRepository
-from app.calls import CallCatalog, InMemoryCallCatalog, SqlCallCatalog
+from app.calls import CallCatalog, InMemoryCallCatalog, NewCall, SqlCallCatalog
 from app.navigation import INTERNAL_GROUPS
-from app.preferences import AppearancePreference, Identity, PreferenceRepository, SqlPreferenceRepository
+from app.preferences import (
+    AppearancePreference,
+    CallNavigationPreference,
+    Identity,
+    PreferenceRepository,
+    PreferenceValidationError,
+    SqlPreferenceRepository,
+)
 from app.preview_register import load_preview_register
 from app.report_exports import (
     EmptyReportAuditRepository,
@@ -308,6 +316,35 @@ def create_app(
             raise HTTPException(status_code=404)
         return principal
 
+    def internal_role(principal: AuthenticatedIdentity) -> str:
+        if INTERNAL_GROUPS.administrators in principal.groups:
+            return INTERNAL_GROUPS.administrators
+        if INTERNAL_GROUPS.trustees in principal.groups:
+            return INTERNAL_GROUPS.trustees
+        raise HTTPException(status_code=404)
+
+    def default_call(principal: AuthenticatedIdentity):
+        summaries = calls.list_authorized(internal_role(principal))
+        if not summaries:
+            return None
+        preference = preferences.load_call_navigation(principal.identity)
+        if preference.mode == "resume-last-opened" and preference.last_fellowship_call_id:
+            resumed = next(
+                (
+                    summary.context
+                    for summary in summaries
+                    if summary.context.fellowship_call_id
+                    == preference.last_fellowship_call_id
+                ),
+                None,
+            )
+            if resumed is not None:
+                return resumed
+        return max(
+            (summary.context for summary in summaries),
+            key=lambda context: (context.application_deadline_utc, context.public_slug),
+        )
+
     if synthetic_applicant_service is not None:
         register_internal_synthetic_routes(
             application,
@@ -356,21 +393,134 @@ def create_app(
             raise HTTPException(status_code=404)
         return RedirectResponse("/internal/", status_code=303)
 
-    @application.get("/internal/", response_class=HTMLResponse)
-    def internal_preview(request: Request) -> HTMLResponse:
+    @application.get("/internal/")
+    def internal_preview(request: Request) -> Response:
         principal = authenticated(request)
-        if not principal.groups & {INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees}:
-            raise HTTPException(status_code=404)
-        role = (
-            INTERNAL_GROUPS.administrators
-            if INTERNAL_GROUPS.administrators in principal.groups
-            else INTERNAL_GROUPS.trustees
+        role = internal_role(principal)
+        selected = default_call(principal)
+        if selected is None:
+            shortlist = shortlists.load(
+                principal.identity.key, role, principal.entra_object_id
+            )
+            return HTMLResponse(
+                render_internal_preview(
+                    principal,
+                    records=metrics.load(role),
+                    shortlist=shortlist,
+                )
+            )
+        return RedirectResponse(
+            f"/internal/calls/{selected.public_slug}/", status_code=303
         )
-        shortlist = shortlists.load(
-            principal.identity.key, role, principal.entra_object_id
+
+    @application.get("/internal/calls/", response_class=HTMLResponse)
+    def internal_calls(request: Request) -> HTMLResponse:
+        principal = authenticated(request)
+        role = internal_role(principal)
+        summaries = calls.list_authorized(role)
+        preference = (
+            preferences.load_call_navigation(principal.identity)
+            if summaries
+            else CallNavigationPreference()
         )
         return HTMLResponse(
-            render_internal_preview(principal, records=metrics.load(role), shortlist=shortlist)
+            render_call_inventory(
+                principal, summaries, preference=preference
+            )
+        )
+
+    @application.get("/internal/calls/{call_slug}/", response_class=HTMLResponse)
+    def internal_call_workspace(call_slug: str, request: Request) -> HTMLResponse:
+        principal = authenticated(request)
+        role = internal_role(principal)
+        try:
+            current_call = calls.resolve(call_slug, role, "READ")
+        except (LookupError, ValueError):
+            raise HTTPException(status_code=404) from None
+        preference = preferences.load_call_navigation(principal.identity)
+        preference = preferences.save_call_navigation(
+            principal.identity,
+            CallNavigationPreference(preference.mode, current_call.fellowship_call_id),
+        )
+        summaries = calls.list_authorized(role)
+        if current_call.public_slug == "ehf-2026":
+            shortlist = shortlists.load(
+                principal.identity.key, role, principal.entra_object_id
+            )
+            return HTMLResponse(
+                render_internal_preview(
+                    principal,
+                    records=metrics.load(role),
+                    shortlist=shortlist,
+                    call_summaries=summaries,
+                    current_call=current_call,
+                    call_preference=preference,
+                )
+            )
+        return HTMLResponse(
+            render_call_workspace(
+                principal, summaries, current_call, preference=preference
+            )
+        )
+
+    @application.post("/api/internal/call-navigation-preference")
+    async def set_call_navigation_preference(request: Request) -> JSONResponse:
+        principal = authenticated(request)
+        internal_role(principal)
+        if not is_same_origin_write(request):
+            raise HTTPException(status_code=404)
+        try:
+            payload = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=422) from None
+        if not isinstance(payload, dict) or set(payload) != {"mode"}:
+            raise HTTPException(status_code=422)
+        current = preferences.load_call_navigation(principal.identity)
+        try:
+            requested = CallNavigationPreference(
+                mode=payload["mode"],
+                last_fellowship_call_id=current.last_fellowship_call_id,
+            )
+        except (PreferenceValidationError, TypeError):
+            raise HTTPException(status_code=422) from None
+        stored = preferences.save_call_navigation(principal.identity, requested)
+        return JSONResponse({"mode": stored.mode})
+
+    @application.post("/api/internal/calls")
+    async def create_internal_call(request: Request) -> JSONResponse:
+        principal = authenticated(request)
+        role = internal_role(principal)
+        if role != INTERNAL_GROUPS.administrators or not is_same_origin_write(request):
+            raise HTTPException(status_code=404)
+        try:
+            payload = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=422) from None
+        expected = {
+            "callCode",
+            "publicSlug",
+            "displayName",
+            "compactTitle",
+            "applicationDeadlineUtc",
+        }
+        if not isinstance(payload, dict) or set(payload) != expected:
+            raise HTTPException(status_code=422)
+        try:
+            deadline = datetime.fromisoformat(
+                str(payload["applicationDeadlineUtc"]).replace("Z", "+00:00")
+            )
+            new_call = NewCall(
+                call_code=payload["callCode"],
+                public_slug=payload["publicSlug"],
+                display_name=payload["displayName"],
+                compact_title=payload["compactTitle"],
+                application_deadline_utc=deadline,
+            )
+            created = calls.create(new_call, principal.identity.key, role)
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=422) from None
+        return JSONResponse(
+            {"location": f"/internal/calls/{created.public_slug}/"}, status_code=201
         )
 
     @application.post("/api/internal/applicants/{application_id}/shortlist/{trustee_code}")
