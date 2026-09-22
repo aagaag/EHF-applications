@@ -211,6 +211,8 @@ BEGIN
         (@MetricCallId, N'EHF-2026', N'Validator metrics call', 'DRAFT',
          DATEADD(day, 1, SYSUTCDATETIME()));
 END;
+UPDATE dbo.Applicant SET FellowshipCallId = @MetricCallId
+WHERE ApplicantId = (SELECT ApplicantId FROM dbo.Application WHERE ApplicationId = @ApplicationId);
 UPDATE dbo.Application SET FellowshipCallId = @MetricCallId WHERE ApplicationId = @ApplicationId;
 
 DECLARE @Previews TABLE
@@ -225,7 +227,7 @@ DECLARE @Metrics TABLE
     TotalCitations bigint, Orcid nvarchar(200), GoogleScholarCitationCount bigint,
     IdentityCertainty nvarchar(200), VerifiedCitationCount bigint,
     VerifiedCitationSource varchar(40), VerifiedCitationProfileUrl nvarchar(1000),
-    ValidatedPublishedPaperCount int, ApplicationId varchar(36),
+    ValidatedPublishedPaperCount int, ValidatedPreprintPaperCount int, ApplicationId varchar(36),
     ApplicationNumber nvarchar(20)
 );
 EXECUTE AS USER = N'ehf_app';

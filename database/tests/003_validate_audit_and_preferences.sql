@@ -110,8 +110,8 @@ BEGIN TRY
     VALUES
         (@FellowshipCallId, N'AUDIT-VALIDATOR', N'Audit validator', 'DRAFT',
          CONVERT(datetime2(7), '2026-08-31T23:59:59'));
-    INSERT dbo.Applicant (ApplicantId, LegalGivenNames, LegalFamilyName)
-    VALUES (@ApplicantId, N'Synthetic', N'Audit');
+    INSERT dbo.Applicant (ApplicantId, FellowshipCallId, LegalGivenNames, LegalFamilyName)
+    VALUES (@ApplicantId, @FellowshipCallId, N'Synthetic', N'Audit');
     INSERT dbo.Application
         (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus)
     VALUES

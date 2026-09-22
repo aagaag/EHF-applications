@@ -155,8 +155,8 @@ BEGIN TRY
         (FellowshipCallId, CallCode, DisplayName, CallStatus, ApplicationDeadlineUtc)
     VALUES
         (@CallId, N'EHF-021-' + CONVERT(nvarchar(36), @CallId), N'Publication validator', 'DRAFT', SYSUTCDATETIME());
-    INSERT dbo.Applicant (ApplicantId, LegalGivenNames, LegalFamilyName)
-    VALUES (@ApplicantId, N'Publication', N'Validator');
+    INSERT dbo.Applicant (ApplicantId, FellowshipCallId, LegalGivenNames, LegalFamilyName)
+    VALUES (@ApplicantId, @CallId, N'Publication', N'Validator');
     INSERT dbo.Application (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus)
     VALUES (@ApplicationId, @CallId, @ApplicantId, 'IMPORTED');
     INSERT dbo.ImportRun
@@ -208,7 +208,7 @@ BEGIN TRY
             @PublicationO uniqueidentifier=NEWID();
     INSERT dbo.FellowshipCall (FellowshipCallId,CallCode,DisplayName,CallStatus,ApplicationDeadlineUtc)
     VALUES (@CallO,N'EHF-021-O-'+CONVERT(nvarchar(36),@CallO),N'Occurrence validator','DRAFT',SYSUTCDATETIME());
-    INSERT dbo.Applicant (ApplicantId,LegalGivenNames,LegalFamilyName) VALUES (@ApplicantO,N'Occurrence',N'Validator');
+    INSERT dbo.Applicant (ApplicantId,FellowshipCallId,LegalGivenNames,LegalFamilyName) VALUES (@ApplicantO,@CallO,N'Occurrence',N'Validator');
     INSERT dbo.Application (ApplicationId,FellowshipCallId,ApplicantId,ApplicationStatus) VALUES (@ApplicationO,@CallO,@ApplicantO,'IMPORTED');
     INSERT dbo.ImportRun (ImportRunId,FellowshipCallId,ImportFingerprintSha256,ImporterVersion,RunStatus,StartedByIdentity)
     VALUES (@RunO,@CallO,HASHBYTES('SHA2_256',N'021 occurrence run'),'2026.4-publications','RUNNING',N'validator');
@@ -241,7 +241,7 @@ BEGIN TRY
             @PublicationM uniqueidentifier=NEWID();
     INSERT dbo.FellowshipCall (FellowshipCallId,CallCode,DisplayName,CallStatus,ApplicationDeadlineUtc)
     VALUES (@CallM,N'EHF-021-M-'+CONVERT(nvarchar(36),@CallM),N'Metadata validator','DRAFT',SYSUTCDATETIME());
-    INSERT dbo.Applicant (ApplicantId,LegalGivenNames,LegalFamilyName) VALUES (@ApplicantM,N'Metadata',N'Validator');
+    INSERT dbo.Applicant (ApplicantId,FellowshipCallId,LegalGivenNames,LegalFamilyName) VALUES (@ApplicantM,@CallM,N'Metadata',N'Validator');
     INSERT dbo.Application (ApplicationId,FellowshipCallId,ApplicantId,ApplicationStatus) VALUES (@ApplicationM,@CallM,@ApplicantM,'IMPORTED');
     INSERT dbo.ImportRun (ImportRunId,FellowshipCallId,ImportFingerprintSha256,ImporterVersion,RunStatus,StartedByIdentity)
     VALUES (@RunM,@CallM,HASHBYTES('SHA2_256',N'021 metadata run'),'2026.4-publications','RUNNING',N'validator');
@@ -274,7 +274,7 @@ BEGIN TRY
             @PublicationC uniqueidentifier=NEWID();
     INSERT dbo.FellowshipCall (FellowshipCallId,CallCode,DisplayName,CallStatus,ApplicationDeadlineUtc)
     VALUES (@CallC,N'EHF-021-C-'+CONVERT(nvarchar(36),@CallC),N'Citation validator','DRAFT',SYSUTCDATETIME());
-    INSERT dbo.Applicant (ApplicantId,LegalGivenNames,LegalFamilyName) VALUES (@ApplicantC,N'Citation',N'Validator');
+    INSERT dbo.Applicant (ApplicantId,FellowshipCallId,LegalGivenNames,LegalFamilyName) VALUES (@ApplicantC,@CallC,N'Citation',N'Validator');
     INSERT dbo.Application (ApplicationId,FellowshipCallId,ApplicantId,ApplicationStatus) VALUES (@ApplicationC,@CallC,@ApplicantC,'IMPORTED');
     INSERT dbo.ImportRun (ImportRunId,FellowshipCallId,ImportFingerprintSha256,ImporterVersion,RunStatus,StartedByIdentity)
     VALUES (@RunC,@CallC,HASHBYTES('SHA2_256',N'021 citation run'),'2026.4-publications','RUNNING',N'validator');

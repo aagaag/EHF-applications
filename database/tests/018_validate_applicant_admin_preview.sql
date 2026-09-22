@@ -27,10 +27,10 @@ BEGIN TRY
     VALUES
         (@CallId, N'EHF-018-VALIDATION', N'Preview validation', 'DRAFT', '2027-01-31');
     INSERT dbo.Applicant
-        (ApplicantId, LegalGivenNames, LegalFamilyName)
+        (ApplicantId, FellowshipCallId, LegalGivenNames, LegalFamilyName)
     VALUES
-        (@ApplicantId, N'Synthetic', N'Preview'),
-        (@OtherApplicantId, N'Synthetic Other', N'Preview');
+        (@ApplicantId, @CallId, N'Synthetic', N'Preview'),
+        (@OtherApplicantId, @CallId, N'Synthetic Other', N'Preview');
     INSERT dbo.Application
         (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus)
     VALUES

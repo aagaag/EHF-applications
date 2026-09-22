@@ -34,8 +34,8 @@ BEGIN TRY
     INSERT dbo.FellowshipCall
         (FellowshipCallId,CallCode,DisplayName,CallStatus,ApplicationDeadlineUtc)
     VALUES (@CallId,N'EHF-023-VALIDATION',N'Open citation validation','DRAFT','2027-01-31');
-    INSERT dbo.Applicant (ApplicantId,LegalGivenNames,LegalFamilyName)
-    VALUES (@ApplicantId,N'Synthetic',N'Citation');
+    INSERT dbo.Applicant (ApplicantId,FellowshipCallId,LegalGivenNames,LegalFamilyName)
+    VALUES (@ApplicantId,@CallId,N'Synthetic',N'Citation');
     INSERT dbo.Application
         (ApplicationId,FellowshipCallId,ApplicantId,ApplicationStatus)
     VALUES (@ApplicationId,@CallId,@ApplicantId,'IMPORTED');

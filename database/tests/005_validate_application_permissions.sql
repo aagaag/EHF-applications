@@ -51,6 +51,9 @@ INSERT @ApprovedProcedures VALUES
     (N'ListInternalReviewArtifacts'), (N'GetInternalReviewArtifact'),
     (N'RecordInternalReviewArtifactFailure'),
     (N'GetInternalShortlistSelections'), (N'SetInternalShortlistSelection'),
+    (N'ListAuthorizedFellowshipCalls'), (N'GetAuthorizedFellowshipCallBySlug'),
+    (N'GetPublicFellowshipCallBySlug'), (N'CreateFellowshipCall'),
+    (N'TransitionFellowshipCall'), (N'SetFellowshipCallGroupGrant'),
     (N'SaveApplicantSectionDraft'), (N'ConfirmApplicantSection'),
     (N'SubmitApplicantFinalConfirmation'), (N'GetApplicantFacingApplication'),
     (N'ValidateApplicantUploadSlot'), (N'GetApplicantDocumentSlots'),
@@ -73,7 +76,8 @@ DECLARE @DeniedProcedures TABLE (ProcedureName sysname NOT NULL PRIMARY KEY);
 INSERT @DeniedProcedures VALUES (N'ReopenApplicantScope');
 DECLARE @ProtectedTables TABLE (TableName sysname NOT NULL PRIMARY KEY);
 INSERT @ProtectedTables VALUES
-    (N'SchemaMigration'), (N'FellowshipCall'), (N'Applicant'), (N'ApplicantContact'),
+    (N'SchemaMigration'), (N'FellowshipCall'), (N'FellowshipCallGroupGrant'),
+    (N'Applicant'), (N'ApplicantContact'),
     (N'Application'), (N'EmploymentAffiliation'), (N'Qualification'),
     (N'EligibilityDeclaration'), (N'Bibliometrics'), (N'ContributionStatement'),
     (N'FieldProvenance'), (N'ApplicationSectionVersion'), (N'AuditEvent'), (N'UserPreference'),

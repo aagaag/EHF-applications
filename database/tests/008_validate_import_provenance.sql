@@ -21,8 +21,8 @@ BEGIN TRY
         @VersionId uniqueidentifier = NEWID(), @RunId uniqueidentifier = NEWID();
     INSERT dbo.FellowshipCall (FellowshipCallId, CallCode, DisplayName, CallStatus, ApplicationDeadlineUtc)
     VALUES (@CallId, N'PROV-VALIDATION', N'Synthetic provenance validation', 'OPEN', DATEADD(day, 1, SYSUTCDATETIME()));
-    INSERT dbo.Applicant (ApplicantId, LegalGivenNames, LegalFamilyName)
-    VALUES (@ApplicantAId, N'Provenance', N'Owner'), (@ApplicantBId, N'Provenance', N'Other');
+    INSERT dbo.Applicant (ApplicantId, FellowshipCallId, LegalGivenNames, LegalFamilyName)
+    VALUES (@ApplicantAId, @CallId, N'Provenance', N'Owner'), (@ApplicantBId, @CallId, N'Provenance', N'Other');
     INSERT dbo.Application (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus)
     VALUES (@ApplicationAId, @CallId, @ApplicantAId, 'IMPORTED'),
         (@ApplicationBId, @CallId, @ApplicantBId, 'IMPORTED');

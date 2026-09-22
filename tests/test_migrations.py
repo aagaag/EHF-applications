@@ -25,7 +25,7 @@ PUBLISHED_003_MIGRATION_SHA256 = bytes.fromhex(
     "472fdfb22cb2ea46f786059905e8c1f9491b7081e145bb8731f9b0c6dd4349ac"
 )
 CURRENT_003_VALIDATOR_SHA256 = bytes.fromhex(
-    "6997f8b31030b9b71190e67062d719d49b93cd67bdd7e43f4ded8f61a773c0ee"
+    "075878f5062e32354bcbd0a573028e4fbb995cf0b29df6e952cccd10f0df7281"
 )
 
 
@@ -1272,12 +1272,19 @@ def test_multi_call_foundation_exposes_call_ownership_and_authorized_catalog_con
     migration = (MIGRATION_DIRECTORY / "040_multi_call_foundation.sql").read_text(
         encoding="utf-8"
     )
+    permission_validator = (
+        VALIDATION_DIRECTORY / "005_validate_application_permissions.sql"
+    ).read_text(encoding="utf-8")
+    synthetic_workspace_validator = (
+        VALIDATION_DIRECTORY / "019_validate_synthetic_applicant_workspace.sql"
+    ).read_text(encoding="utf-8")
 
     for fragment in (
         "PublicSlug",
         "AnalysisProfileCode",
         "CREATE TABLE dbo.FellowshipCallGroupGrant",
         "ALTER TABLE dbo.Applicant",
+        "ALTER PROCEDURE dbo.CreateSyntheticApplicantWorkspace",
         "CREATE PROCEDURE dbo.ListAuthorizedFellowshipCalls",
         "CREATE PROCEDURE dbo.GetAuthorizedFellowshipCallBySlug",
         "CREATE PROCEDURE dbo.GetPublicFellowshipCallBySlug",
@@ -1292,6 +1299,19 @@ def test_multi_call_foundation_exposes_call_ownership_and_authorized_catalog_con
     assert "EXEC(N'\nUPDATE dbo.FellowshipCall" in migration
     foundation = migration.split("CREATE TABLE dbo.FellowshipCallGroupGrant", 1)[0]
     assert foundation.count("EXEC(N'") == 2
+    assert "DF_FellowshipCall_PublicSlug DEFAULT (LOWER(CONVERT(varchar(36), NEWID())))" in migration
+    assert "ON UPDATE CASCADE" in migration
+    for fragment in (
+        "ListAuthorizedFellowshipCalls",
+        "GetAuthorizedFellowshipCallBySlug",
+        "GetPublicFellowshipCallBySlug",
+        "CreateFellowshipCall",
+        "TransitionFellowshipCall",
+        "SetFellowshipCallGroupGrant",
+        "FellowshipCallGroupGrant",
+    ):
+        assert fragment in permission_validator
+    assert "UPDATE dbo.Applicant SET FellowshipCallId = @MetricCallId" in synthetic_workspace_validator
 
 
 def test_verified_h_index_migration_ranks_each_papers_cutoff_citations() -> None:
@@ -1339,6 +1359,10 @@ def test_publication_status_metric_migration_separates_totals_from_citation_evid
     """Break caught: an unobserved paper or accepted preprint could disappear from review totals."""
     migration = MIGRATION_DIRECTORY / "041_publication_status_metrics.sql"
     validator = VALIDATION_DIRECTORY / "041_validate_publication_status_metrics.sql"
+    h_index_validator = VALIDATION_DIRECTORY / "036_validate_verified_h_index_metrics.sql"
+    synthetic_workspace_validator = (
+        VALIDATION_DIRECTORY / "019_validate_synthetic_applicant_workspace.sql"
+    )
 
     assert migration.is_file()
     assert validator.is_file()
@@ -1350,6 +1374,10 @@ def test_publication_status_metric_migration_separates_totals_from_citation_evid
     assert "latest_review.ReviewDisposition IN (''PUBLISHED'', ''ACCEPTED_PREPRINT'')" in source
     assert "ValidatedPreprintPaperCount" in validation
     assert "ACCEPTED_PREPRINT" in validation
+    assert "ValidatedPreprintPaperCount" in h_index_validator.read_text(encoding="utf-8")
+    assert "ValidatedPreprintPaperCount" in synthetic_workspace_validator.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_citation_cutoff_migration_requires_a_complete_single_source_import_run() -> None:

@@ -106,10 +106,10 @@ BEGIN TRY
          CONVERT(datetime2(7), '2026-08-31T23:59:59'));
 
     INSERT dbo.Applicant
-        (ApplicantId, LegalGivenNames, LegalFamilyName, BirthYear, BirthMonth)
+        (ApplicantId, FellowshipCallId, LegalGivenNames, LegalFamilyName, BirthYear, BirthMonth)
     VALUES
-        (@ApplicantId, N'Synthetic', N'Complete', 1990, 2),
-        (@MissingApplicantId, N'Synthetic', N'Missing', NULL, NULL);
+        (@ApplicantId, @FellowshipCallId, N'Synthetic', N'Complete', 1990, 2),
+        (@MissingApplicantId, @FellowshipCallId, N'Synthetic', N'Missing', NULL, NULL);
 
     INSERT dbo.Application
         (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus)

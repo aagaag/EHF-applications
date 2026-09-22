@@ -41,8 +41,8 @@ BEGIN TRY
         (FellowshipCallId,CallCode,DisplayName,CallStatus,ApplicationDeadlineUtc)
     VALUES
         (@CallId,N'EHF-022-VALIDATION',N'Publication preview validation','DRAFT','2027-01-31');
-    INSERT dbo.Applicant (ApplicantId,LegalGivenNames,LegalFamilyName)
-    VALUES (@ApplicantId,N'Synthetic',N'Preview');
+    INSERT dbo.Applicant (ApplicantId,FellowshipCallId,LegalGivenNames,LegalFamilyName)
+    VALUES (@ApplicantId,@CallId,N'Synthetic',N'Preview');
     INSERT dbo.Application
         (ApplicationId,FellowshipCallId,ApplicantId,ApplicationStatus)
     VALUES (@ApplicationId,@CallId,@ApplicantId,'IMPORTED');

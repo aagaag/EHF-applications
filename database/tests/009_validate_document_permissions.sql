@@ -45,8 +45,8 @@ BEGIN TRY
         @RunId uniqueidentifier = NEWID(), @OccurrenceId uniqueidentifier = NEWID();
     INSERT dbo.FellowshipCall (FellowshipCallId, CallCode, DisplayName, CallStatus, ApplicationDeadlineUtc)
     VALUES (@CallId, N'PERM-VALIDATION', N'Synthetic permissions validation', 'OPEN', DATEADD(day, 1, SYSUTCDATETIME()));
-    INSERT dbo.Applicant (ApplicantId, LegalGivenNames, LegalFamilyName)
-    VALUES (@ApplicantId, N'Permission', N'Validator');
+    INSERT dbo.Applicant (ApplicantId, FellowshipCallId, LegalGivenNames, LegalFamilyName)
+    VALUES (@ApplicantId, @CallId, N'Permission', N'Validator');
     INSERT dbo.Application (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus)
     VALUES (@ApplicationId, @CallId, @ApplicantId, 'IMPORTED');
     INSERT dbo.DocumentSlot (DocumentSlotId, ApplicationId, SlotCode, SlotLabel, CreatedByIdentity)

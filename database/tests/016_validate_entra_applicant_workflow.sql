@@ -49,8 +49,8 @@ VALUES
     (@CallId, CONCAT(N'EHF-VALIDATOR-', CONVERT(nvarchar(36), @CallId)),
      N'Entra validator', 'OPEN', DATEADD(day, 90, SYSUTCDATETIME()));
 INSERT dbo.Applicant
-    (ApplicantId, LegalGivenNames, LegalFamilyName, SelfReportedGender)
-VALUES (@ApplicantId, N'Entra', N'Validator', N'Prefer not to say');
+    (ApplicantId, FellowshipCallId, LegalGivenNames, LegalFamilyName, SelfReportedGender)
+VALUES (@ApplicantId, @CallId, N'Entra', N'Validator', N'Prefer not to say');
 INSERT dbo.Application
     (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus)
 VALUES (@ApplicationId, @CallId, @ApplicantId, 'IMPORTED');

@@ -49,7 +49,7 @@ DECLARE @Metrics TABLE
     GoogleScholarCitationCount bigint, IdentityCertainty nvarchar(100),
     VerifiedCitationCount bigint, VerifiedCitationSource varchar(40),
     VerifiedCitationProfileUrl nvarchar(2048), ValidatedPublishedPaperCount bigint,
-    ApplicationId varchar(36), ApplicationNumber nvarchar(4000)
+    ValidatedPreprintPaperCount bigint, ApplicationId varchar(36), ApplicationNumber nvarchar(4000)
 );
 INSERT @Metrics EXEC dbo.GetInternalApplicationMetrics @ActorGroup=N'EHF-Administrators';
 IF EXISTS

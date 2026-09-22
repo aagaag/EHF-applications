@@ -44,8 +44,8 @@ BEGIN TRY
     INSERT dbo.FellowshipCall
         (FellowshipCallId,CallCode,DisplayName,CallStatus,ApplicationDeadlineUtc)
     VALUES (@CallId,N'EHF-035-VALIDATION',N'Imported package validation','DRAFT','2027-01-31');
-    INSERT dbo.Applicant (ApplicantId,LegalGivenNames,LegalFamilyName)
-    VALUES (@ApplicantId,N'Synthetic',N'Imported Package');
+    INSERT dbo.Applicant (ApplicantId,FellowshipCallId,LegalGivenNames,LegalFamilyName)
+    VALUES (@ApplicantId,@CallId,N'Synthetic',N'Imported Package');
     INSERT dbo.Application (ApplicationId,FellowshipCallId,ApplicantId,ApplicationStatus)
     VALUES (@ApplicationId,@CallId,@ApplicantId,'IMPORTED');
     INSERT dbo.DocumentSlot

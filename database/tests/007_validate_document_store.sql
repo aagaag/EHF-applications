@@ -30,8 +30,8 @@ BEGIN
     INSERT dbo.FellowshipCall (FellowshipCallId, CallCode, DisplayName, CallStatus, ApplicationDeadlineUtc)
     VALUES (@CallId, CONCAT(N''DOC-VAL-'', REPLACE(CONVERT(nvarchar(36), @CallId), ''-'', '''')),
             N''Synthetic document validation'', ''OPEN'', DATEADD(day, 1, SYSUTCDATETIME()));
-    INSERT dbo.Applicant (ApplicantId, LegalGivenNames, LegalFamilyName)
-    VALUES (@ApplicantId, N''Synthetic'', N''Document'');
+    INSERT dbo.Applicant (ApplicantId, FellowshipCallId, LegalGivenNames, LegalFamilyName)
+    VALUES (@ApplicantId, @CallId, N''Synthetic'', N''Document'');
     INSERT dbo.Application (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus)
     VALUES (@ApplicationId, @CallId, @ApplicantId, ''IMPORTED'');
     INSERT dbo.DocumentSlot (DocumentSlotId, ApplicationId, SlotCode, SlotLabel, CreatedByIdentity)

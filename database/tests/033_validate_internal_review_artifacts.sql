@@ -37,8 +37,8 @@ DECLARE @VersionId uniqueidentifier='33000000-0000-4000-8000-000000000007';
 INSERT dbo.FellowshipCall
     (FellowshipCallId,CallCode,DisplayName,CallStatus,ApplicationDeadlineUtc)
 VALUES (@CallId,N'VALIDATE-033',N'Validate review artifacts','DRAFT','2030-01-01');
-INSERT dbo.Applicant (ApplicantId,LegalGivenNames,LegalFamilyName)
-VALUES (@ApplicantId,N'Validation',N'Applicant');
+INSERT dbo.Applicant (ApplicantId,FellowshipCallId,LegalGivenNames,LegalFamilyName)
+VALUES (@ApplicantId,@CallId,N'Validation',N'Applicant');
 INSERT dbo.Application
     (ApplicationId,FellowshipCallId,ApplicantId,ApplicationStatus)
 VALUES (@ApplicationId,@CallId,@ApplicantId,'IMPORTED');

@@ -84,9 +84,9 @@ VALUES
      'OPEN', DATEADD(day, 30, SYSUTCDATETIME()));
 
 INSERT dbo.Applicant
-    (ApplicantId, LegalGivenNames, LegalFamilyName)
+    (ApplicantId, FellowshipCallId, LegalGivenNames, LegalFamilyName)
 VALUES
-    (@ApplicantId, N'Synthetic', N'Simplification');
+    (@ApplicantId, @CallId, N'Synthetic', N'Simplification');
 
 INSERT dbo.Application
     (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus)
@@ -184,9 +184,9 @@ VALUES
     (@CorrectionCallId, N'EHF-017-CORRECTION', N'Correction workflow validator',
      'OPEN', DATEADD(day, 30, SYSUTCDATETIME()));
 INSERT dbo.Applicant
-    (ApplicantId, LegalGivenNames, LegalFamilyName)
+    (ApplicantId, FellowshipCallId, LegalGivenNames, LegalFamilyName)
 VALUES
-    (@CorrectionApplicantId, N'Synthetic', N'Correction');
+    (@CorrectionApplicantId, @CorrectionCallId, N'Synthetic', N'Correction');
 INSERT dbo.Application
     (ApplicationId, FellowshipCallId, ApplicantId, ApplicationStatus, ConfirmedAtUtc)
 VALUES

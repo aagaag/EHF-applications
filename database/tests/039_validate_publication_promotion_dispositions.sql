@@ -23,8 +23,8 @@ BEGIN TRY
     INSERT dbo.FellowshipCall
         (FellowshipCallId,CallCode,DisplayName,CallStatus,ApplicationDeadlineUtc)
     VALUES (@CallId,N'EHF-039-VALIDATION',N'Promotion disposition validation','DRAFT','2027-01-31');
-    INSERT dbo.Applicant (ApplicantId,LegalGivenNames,LegalFamilyName)
-    VALUES (@ApplicantId,N'Synthetic',N'Promoter');
+    INSERT dbo.Applicant (ApplicantId,FellowshipCallId,LegalGivenNames,LegalFamilyName)
+    VALUES (@ApplicantId,@CallId,N'Synthetic',N'Promoter');
     INSERT dbo.Application (ApplicationId,FellowshipCallId,ApplicantId,ApplicationStatus)
     VALUES (@ApplicationId,@CallId,@ApplicantId,'IMPORTED');
     INSERT dbo.ApplicantPortalBaseline (ApplicationId,ProjectionJson,CreatedByIdentity)
