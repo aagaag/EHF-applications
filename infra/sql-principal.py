@@ -100,6 +100,7 @@ MIGRATIONS = {
     "039_publication_promotion_dispositions.sql": (39, "publication_promotion_dispositions"),
     "040_multi_call_foundation.sql": (40, "multi_call_foundation"),
     "041_publication_status_metrics.sql": (41, "publication_status_metrics"),
+    "042_multi_call_compatibility.sql": (42, "multi_call_compatibility"),
 }
 COMMANDS = (
     "inspect-production",
@@ -165,6 +166,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "039_validate_publication_promotion_dispositions.sql",
         "040_validate_multi_call_foundation.sql",
         "041_validate_publication_status_metrics.sql",
+        "042_validate_multi_call_compatibility.sql",
     }
 )
 

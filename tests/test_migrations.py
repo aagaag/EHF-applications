@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_publication_preview() ->
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 38
-    assert sorted(connection.records) == list(range(1, 42))
+    assert applied == 39
+    assert sorted(connection.records) == list(range(1, 43))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_thirty_eight_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 42))
-    assert applied == 41
+    assert [migration.version for migration in migrations] == list(range(1, 43))
+    assert applied == 42
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -311,7 +311,7 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     """Break caught: a later metrics filter could remove the authoritative academic-age derivation."""
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
-    assert [migration.path.name for migration in migrations[-19:]] == [
+    assert [migration.path.name for migration in migrations[-20:]] == [
         "023_open_citation_sources.sql",
         "024_applicant_citation_profiles.sql",
         "025_publication_review_workflow.sql",
@@ -331,6 +331,7 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
         "039_publication_promotion_dispositions.sql",
         "040_multi_call_foundation.sql",
         "041_publication_status_metrics.sql",
+        "042_multi_call_compatibility.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -530,6 +531,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "039_publication_promotion_dispositions.sql",
         "040_multi_call_foundation.sql",
         "041_publication_status_metrics.sql",
+        "042_multi_call_compatibility.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -573,6 +575,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "039_validate_publication_promotion_dispositions.sql",
         "040_validate_multi_call_foundation.sql",
         "041_validate_publication_status_metrics.sql",
+        "042_validate_multi_call_compatibility.sql",
     ]
 
 
@@ -893,7 +896,9 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "040_validate_multi_call_foundation.sql" in script
     assert "041_publication_status_metrics.sql" in script
     assert "041_validate_publication_status_metrics.sql" in script
-    assert "Applied 41 migration\\(s\\)\\." in script
+    assert "042_multi_call_compatibility.sql" in script
+    assert "042_validate_multi_call_compatibility.sql" in script
+    assert "Applied 42 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1263,8 +1268,8 @@ def test_database_contract_validator_reports_version_thirty_eight() -> None:
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 41" in validator
-    assert "WHERE MigrationCount = 41 AND CurrentVersion = 41" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 42" in validator
+    assert "WHERE MigrationCount = 42 AND CurrentVersion = 42" in validator
 
 
 def test_multi_call_foundation_exposes_call_ownership_and_authorized_catalog_contract() -> None:
@@ -1272,6 +1277,9 @@ def test_multi_call_foundation_exposes_call_ownership_and_authorized_catalog_con
     migration = (MIGRATION_DIRECTORY / "040_multi_call_foundation.sql").read_text(
         encoding="utf-8"
     )
+    compatibility_migration = (
+        MIGRATION_DIRECTORY / "042_multi_call_compatibility.sql"
+    ).read_text(encoding="utf-8")
     permission_validator = (
         VALIDATION_DIRECTORY / "005_validate_application_permissions.sql"
     ).read_text(encoding="utf-8")
@@ -1284,7 +1292,6 @@ def test_multi_call_foundation_exposes_call_ownership_and_authorized_catalog_con
         "AnalysisProfileCode",
         "CREATE TABLE dbo.FellowshipCallGroupGrant",
         "ALTER TABLE dbo.Applicant",
-        "ALTER PROCEDURE dbo.CreateSyntheticApplicantWorkspace",
         "CREATE PROCEDURE dbo.ListAuthorizedFellowshipCalls",
         "CREATE PROCEDURE dbo.GetAuthorizedFellowshipCallBySlug",
         "CREATE PROCEDURE dbo.GetPublicFellowshipCallBySlug",
@@ -1299,8 +1306,9 @@ def test_multi_call_foundation_exposes_call_ownership_and_authorized_catalog_con
     assert "EXEC(N'\nUPDATE dbo.FellowshipCall" in migration
     foundation = migration.split("CREATE TABLE dbo.FellowshipCallGroupGrant", 1)[0]
     assert foundation.count("EXEC(N'") == 2
-    assert "DF_FellowshipCall_PublicSlug DEFAULT (LOWER(CONVERT(varchar(36), NEWID())))" in migration
-    assert "ON UPDATE CASCADE" in migration
+    assert "DF_FellowshipCall_PublicSlug" in compatibility_migration
+    assert "ALTER PROCEDURE dbo.CreateSyntheticApplicantWorkspace" in compatibility_migration
+    assert "ON UPDATE CASCADE" in compatibility_migration
     for fragment in (
         "ListAuthorizedFellowshipCalls",
         "GetAuthorizedFellowshipCallBySlug",
