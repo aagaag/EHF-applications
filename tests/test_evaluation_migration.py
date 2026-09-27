@@ -21,6 +21,10 @@ def test_call_evaluation_migration_has_call_owned_storage_and_legacy_parity():
 
 def test_evaluation_comments_migration_preserves_magda_blanks_as_c_with_audit_and_owner_checks():
     sql = (ROOT / "database/migrations/050_call_evaluation_comments.sql").read_text(encoding="utf-8")
+    assert "EXEC(N'\nALTER TABLE dbo.CallEvaluationSelection ADD CommentText" in sql
+    assert sql.index("ALTER TABLE dbo.CallEvaluationSelection ADD CommentText") < sql.index(
+        "CREATE OR ALTER PROCEDURE dbo.GetCallEvaluationOverview"
+    )
     for fragment in (
         "ADD CommentText nvarchar(2000) NULL",
         "CREATE OR ALTER PROCEDURE dbo.SetCallEvaluationComment",

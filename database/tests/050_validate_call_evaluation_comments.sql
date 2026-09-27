@@ -63,7 +63,7 @@ IF EXISTS (
           WHERE audit_row.ApplicationId = selection_row.ApplicationId
             AND audit_row.EventType = 'SHORTLIST_SELECTION_SET'
             AND audit_row.ActorIdentity = N'admin:adriano-aguzzi'
-            AND audit_row.PayloadJson LIKE N'%"basis":"Magda confirmed blank scores were C%'
+            AND audit_row.PayloadJson LIKE N'%"purpose":"Magda confirmed blank scores were C%'
       )
 )
     THROW 55026, 'A manually corrected Magda C score is missing its provenance audit.', 1;

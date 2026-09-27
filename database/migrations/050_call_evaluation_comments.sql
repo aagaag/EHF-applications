@@ -1,13 +1,17 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
+EXEC(N'
 ALTER TABLE dbo.CallEvaluationSelection ADD CommentText nvarchar(2000) NULL,
     CommentModifiedByIdentity nvarchar(255) NULL,
     CommentRecordedAtUtc datetime2(7) NULL;
+');
 
+EXEC(N'
 ALTER TABLE dbo.CallEvaluationSelection ADD CONSTRAINT CK_CallEvaluationSelection_CommentAudit
     CHECK ((CommentText IS NULL AND CommentModifiedByIdentity IS NULL AND CommentRecordedAtUtc IS NULL)
         OR (CommentText IS NOT NULL AND CommentModifiedByIdentity IS NOT NULL AND CommentRecordedAtUtc IS NOT NULL));
+');
 
 EXEC(N'
 CREATE OR ALTER PROCEDURE dbo.GetCallEvaluationOverview
@@ -120,8 +124,11 @@ BEGIN
               AND FellowshipCallEvaluatorId = @EvaluatorId;
 
         SELECT @PayloadJson = (
-            SELECT @BeforeHasComment AS hadComment,
-                   CONVERT(bit, CASE WHEN @AfterComment IS NULL THEN 0 ELSE 1 END) AS hasComment
+            SELECT ''evaluation-comment'' AS category,
+                   JSON_QUERY((SELECT @BeforeHasComment AS selected
+                               FOR JSON PATH, WITHOUT_ARRAY_WRAPPER, INCLUDE_NULL_VALUES)) AS [before],
+                   JSON_QUERY((SELECT CONVERT(bit, CASE WHEN @AfterComment IS NULL THEN 0 ELSE 1 END) AS selected
+                               FOR JSON PATH, WITHOUT_ARRAY_WRAPPER, INCLUDE_NULL_VALUES)) AS [after]
             FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
         );
         INSERT dbo.AuditEvent
@@ -183,7 +190,7 @@ BEGIN TRY
          EntityType, EntityId, PayloadJson)
     SELECT @CallId, changed.ApplicationId, 'SHORTLIST_SELECTION_SET', @Actor,
            'TrusteeShortlistSelection', changed.ApplicationId,
-           N'{"reviewer":"Magda","value":"C","basis":"Magda confirmed blank scores were C; entered by Adriano Aguzzi on 2026-09-27."}'
+           N'{"trusteeCode":"magda","group":"C","purpose":"Magda confirmed blank scores were C; entered by Adriano Aguzzi on 2026-09-27."}'
     FROM @Changed AS changed;
 
     COMMIT TRANSACTION;
