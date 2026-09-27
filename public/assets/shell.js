@@ -302,17 +302,41 @@
   };
   document.querySelectorAll("[data-report-row]").forEach((row) => {
     row.addEventListener("dblclick", (event) => {
-      if (event.target.closest("input, button, a, select, textarea")) return;
+      if (event.target.closest("input, button, a, select, textarea, summary")) return;
       openReportDetails(row);
     });
     row.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
-      if (event.target.closest("input, button, a, select, textarea")) return;
+      if (event.target.closest("input, button, a, select, textarea, summary")) return;
       event.preventDefault();
       openReportDetails(row);
     });
   });
   const shortlistStatus = document.querySelector("[data-shortlist-status]");
+  document.querySelectorAll("[data-evaluation-comment-save]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const details = button.closest(".evaluation-comment");
+      const field = details?.querySelector("[data-evaluation-comment]");
+      const status = details?.querySelector("[data-comment-status]");
+      if (!field) return;
+      button.disabled = true;
+      try {
+        const response = await fetch(button.dataset.commentUrl, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ comment: field.value }),
+        });
+        if (!response.ok) throw new Error("Comment save failed");
+        status.textContent = "Comment saved.";
+      } catch (_error) {
+        status.textContent = "Comment could not be saved. Please try again.";
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
   document.querySelectorAll("[data-shortlist-grade]").forEach((control) => {
     control.addEventListener("click", async (event) => {
       event.stopPropagation();

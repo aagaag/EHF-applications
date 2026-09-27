@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Mapping
 from html import escape
 from math import ceil, floor, isfinite, log10
 
@@ -18,6 +19,7 @@ from app.navigation import (
 )
 from app.shortlist import ShortlistState, editable_trustee
 from app.preferences import CallNavigationPreference
+from app.evaluation_data import EvaluationSnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +53,7 @@ def render_internal_preview(
     simulation: bool = False,
     records: tuple[PreviewApplicantMetric, ...] = (),
     shortlist: ShortlistState | None = None,
+    evaluation_snapshot: EvaluationSnapshot | None = None,
     call_summaries: tuple[CallSummary, ...] = (),
     current_call: CallContext | None = None,
     call_preference: CallNavigationPreference = CallNavigationPreference(),
@@ -83,7 +86,7 @@ def render_internal_preview(
 <nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation"><span class="app-nav-heading">Settings</span>{_call_default_control(call_preference)}<a class="app-nav-link" href="#appearance">Appearance</a><button class="app-nav-disclosure" type="button" data-disclosure aria-expanded="false" aria-controls="help-links">Help</button><div class="app-nav-submenu" id="help-links" hidden>{_help_links(help_items)}</div>{_authorization_pills(pills)}</nav></aside>
 <main class="site-main" id="main-content" tabindex="-1"><header class="site-hero" id="overview"><h1>{escape(current_call.display_name if current_call else "Charles Weissmann Fellowships")}</h1><p>Internal workspace preview for the Ernst Hadorn Foundation.</p></header>
 <div class="preview-notice" role="status">Preview only<span>{escape(notice)} Submission is not active. Communication sending is not active. {escape(record_notice)}</span></div>
-{_report_section(records, shortlist_state)}{_sections(entries, include=frozenset({"operations"}))}<section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance preview</h2><p>Preferences load and save server-side only after secure sign-in is active.</p></div>{_appearance_controls()}</section></main>
+{_report_section(records, shortlist_state, current_call, evaluation_snapshot)}{_sections(entries, include=frozenset({"operations"}))}<section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance preview</h2><p>Preferences load and save server-side only after secure sign-in is active.</p></div>{_appearance_controls()}</section></main>
 <footer class="site-footer">EHF Fellowships · internal preview · Page last modified: <time data-last-modified></time></footer><script src="/assets/theme.js"></script><script src="/assets/shell.js"></script></body></html>"""
 
 
@@ -146,7 +149,13 @@ def _sections(
     )
 
 
-def _report_section(records: tuple[PreviewApplicantMetric, ...], shortlist: ShortlistState) -> str:
+def _report_section(records: tuple[PreviewApplicantMetric, ...], shortlist: ShortlistState,
+                    current_call: CallContext | None,
+                    evaluation_snapshot: EvaluationSnapshot | None = None) -> str:
+    evaluation_link = (
+        f'<a class="report-download" href="/internal/calls/{escape(current_call.public_slug)}/evaluations/">View evaluations by grade</a>'
+        if current_call else ""
+    )
     return (
         '<section id="reports" aria-labelledby="reports-heading"><div class="section-heading">'
         '<h2 id="reports-heading">Reports</h2><p>OpenAlex citations are calculated from each applicant’s verified published works at the 20 September 2026 cutoff; validated publication counts use the same verified set. Applicant-reported publication totals remain separate, while unmatched and non-publication records are excluded from validated statistics and retained for audit.</p><p class="report-interaction-hint">Use the triangles beside any field title to sort ascending or descending. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
@@ -160,12 +169,19 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...], shortlist: Shor
         '<option value="" selected disabled>Select application status</option>'
         '<option value="completed">Completed applications</option>'
         '<option value="missing">Applications where anything is missing</option>'
-        '</select></label><a class="report-download" href="/internal/reports/metrics.xlsx">Download Excel</a></div>'
-        f'{_report_table(records, shortlist)}</section>'
+        '</select></label>'
+        '<aside class="evaluation-group-guidance" id="evaluation-group-guidance" aria-label="Evaluation group guidance">'
+        '<span><strong>A:</strong> Invite to the second selection step with highest priority.</span>'
+        '<span><strong>B:</strong> Interesting application; invite only if there is enough space.</span>'
+        '<span><strong>C:</strong> Do not invite to the second selection step.</span>'
+        '</aside>' + evaluation_link + '<a class="report-download" href="/internal/reports/metrics.xlsx">Download Excel</a></div>'
+        f'{_report_table(records, shortlist, evaluation_snapshot, current_call)}</section>'
     )
 
 
-def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: ShortlistState) -> str:
+def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: ShortlistState,
+                  evaluation_snapshot: EvaluationSnapshot | None = None,
+                  current_call: CallContext | None = None) -> str:
     headers = (
         ("Applicant", "text"), ("Degree", "text"), ("Age", "number"),
         ("Academic age (years)", "number"), ("Gender", "text"),
@@ -199,8 +215,19 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: Shortl
     h_indices = tuple(record.h_index for record in records if record.h_index is not None)
     h_index_low = min(h_indices, default=None)
     h_index_high = max(h_indices, default=None)
+    comment_by_application: dict[str, dict[str, str]] = {}
+    if evaluation_snapshot is not None:
+        for applicant in evaluation_snapshot.applicants:
+            by_reviewer = {
+                evaluation_snapshot.legacy_codes[key]: comment
+                for key, comment in applicant.comments.items()
+                if comment and key in evaluation_snapshot.legacy_codes
+            }
+            if by_reviewer:
+                comment_by_application[applicant.id.casefold()] = by_reviewer
     rows = "".join(
-        _report_row(record, labels, _h_index_saturation(record.h_index, h_index_low, h_index_high), shortlist)
+        _report_row(record, labels, _h_index_saturation(record.h_index, h_index_low, h_index_high),
+                    shortlist, comment_by_application, current_call)
         for record in records
     )
     empty = (
@@ -248,6 +275,8 @@ def _report_row(
     headers: tuple[str, ...],
     h_index_saturation: int | None,
     shortlist: ShortlistState,
+    evaluation_comments: Mapping[str, Mapping[str, str]] | None = None,
+    current_call: CallContext | None = None,
 ) -> str:
     values = (
         (record.applicant, _display_markup(record.applicant), None, None),
@@ -284,6 +313,8 @@ def _report_row(
             name,
             shortlist.group(application_id_value, code),
             shortlist.editable_trustee == code and bool(application_id_value),
+            (evaluation_comments or {}).get(application_id_value.casefold(), {}).get(code),
+            current_call.public_slug if current_call else None,
         )
         for code, name in (("ricky", "Ricky"), ("magda", "Magda"), ("adriano", "Adriano"))
     )
@@ -322,15 +353,21 @@ def _report_cell(
     return f'<span role="cell" data-label="{escape(label)}"{heat_attribute}{sort_attribute}>{markup}</span>'
 
 
-def _shortlist_cell(application_id: str, trustee_code: str, name: str, group: str | None, editable: bool) -> str:
+def _shortlist_cell(application_id: str, trustee_code: str, name: str, group: str | None,
+                    editable: bool, comment: str | None = None, call_slug: str | None = None) -> str:
     escaped_application_id = escape(application_id, quote=True)
     if not editable:
         assignment = group or "unassigned"
         label = group or "—"
+        comment_markup = (
+            f'<details class="evaluation-comment"><summary>Comment</summary><p>{escape(comment)}</p></details>'
+            if comment else ""
+        )
         return (
             f'<span class="report-shortlist-cell" role="cell" data-label="Shortlist — {name}">'
             f'<span class="shortlist-grade-readonly" data-shortlist-owner="{trustee_code}" '
-            f'data-shortlist-assignment="{assignment}" aria-label="{escape(name)}: Group {label}">{label}</span></span>'
+            f'data-shortlist-assignment="{assignment}" aria-label="{escape(name)}: Group {label}">{label}</span>'
+            f'{comment_markup}</span>'
         )
     buttons = "".join(
         f'<button type="button" class="shortlist-grade" data-shortlist-grade '
@@ -341,7 +378,13 @@ def _shortlist_cell(application_id: str, trustee_code: str, name: str, group: st
     )
     return (
         f'<span class="report-shortlist-cell" role="cell" data-label="Shortlist — {name}">'
-        f'<span class="shortlist-grade-control" role="group" aria-label="Shortlist group for {escape(name)}: {escape(application_id)}">{buttons}</span></span>'
+        f'<span class="shortlist-grade-control" role="group" aria-label="Shortlist group for {escape(name)}: {escape(application_id)}">{buttons}</span>'
+        + (f'<details class="evaluation-comment"><summary>Comment</summary>'
+           f'<textarea maxlength="2000" aria-label="Comment for {escape(name)}" data-evaluation-comment>{escape(comment or "")}</textarea>'
+           f'<button type="button" data-evaluation-comment-save '
+           f'data-comment-url="/api/internal/calls/{escape(call_slug, quote=True)}/applications/{escaped_application_id}/evaluation-comment">Save comment</button>'
+           f'<span role="status" aria-live="polite" data-comment-status></span></details>' if call_slug else "")
+        + '</span>'
     )
 
 

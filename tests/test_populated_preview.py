@@ -68,6 +68,12 @@ def test_overview_starts_with_three_reports_and_uses_compact_combined_metrics() 
     assert '<option value="completed">Completed applications</option>' in html
     assert '<option value="missing">Applications where anything is missing</option>' in html
     assert 'data-report-status="missing"' in html
+    guidance_start = html.index('id="evaluation-group-guidance"')
+    assert html.index('id="report-applicant-filter"') < guidance_start
+    assert guidance_start < html.index('href="/internal/reports/metrics.xlsx"')
+    assert "<strong>A:</strong> Invite to the second selection step with highest priority." in html
+    assert "<strong>B:</strong> Interesting application; invite only if there is enough space." in html
+    assert "<strong>C:</strong> Do not invite to the second selection step." in html
     assert 'href="/internal/reports/metrics.xlsx"' in html
     assert ">Download Excel<" in html
     assert "Citations by anagraphic age" in html

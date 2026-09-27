@@ -107,6 +107,8 @@ MIGRATIONS = {
     "046_fix_call_navigation_audit_payload.sql": (46, "fix_call_navigation_audit_payload"),
     "047_decouple_publication_disposition.sql": (47, "decouple_publication_disposition"),
     "048_restrict_publication_review_permission.sql": (48, "restrict_publication_review_permission"),
+    "049_call_evaluation_groups.sql": (49, "call_evaluation_groups"),
+    "050_call_evaluation_comments.sql": (50, "call_evaluation_comments"),
 }
 COMMANDS = (
     "inspect-production",
@@ -179,6 +181,8 @@ SQLCMD_ARTIFACTS = frozenset(
         "046_validate_call_navigation_audit_payload.sql",
         "047_validate_decoupled_publication_disposition.sql",
         "048_validate_publication_review_permission.sql",
+        "049_validate_call_evaluation_groups.sql",
+        "050_validate_call_evaluation_comments.sql",
     }
 )
 

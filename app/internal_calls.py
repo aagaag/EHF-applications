@@ -50,7 +50,9 @@ def render_call_workspace(
         f'<p class="call-code">{escape(current.call_code)}</p>'
         f'<h1>{escape(current.display_name)}</h1>'
         f'<p>Application deadline: {_format_date(current.application_deadline_utc)}</p>'
-        '</div><a class="secondary-action" href="/internal/calls/">All rounds</a></header>'
+        '</div><div class="call-header-actions">'
+        f'<a class="primary-action" href="/internal/calls/{escape(current.public_slug)}/evaluations/">View evaluations by grade</a>'
+        '<a class="secondary-action" href="/internal/calls/">All rounds</a></div></header>'
         f'<section class="call-workspace-summary" aria-label="Current application round">{facts}</section>'
     )
     return _shell(

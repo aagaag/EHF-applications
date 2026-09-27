@@ -289,8 +289,12 @@ def test_isolated_database_harness_applies_and_validates_release_thirty_six() ->
             "047_validate_decoupled_publication_disposition.sql",
             "048_restrict_publication_review_permission.sql",
             "048_validate_publication_review_permission.sql",
+            "049_call_evaluation_groups.sql",
+            "050_call_evaluation_comments.sql",
+            "049_validate_call_evaluation_groups.sql",
+            "050_validate_call_evaluation_comments.sql",
         ):
             assert name in script
-    assert "Applied 48 migration\\(s\\)\\." in script
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 48" in contract
-    assert "WHERE MigrationCount = 48 AND CurrentVersion = 48" in contract
+    assert "Applied 50 migration\\(s\\)\\." in script
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 50" in contract
+    assert "WHERE MigrationCount = 50 AND CurrentVersion = 50" in contract

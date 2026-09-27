@@ -46,6 +46,10 @@ from app.internal_preview import render_internal_preview
 from app.internal_calls import render_call_inventory, render_call_workspace
 from app.applicant_detail import render_applicant_detail, render_full_page_chart
 from app.metrics import EmptyMetricRepository, MetricRepository, SqlMetricRepository
+from app.evaluation_data import EmptyEvaluationRepository, EvaluationRepository, SqlEvaluationRepository
+from app.evaluation_groups import BUCKET_ORDER, EvaluationGroups, group_applicants
+from app.evaluation_group_document import build_evaluation_group_docx
+from app.evaluation_group_page import render_evaluation_group_page
 from app.calls import CallCatalog, InMemoryCallCatalog, NewCall, SqlCallCatalog
 from app.navigation import INTERNAL_GROUPS
 from app.preferences import (
@@ -179,6 +183,7 @@ def create_app(
     synthetic_applicant_service: SyntheticApplicantWorkspaceService | None = None,
     call_catalog: CallCatalog | None = None,
     pending_publication_review_repository: PendingPublicationReviewRepository | None = None,
+    evaluation_repository: EvaluationRepository | None = None,
 ) -> FastAPI:
     """Create the HTTP service without starting application workflows."""
     resolved_settings = settings or Settings.from_environment()
@@ -221,6 +226,11 @@ def create_app(
         SqlShortlistRepository(lambda: connect(resolved_settings))
         if resolved_settings.environment == "production"
         else EmptyShortlistRepository()
+    )
+    evaluations = evaluation_repository or (
+        SqlEvaluationRepository(lambda: connect(resolved_settings))
+        if resolved_settings.environment == "production"
+        else EmptyEvaluationRepository()
     )
     report_audits = report_audit_repository or (
         SqlReportAuditRepository(lambda: connect(resolved_settings))
@@ -447,11 +457,13 @@ def create_app(
             shortlist = shortlists.load(
                 principal.identity.key, role, principal.entra_object_id
             )
+            evaluation_snapshot = evaluations.load(current_call.fellowship_call_id, role)
             return HTMLResponse(
                 render_internal_preview(
                     principal,
                     records=metrics.load(role),
                     shortlist=shortlist,
+                    evaluation_snapshot=evaluation_snapshot,
                     call_summaries=summaries,
                     current_call=current_call,
                     call_preference=preference,
@@ -462,6 +474,84 @@ def create_app(
                 principal, summaries, current_call, preference=preference
             )
         )
+
+    def evaluation_view(call_slug: str, request: Request):
+        principal = authenticated(request)
+        role = internal_role(principal)
+        try:
+            current_call = calls.resolve(call_slug, role, "READ")
+        except (LookupError, ValueError):
+            raise HTTPException(status_code=404) from None
+        snapshot = evaluations.load(current_call.fellowship_call_id, role)
+        if len(snapshot.roster) == 3:
+            grouping = group_applicants(snapshot.applicants, tuple(key for key, _ in snapshot.roster))
+        else:
+            # An unconfigured future call remains visible without borrowing 2026 grades.
+            discrepancy = tuple(
+                applicant for applicant in snapshot.applicants
+                if "A" in applicant.grades.values() and "C" in applicant.grades.values()
+            )
+            grouping = EvaluationGroups(
+                {key: () for key in BUCKET_ORDER}, discrepancy, snapshot.applicants
+            )
+        return current_call, snapshot, grouping
+
+    @application.get("/internal/calls/{call_slug}/evaluations/", response_class=HTMLResponse)
+    def call_evaluations(call_slug: str, request: Request) -> HTMLResponse:
+        current_call, snapshot, grouping = evaluation_view(call_slug, request)
+        return HTMLResponse(
+            render_evaluation_group_page(current_call, grouping, snapshot.roster),
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @application.get("/internal/calls/{call_slug}/evaluations.docx")
+    def call_evaluations_document(call_slug: str, request: Request) -> Response:
+        current_call, snapshot, grouping = evaluation_view(call_slug, request)
+        content = build_evaluation_group_docx(
+            current_call.display_name, current_call.call_code, snapshot.roster, grouping,
+            generated_at=datetime.now(UTC),
+        )
+        return Response(
+            content,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": f'attachment; filename="{current_call.public_slug}-evaluations.docx"',
+            },
+        )
+
+    @application.post(
+        "/api/internal/calls/{call_slug}/applications/{application_id}/evaluation-comment"
+    )
+    async def set_evaluation_comment(
+        call_slug: str, application_id: UUID, request: Request
+    ) -> JSONResponse:
+        principal = authenticated(request)
+        role = internal_role(principal)
+        if not is_same_origin_write(request) or principal.entra_object_id is None:
+            raise HTTPException(status_code=404)
+        try:
+            payload = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=422) from None
+        if not isinstance(payload, dict) or set(payload) != {"comment"}:
+            raise HTTPException(status_code=422)
+        comment = payload["comment"]
+        if not isinstance(comment, str) or len(comment.encode("utf-16-le")) // 2 > 2000:
+            raise HTTPException(status_code=422)
+        try:
+            current_call = calls.resolve(call_slug, role, "READ")
+            saved = evaluations.set_comment(
+                current_call.fellowship_call_id,
+                application_id,
+                comment,
+                principal.identity.key,
+                role,
+                principal.entra_object_id,
+            )
+        except (LookupError, PermissionError, ValueError):
+            raise HTTPException(status_code=404) from None
+        return JSONResponse({"comment": saved})
 
     @application.post("/api/internal/call-navigation-preference")
     async def set_call_navigation_preference(request: Request) -> JSONResponse:

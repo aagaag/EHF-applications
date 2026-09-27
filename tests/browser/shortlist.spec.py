@@ -75,3 +75,54 @@ def test_shortlist_group_control_saves_reverts_on_failure_and_never_opens_row() 
             assert group_c.get_attribute("aria-pressed") == "false"
         finally:
             browser.close()
+
+
+def test_magda_can_select_group_c_when_adjacent_readonly_cell_does_not_cover_it() -> None:
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    from app.identity import AuthenticatedIdentity
+    from app.internal_preview import PreviewApplicantMetric, render_internal_preview
+    from app.navigation import INTERNAL_GROUPS
+    from app.preferences import Identity
+    from app.shortlist import MAGDA_ENTRA_OBJECT_ID, ShortlistState
+
+    application_id = "a7000000-0000-4000-8000-000000000001"
+    principal = AuthenticatedIdentity(
+        Identity("entra:magda", "magda@example.org", "Magda"),
+        frozenset({INTERNAL_GROUPS.trustees}),
+        MAGDA_ENTRA_OBJECT_ID,
+    )
+    html = render_internal_preview(
+        principal,
+        records=(PreviewApplicantMetric(applicant="Ada", application_id=application_id),),
+        shortlist=ShortlistState({}, "magda"),
+    )
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page(viewport={"width": 1920, "height": 1200})
+            page.route(
+                "**/api/internal/applicants/**/shortlist/magda",
+                lambda route: route.fulfill(
+                    status=200, content_type="application/json", body='{"group":"C"}'
+                ),
+            )
+            page.set_content(html.replace("<head>", '<head><base href="https://localhost/">', 1))
+            page.add_style_tag(path=str(ROOT / "public" / "assets" / "site.css"))
+            page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
+
+            group_c = page.locator(
+                '[data-shortlist-grade][data-shortlist-owner="magda"][data-shortlist-group="C"]'
+            )
+            assert group_c.evaluate(
+                "node => { const button = node.getBoundingClientRect(); "
+                "const cell = node.closest('.report-shortlist-cell').getBoundingClientRect(); "
+                "return button.left >= cell.left && button.right <= cell.right; }"
+            )
+            group_c.click()
+            page.get_by_text("Magda group C saved.", exact=True).wait_for()
+            assert group_c.get_attribute("aria-pressed") == "true"
+        finally:
+            browser.close()

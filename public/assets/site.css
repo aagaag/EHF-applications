@@ -111,9 +111,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .report-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: .8rem; margin-top: 1rem; }
 .report-filter { display: grid; flex: 1 1 20rem; max-width: 24rem; gap: .3rem; font-weight: 800; }
 .report-filter select { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: .65rem; padding: .55rem .7rem; background: var(--surface); color: var(--text); font: inherit; }
+.evaluation-group-guidance { display: flex; flex: 2 1 32rem; flex-wrap: wrap; gap: .35rem 1rem; max-width: 56rem; border: 1px solid var(--line); border-radius: .75rem; padding: .65rem .8rem; background: var(--surface); font-size: .88rem; line-height: 1.4; }
+.evaluation-group-guidance span { flex: 1 1 13rem; }
 .report-download { display: inline-flex; min-height: 44px; align-items: center; border-radius: .75rem; padding: .7rem 1rem; background: var(--accent-dark); color: #fff; font-weight: 800; text-decoration: none; }
 .report-download:hover, .report-download:focus-visible { filter: brightness(.92); }
-.report-table { width: 100%; min-width: 0; margin-top: 1rem; border: 1px solid var(--line); border-radius: 1rem; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+.report-table { width: 100%; min-width: 0; margin-top: 1rem; border: 1px solid var(--line); border-radius: 1rem; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); container: report-table / inline-size; }
+.evaluation-comment { grid-column: 1 / -1; width: min(100%, 18rem); margin-top: .35rem; text-align: left; font-size: .78rem; }
+.evaluation-comment summary { cursor: pointer; }
+.evaluation-comment textarea { display: block; width: 100%; min-height: 4.5rem; margin: .35rem 0; resize: vertical; }
+.evaluation-comment button { min-height: 2rem; }
 .report-header, .report-data-row { display: grid; min-width: 0; grid-template-columns: minmax(5.8rem, 1.35fr) minmax(3.4rem, .7fr) minmax(2.8rem, .55fr) minmax(4.3rem, .9fr) minmax(3.6rem, .75fr) minmax(5.2rem, 1.1fr) minmax(3.8rem, .85fr) minmax(2.7rem, .55fr) minmax(6.5rem, 1.25fr) repeat(3, minmax(2.8rem, .48fr)); }
 .report-header { background: var(--nav-background); color: var(--nav-text); font-size: .68rem; font-weight: 800; }
 .report-header > [data-report-column] { grid-row: 1 / span 2; }
@@ -238,7 +244,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .chart-page { padding-left: 0; }
 
 @media (max-width: 1024px) { .shell-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 1700px) { .report-header { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .45rem; padding: .5rem; background: var(--surface); color: var(--text); } .report-header > [data-report-column], .report-shortlist-group, .report-shortlist-heading { grid-row: auto; grid-column: auto; } .report-header > span { align-items: center; border: 1px solid var(--line); border-radius: .5rem; background: var(--surface-soft); } .report-sort-button { width: 32px; height: 32px; color: var(--text); } .report-data-row { grid-template-columns: repeat(4, minmax(0, 1fr)); } .report-data-row > span { display: grid; gap: .15rem; } .report-data-row > span::before { display: block; } .report-shortlist-cell { justify-items: center; } }
+@container report-table (max-width: 1700px) { .report-header { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .45rem; padding: .5rem; background: var(--surface); color: var(--text); } .report-header > [data-report-column], .report-shortlist-group, .report-shortlist-heading { grid-row: auto; grid-column: auto; } .report-header > span { align-items: center; border: 1px solid var(--line); border-radius: .5rem; background: var(--surface-soft); } .report-sort-button { width: 32px; height: 32px; color: var(--text); } .report-data-row { grid-template-columns: repeat(4, minmax(0, 1fr)); } .report-data-row > span { display: grid; gap: .15rem; } .report-data-row > span::before { display: block; } .report-shortlist-cell { justify-items: center; } }
 @media (max-width: 800px) { .report-grid { grid-template-columns: minmax(0, 1fr); } .applicant-detail-identity { flex-wrap: wrap; } .applicant-detail-charts { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 720px) {
   body { padding-left: 0; }

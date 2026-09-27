@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_publication_preview() ->
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 45
-    assert sorted(connection.records) == list(range(1, 49))
+    assert applied == 47
+    assert sorted(connection.records) == list(range(1, 51))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,7 +290,7 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_thirty_eight_migrations() -> None:
+def test_fresh_repository_run_applies_all_fifty_migrations() -> None:
     """Break caught: a new database could omit the synthetic-session boundary."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_thirty_eight_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 49))
-    assert applied == 48
+    assert [migration.version for migration in migrations] == list(range(1, 51))
+    assert applied == 50
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -311,8 +311,7 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     """Break caught: a later metrics filter could remove the authoritative academic-age derivation."""
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
-    assert [migration.path.name for migration in migrations[-20:]] == [
-        "029_openalex_missing_observation_guard.sql",
+    assert [migration.path.name for migration in migrations[-21:]] == [
         "030_applicant_detail_author_roles.sql",
         "031_citation_metric_cutoff_runs.sql",
         "032_revoke_cutoff_activation_runtime.sql",
@@ -332,6 +331,8 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
         "046_fix_call_navigation_audit_payload.sql",
         "047_decouple_publication_disposition.sql",
         "048_restrict_publication_review_permission.sql",
+        "049_call_evaluation_groups.sql",
+        "050_call_evaluation_comments.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -549,6 +550,8 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "046_fix_call_navigation_audit_payload.sql",
         "047_decouple_publication_disposition.sql",
         "048_restrict_publication_review_permission.sql",
+        "049_call_evaluation_groups.sql",
+        "050_call_evaluation_comments.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -599,6 +602,8 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "046_validate_call_navigation_audit_payload.sql",
         "047_validate_decoupled_publication_disposition.sql",
         "048_validate_publication_review_permission.sql",
+        "049_validate_call_evaluation_groups.sql",
+        "050_validate_call_evaluation_comments.sql",
     ]
 
 
@@ -660,6 +665,8 @@ def test_every_table_has_a_primary_key_and_database_generated_utc_timestamp() ->
             "ShortlistTrustee",
         "TrusteeShortlistSelection",
         "FellowshipCallGroupGrant",
+        "FellowshipCallEvaluator",
+        "CallEvaluationSelection",
     }
     for table_name, block in blocks.items():
         assert re.search(r"\bPRIMARY KEY\b", block, flags=re.IGNORECASE), table_name
@@ -698,6 +705,8 @@ def test_mutable_tables_have_rowversion_and_immutable_tables_reject_update_delet
         "ApplicantPortalBaseline",
         "ApplicantSyntheticWorkspace",
         "ApplicationPublication",
+        "FellowshipCallEvaluator",
+        "CallEvaluationSelection",
     }
     for table_name in mutable_tables:
         assert re.search(r"\bRowVersion\s+rowversion\b", blocks[table_name], re.IGNORECASE)
@@ -933,7 +942,9 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "047_validate_decoupled_publication_disposition.sql" in script
     assert "048_restrict_publication_review_permission.sql" in script
     assert "048_validate_publication_review_permission.sql" in script
-    assert "Applied 48 migration\\(s\\)\\." in script
+    assert "049_call_evaluation_groups.sql" in script
+    assert "049_validate_call_evaluation_groups.sql" in script
+    assert "Applied 50 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1297,14 +1308,14 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_thirty_eight() -> None:
+def test_database_contract_validator_reports_version_forty_nine() -> None:
     """Break caught: post-upgrade validation could still require the old schema tip."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 48" in validator
-    assert "WHERE MigrationCount = 48 AND CurrentVersion = 48" in validator
+    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 50" in validator
+    assert "WHERE MigrationCount = 50 AND CurrentVersion = 50" in validator
 
 
 def test_multi_call_foundation_exposes_call_ownership_and_authorized_catalog_contract() -> None:
