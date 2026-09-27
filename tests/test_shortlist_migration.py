@@ -41,6 +41,10 @@ def test_runtime_permission_validator_knows_the_shortlist_objects() -> None:
     assert "SetInternalShortlistSelection" in validator
     assert "ShortlistTrustee" in validator
     assert "TrusteeShortlistSelection" in validator
+    assert "FellowshipCallEvaluator" in validator
+    assert "CallEvaluationSelection" in validator
+    assert "GetCallEvaluationOverview" in validator
+    assert "SetCallEvaluationComment" in validator
 
 
 def test_shortlist_group_migration_preserves_existing_selections_as_group_a() -> None:
