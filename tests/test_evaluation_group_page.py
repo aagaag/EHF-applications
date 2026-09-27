@@ -72,3 +72,19 @@ def test_page_displays_review_comments_as_escaped_text():
 
     assert "Strong fit &lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "<script>alert(1)</script>" not in html
+
+
+def test_grade_letters_have_distinct_classes_for_color_coding():
+    applicant = _applicant("1", "Alice", "E-1", {"r1": "A", "r2": "B", "r3": "C"})
+    groups = EvaluationGroups(
+        buckets={key: () for key in ("AAA", "AAB", "ABB", "BBB", "BBC", "BCC", "CCC")},
+        strong_discrepancy=(), awaiting_reviews=(applicant,),
+    )
+
+    html = render_evaluation_group_page(
+        _call(), groups, (("r1", "Ricky"), ("r2", "Magda"), ("r3", "Adriano"))
+    )
+
+    assert '<strong class="grade-value grade-a">A</strong>' in html
+    assert '<strong class="grade-value grade-b">B</strong>' in html
+    assert '<strong class="grade-value grade-c">C</strong>' in html

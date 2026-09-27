@@ -47,9 +47,13 @@ def _group_section(
 
 def _applicant_card(applicant: EvaluationApplicant, reviewers: Sequence[tuple[str, str]]) -> str:
     grades = "".join(
-        f'<span class="review-grade"><span>{escape(display_name)}</span><strong>{escape(applicant.grades.get(key) or "Awaiting")}</strong>'
+        f'<span class="review-grade"><span>{escape(display_name)}</span><strong class="grade-value {_grade_class(applicant.grades.get(key))}">{escape(applicant.grades.get(key) or "Awaiting")}</strong>'
         + (f'<details class="review-comment"><summary>Comment</summary><p>{escape(applicant.comments[key])}</p></details>' if applicant.comments.get(key) else "")
         + '</span>'
         for key, display_name in reviewers
     )
     return f'<li class="applicant"><div class="applicant-identity"><strong>{escape(applicant.name)}</strong><span>{escape(applicant.number)}</span></div><div class="review-grades" aria-label="Reviewer grades">{grades or "<span class=\"muted\">No reviewers configured</span>"}</div></li>'
+
+
+def _grade_class(grade: str | None) -> str:
+    return {"A": "grade-a", "B": "grade-b", "C": "grade-c"}.get(grade or "", "grade-neutral")

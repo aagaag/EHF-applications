@@ -402,6 +402,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .evaluation-groups-page .review-grades { display: flex; flex-wrap: wrap; gap: .6rem; }
 .evaluation-groups-page .review-grade { display: flex; min-width: 8.5rem; align-items: center; justify-content: space-between; gap: .45rem; border: 1px solid #dbe2e8; border-radius: .35rem; padding: .3rem .5rem; background: #f7fafb; }
 .evaluation-groups-page .review-grade strong { color: #1d5d7a; }
+.evaluation-groups-page .review-grade .grade-value { min-width: 1.8rem; border-radius: .3rem; padding: .12rem .45rem; text-align: center; }
+.evaluation-groups-page .review-grade .grade-a { background: #d8f3dc; color: #14532d; }
+.evaluation-groups-page .review-grade .grade-b { background: #fff0b3; color: #704d00; }
+.evaluation-groups-page .review-grade .grade-c { background: #f9d6d5; color: #8c1d18; }
+.evaluation-groups-page .review-grade .grade-neutral { background: #e8edf1; color: #45535f; }
 .evaluation-groups-page .empty, .evaluation-groups-page .notice { margin: 0; padding: .8rem 1rem; }
 .evaluation-groups-page .notice { margin-bottom: 1rem; border: 1px solid #e6ce80; border-radius: .5rem; background: #fff3cd; }
 @media (max-width: 700px) {
