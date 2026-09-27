@@ -379,3 +379,35 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .call-default-setting { display: grid; gap: .35rem; padding: .45rem .75rem; color: var(--nav-muted); font-size: .76rem; font-weight: 700; }
 .call-default-setting select { box-sizing: border-box; width: 100%; min-width: 0; padding: .5rem .55rem; border: 1px solid color-mix(in srgb, var(--nav-text) 24%, transparent); border-radius: .45rem; background: var(--nav-panel); color: var(--nav-text); font: inherit; }
 .call-default-status { min-height: 1em; padding: 0 .75rem .35rem; color: var(--nav-muted); font-size: .72rem; }
+.evaluation-groups-page { margin: 0; background: #f4f7f9; color: #17202a; font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.evaluation-groups-page *, .evaluation-groups-page *::before, .evaluation-groups-page *::after { box-sizing: border-box; }
+.evaluation-groups-page .page { width: min(1100px, 94vw); margin: 0 auto; padding: 2rem 0 4rem; }
+.evaluation-groups-page .page-header { display: flex; justify-content: space-between; gap: 1.5rem; align-items: flex-start; margin-bottom: 1.5rem; }
+.evaluation-groups-page .eyebrow { color: #1d5d7a; font-weight: 700; letter-spacing: .08em; margin: 0; text-transform: uppercase; }
+.evaluation-groups-page .page-header h1 { font-size: clamp(1.6rem, 3vw, 2.3rem); margin: .2rem 0; }
+.evaluation-groups-page .page-header p { color: #5a6875; margin: .2rem 0; }
+.evaluation-groups-page .page-header nav { display: flex; gap: .6rem; flex-wrap: wrap; justify-content: flex-end; }
+.evaluation-groups-page .button { display: inline-block; border-radius: .45rem; padding: .65rem .85rem; background: #1d5d7a; color: #fff; font-weight: 650; text-decoration: none; }
+.evaluation-groups-page .button.secondary { border: 1px solid #dbe2e8; background: #fff; color: #1d5d7a; }
+.evaluation-groups-page .groups { display: grid; gap: 1rem; }
+.evaluation-groups-page .group-section { overflow: hidden; border: 1px solid #dbe2e8; border-radius: .7rem; background: #fff; }
+.evaluation-groups-page .group-section h2 { margin: 0; border-bottom: 1px solid #dbe2e8; padding: .75rem 1rem; background: #edf3f6; font-size: 1.05rem; }
+.evaluation-groups-page .section-count { color: #5a6875; font-size: .9em; font-weight: 500; }
+.evaluation-groups-page .applicant-list { margin: 0; padding: 0; list-style: none; }
+.evaluation-groups-page .applicant { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(0, 2fr); gap: 1rem; border-bottom: 1px solid #dbe2e8; padding: .8rem 1rem; }
+.evaluation-groups-page .applicant:last-child { border-bottom: 0; }
+.evaluation-groups-page .applicant-identity { display: flex; min-width: 0; flex-direction: column; }
+.evaluation-groups-page .applicant-identity strong, .evaluation-groups-page .review-grade span { overflow-wrap: anywhere; }
+.evaluation-groups-page .applicant-identity span, .evaluation-groups-page .muted, .evaluation-groups-page .empty { color: #5a6875; }
+.evaluation-groups-page .review-grades { display: flex; flex-wrap: wrap; gap: .6rem; }
+.evaluation-groups-page .review-grade { display: flex; min-width: 8.5rem; align-items: center; justify-content: space-between; gap: .45rem; border: 1px solid #dbe2e8; border-radius: .35rem; padding: .3rem .5rem; background: #f7fafb; }
+.evaluation-groups-page .review-grade strong { color: #1d5d7a; }
+.evaluation-groups-page .empty, .evaluation-groups-page .notice { margin: 0; padding: .8rem 1rem; }
+.evaluation-groups-page .notice { margin-bottom: 1rem; border: 1px solid #e6ce80; border-radius: .5rem; background: #fff3cd; }
+@media (max-width: 700px) {
+  .evaluation-groups-page .page { width: min(100% - 1.2rem, 1100px); padding-top: 1.2rem; }
+  .evaluation-groups-page .page-header { flex-direction: column; }
+  .evaluation-groups-page .page-header nav { justify-content: flex-start; }
+  .evaluation-groups-page .applicant { grid-template-columns: 1fr; gap: .5rem; }
+  .evaluation-groups-page .review-grade { min-width: 0; flex: 1 1 9rem; }
+}
