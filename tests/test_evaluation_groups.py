@@ -43,6 +43,29 @@ def test_partial_reviews_are_awaiting_and_a_c_is_flagged_immediately():
 
     assert [p.id for p in result.awaiting_reviews] == ["2", "1"]
     assert [p.id for p in result.strong_discrepancy] == ["2"]
+    assert [p.id for p in result.buckets["BBB"]] == ["1"]
+
+
+@pytest.mark.parametrize(
+    ("grades", "bucket"),
+    [
+        ({"ricky": "A", "magda": "A"}, "AAA"),
+        ({"ricky": "A", "magda": "B"}, "AAB"),
+        ({"ricky": "B", "magda": "B"}, "BBB"),
+        ({"ricky": "B", "magda": "C"}, "BBC"),
+        ({"ricky": "C", "magda": "C"}, "CCC"),
+        ({"ricky": "A"}, "AAA"),
+        ({"ricky": "B"}, "BBB"),
+        ({"ricky": "C"}, "CCC"),
+    ],
+)
+def test_incomplete_votes_are_grouped_by_available_grades_and_still_reported_as_awaiting(grades, bucket):
+    person = applicant("1", "Applicant", "E-1", grades)
+
+    result = group_applicants([person], ROSTER)
+
+    assert result.buckets[bucket] == (person,)
+    assert result.awaiting_reviews == (person,)
 
 
 def test_immutable_applicant_and_input_mapping_is_not_changed():

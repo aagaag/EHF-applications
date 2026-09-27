@@ -75,11 +75,12 @@ def group_applicants(
             discrepancy.append(applicant)
         if len(completed) < 3:
             awaiting.append(applicant)
+        if not completed or has_discrepancy:
             continue
 
-        signature = "".join(sorted(completed))
-        if has_discrepancy:
-            continue
+        # Map a partial ballot into the nearest existing group by extending
+        # its strongest available grade; the rendered votes remain unchanged.
+        signature = "".join(sorted(completed + (completed[0],) * (3 - len(completed))))
         if signature not in buckets:
             raise ValueError("unsupported grade combination")
         buckets[signature].append(applicant)
