@@ -48,7 +48,7 @@ def preview_server() -> Iterator[str]:
         process.wait(timeout=5)
 
 
-@pytest.mark.parametrize("viewport", [(1440, 900), (1024, 768), (720, 900), (390, 844)])
+@pytest.mark.parametrize("viewport", [(2700, 1080), (1440, 900), (1024, 768), (720, 900), (390, 844)])
 def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_overflow(
     viewport: tuple[int, int],
 ) -> None:
@@ -87,7 +87,15 @@ def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_ov
                 header_columns = page.locator(".report-header").evaluate(
                     "node => getComputedStyle(node).gridTemplateColumns.split(' ').length"
                 )
-                assert header_columns == 4
+                assert header_columns == (12 if viewport[0] >= 2500 else 4)
+            if viewport[0] >= 2500:
+                header_width = page.locator(".report-header").evaluate(
+                    "node => node.getBoundingClientRect().width"
+                )
+                shortlist_width = page.locator(".report-shortlist-group").evaluate(
+                    "node => node.getBoundingClientRect().width"
+                )
+                assert shortlist_width / header_width >= 0.35
 
             if viewport[0] <= 720:
                 assert page.evaluate("matchMedia('(max-width: 720px)').matches")
