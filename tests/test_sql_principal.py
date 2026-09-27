@@ -23,9 +23,10 @@ def test_privileged_sql_artifact_inventory_matches_repository() -> None:
     helper = load_helper()
     migrations = {path.name for path in (ROOT / "database" / "migrations").glob("*.sql")}
     validators = {path.name for path in (ROOT / "database" / "tests").glob("*.sql")}
+    fixtures = {path.name for path in (ROOT / "database" / "fixtures").glob("*.sql")}
 
     assert set(helper.MIGRATIONS) == migrations
-    assert helper.SQLCMD_ARTIFACTS == migrations | validators
+    assert helper.SQLCMD_ARTIFACTS == migrations | validators | fixtures
 
 
 class FakeCursor:

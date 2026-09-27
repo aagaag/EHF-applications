@@ -59,6 +59,24 @@ def test_permission_boundary_release_artifacts_exist() -> None:
     assert (VALIDATORS / "010_validate_report_export_audit.sql").is_file()
 
 
+def test_sql_login_harness_seeds_legacy_call_before_evaluation_migrations() -> None:
+    """Break caught: a clean isolated schema must model the existing 2026 call required by migration 049."""
+    script = TEST_SCRIPT.read_text(encoding="utf-8")
+    helper = HELPER.read_text(encoding="utf-8")
+    fixture = "000_seed_ehf_2026_call.sql"
+    loop = script.index('for migration_file in ')
+    call_seed = script.index(f'run_admin_sql "$database" {fixture}', loop)
+    migration = script.index('run_admin_sql "$database" "$migration_file"', loop)
+    assert call_seed < migration
+    assert fixture in helper
+    seed_sql = (ROOT / "database" / "fixtures" / fixture).read_text(encoding="utf-8")
+    assert "FellowshipCallGroupGrant" in seed_sql
+    assert "PublicSlug" in seed_sql and "ehf-2026" in seed_sql
+    assert "InvitationsEnabled" in seed_sql
+    assert "EHF-Administrators" in seed_sql
+    assert "EHF-Trustees" in seed_sql
+
+
 def test_permission_validator_covers_runtime_allow_and_deny_contract() -> None:
     """Break caught: a migration could publish a runtime role without validating its boundary."""
     validator = (VALIDATORS / "005_validate_application_permissions.sql").read_text(

@@ -133,6 +133,7 @@ SQLCMD_PATH = "/opt/mssql-tools18/bin/sqlcmd"
 SQLCMD_ARTIFACTS = frozenset(
     {
         *MIGRATIONS,
+        "000_seed_ehf_2026_call.sql",
         "001_validate_database_contract.sql",
         "002_validate_application_core.sql",
         "003_validate_audit_and_preferences.sql",
@@ -803,7 +804,12 @@ def _static_sqlcmd_input(name: str) -> Path:
     if name not in SQLCMD_ARTIFACTS:
         raise PrincipalError("Unexpected SQLCMD input")
     root = Path(__file__).resolve().parents[1]
-    directory = root / "database" / ("migrations" if name in MIGRATIONS else "tests")
+    if name in MIGRATIONS:
+        directory = root / "database" / "migrations"
+    elif name == "000_seed_ehf_2026_call.sql":
+        directory = root / "database" / "fixtures"
+    else:
+        directory = root / "database" / "tests"
     candidate = (directory / name).resolve()
     if candidate.parent != directory.resolve() or not candidate.is_file():
         raise PrincipalError("Unexpected SQLCMD input")
