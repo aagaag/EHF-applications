@@ -47,6 +47,7 @@ from app.internal_calls import render_call_inventory, render_call_workspace
 from app.applicant_detail import render_applicant_detail, render_full_page_chart
 from app.metrics import EmptyMetricRepository, MetricRepository, SqlMetricRepository
 from app.evaluation_data import EmptyEvaluationRepository, EvaluationRepository, SqlEvaluationRepository
+from app.second_stage import EmptySecondStageRepository, SecondStageRepository, SqlSecondStageRepository
 from app.evaluation_groups import BUCKET_ORDER, EvaluationGroups, group_applicants
 from app.evaluation_group_document import build_evaluation_group_docx
 from app.evaluation_group_page import render_evaluation_group_page
@@ -184,6 +185,7 @@ def create_app(
     call_catalog: CallCatalog | None = None,
     pending_publication_review_repository: PendingPublicationReviewRepository | None = None,
     evaluation_repository: EvaluationRepository | None = None,
+    second_stage_repository: SecondStageRepository | None = None,
 ) -> FastAPI:
     """Create the HTTP service without starting application workflows."""
     resolved_settings = settings or Settings.from_environment()
@@ -231,6 +233,11 @@ def create_app(
         SqlEvaluationRepository(lambda: connect(resolved_settings))
         if resolved_settings.environment == "production"
         else EmptyEvaluationRepository()
+    )
+    second_stages = second_stage_repository or (
+        SqlSecondStageRepository(lambda: connect(resolved_settings))
+        if resolved_settings.environment == "production"
+        else EmptySecondStageRepository()
     )
     report_audits = report_audit_repository or (
         SqlReportAuditRepository(lambda: connect(resolved_settings))
@@ -458,12 +465,23 @@ def create_app(
                 principal.identity.key, role, principal.entra_object_id
             )
             evaluation_snapshot = evaluations.load(current_call.fellowship_call_id, role)
+            second_stage = second_stages.load(current_call.fellowship_call_id, role)
+            stage_two = request.query_params.get("stage") == "second"
+            report_records = metrics.load(role)
+            if stage_two:
+                report_records = tuple(
+                    record for record in report_records
+                    if record.application_id and second_stage.selected(record.application_id)
+                )
             return HTMLResponse(
                 render_internal_preview(
                     principal,
-                    records=metrics.load(role),
+                    records=report_records,
                     shortlist=shortlist,
                     evaluation_snapshot=evaluation_snapshot,
+                    second_stage=second_stage,
+                    stage_two=stage_two,
+                    advancement_editable=INTERNAL_GROUPS.administrators in principal.groups,
                     call_summaries=summaries,
                     current_call=current_call,
                     call_preference=preference,
@@ -552,6 +570,36 @@ def create_app(
         except (LookupError, PermissionError, ValueError):
             raise HTTPException(status_code=404) from None
         return JSONResponse({"comment": saved})
+
+    @application.post(
+        "/api/internal/calls/{call_slug}/applications/{application_id}/second-stage"
+    )
+    async def set_second_stage_selection(
+        call_slug: str, application_id: UUID, request: Request
+    ) -> JSONResponse:
+        principal = authenticated(request)
+        role = internal_role(principal)
+        if (
+            role != INTERNAL_GROUPS.administrators
+            or principal.entra_object_id is None
+            or not is_same_origin_write(request)
+        ):
+            raise HTTPException(status_code=404)
+        try:
+            payload = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=422) from None
+        if not isinstance(payload, dict) or set(payload) != {"selected"} or type(payload["selected"]) is not bool:
+            raise HTTPException(status_code=422)
+        try:
+            current_call = calls.resolve(call_slug, role, "READ")
+            selected = second_stages.set(
+                current_call.fellowship_call_id, application_id, payload["selected"],
+                principal.identity.key, role, principal.entra_object_id,
+            )
+        except (LookupError, PermissionError, ValueError):
+            raise HTTPException(status_code=404) from None
+        return JSONResponse({"selected": selected})
 
     @application.post("/api/internal/call-navigation-preference")
     async def set_call_navigation_preference(request: Request) -> JSONResponse:

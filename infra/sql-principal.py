@@ -109,6 +109,7 @@ MIGRATIONS = {
     "048_restrict_publication_review_permission.sql": (48, "restrict_publication_review_permission"),
     "049_call_evaluation_groups.sql": (49, "call_evaluation_groups"),
     "050_call_evaluation_comments.sql": (50, "call_evaluation_comments"),
+    "051_call_second_stage_selection.sql": (51, "call_second_stage_selection"),
 }
 COMMANDS = (
     "inspect-production",
@@ -184,6 +185,7 @@ SQLCMD_ARTIFACTS = frozenset(
         "048_validate_publication_review_permission.sql",
         "049_validate_call_evaluation_groups.sql",
         "050_validate_call_evaluation_comments.sql",
+        "051_validate_call_second_stage_selection.sql",
     }
 )
 

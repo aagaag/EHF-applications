@@ -367,6 +367,28 @@
       }
     });
   });
+  document.querySelectorAll("[data-advancement-checkbox]").forEach((checkbox) => {
+    checkbox.addEventListener("change", async () => {
+      const previous = !checkbox.checked;
+      const applicant = checkbox.getAttribute("aria-label")?.replace(/^Advance | to second stage$/g, "") || "Applicant";
+      checkbox.disabled = true;
+      if (shortlistStatus) shortlistStatus.textContent = "Saving second-stage decision…";
+      try {
+        const response = await fetch(
+          `/api/internal/calls/${encodeURIComponent(checkbox.dataset.callSlug)}/applications/${encodeURIComponent(checkbox.dataset.applicationId)}/second-stage`,
+          { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ selected: checkbox.checked }) },
+        );
+        if (!response.ok) throw new Error("Decision not saved");
+        if (shortlistStatus) shortlistStatus.textContent = `${applicant}: second-stage decision saved.`;
+        window.location.reload();
+      } catch (_error) {
+        checkbox.checked = previous;
+        checkbox.disabled = false;
+        if (shortlistStatus) shortlistStatus.textContent = `${applicant}: second-stage decision could not be saved.`;
+      }
+    });
+  });
   reportModal?.querySelector("[data-report-modal-close]")?.addEventListener("click", () => reportModal.close());
   reportModal?.addEventListener("close", () => {
     artifactRequest += 1;

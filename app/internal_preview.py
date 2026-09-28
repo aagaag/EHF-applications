@@ -20,6 +20,7 @@ from app.navigation import (
 from app.shortlist import ShortlistState, editable_trustee
 from app.preferences import CallNavigationPreference
 from app.evaluation_data import EvaluationSnapshot
+from app.second_stage import SecondStageState
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,8 +58,16 @@ def render_internal_preview(
     call_summaries: tuple[CallSummary, ...] = (),
     current_call: CallContext | None = None,
     call_preference: CallNavigationPreference = CallNavigationPreference(),
+    second_stage: SecondStageState = SecondStageState(frozenset()),
+    stage_two: bool = False,
+    advancement_editable: bool = False,
 ) -> str:
     """Render every visible internal element from one group-filtered inventory."""
+    if stage_two:
+        records = tuple(
+            record for record in records
+            if record.application_id and second_stage.selected(record.application_id)
+        )
     entries = filtered_inventory(principal.groups)
     navigation = navigation_entries(entries)
     help_items = help_entries(entries)
@@ -86,7 +95,7 @@ def render_internal_preview(
 <nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation"><span class="app-nav-heading">Settings</span>{_call_default_control(call_preference)}<a class="app-nav-link" href="#appearance">Appearance</a><button class="app-nav-disclosure" type="button" data-disclosure aria-expanded="false" aria-controls="help-links">Help</button><div class="app-nav-submenu" id="help-links" hidden>{_help_links(help_items)}</div>{_authorization_pills(pills)}</nav></aside>
 <main class="site-main" id="main-content" tabindex="-1"><header class="site-hero" id="overview"><h1>{escape(current_call.display_name if current_call else "Charles Weissmann Fellowships")}</h1><p>Internal workspace preview for the Ernst Hadorn Foundation.</p></header>
 <div class="preview-notice" role="status">Preview only<span>{escape(notice)} Submission is not active. Communication sending is not active. {escape(record_notice)}</span></div>
-{_report_section(records, shortlist_state, current_call, evaluation_snapshot)}{_sections(entries, include=frozenset({"operations"}))}<section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance preview</h2><p>Preferences load and save server-side only after secure sign-in is active.</p></div>{_appearance_controls()}</section></main>
+{_report_section(records, shortlist_state, current_call, evaluation_snapshot, second_stage, stage_two, advancement_editable)}{_sections(entries, include=frozenset({"operations"}))}<section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance preview</h2><p>Preferences load and save server-side only after secure sign-in is active.</p></div>{_appearance_controls()}</section></main>
 <footer class="site-footer">EHF Fellowships · internal preview · Page last modified: <time data-last-modified></time></footer><script src="/assets/theme.js"></script><script src="/assets/shell.js"></script></body></html>"""
 
 
@@ -151,7 +160,10 @@ def _sections(
 
 def _report_section(records: tuple[PreviewApplicantMetric, ...], shortlist: ShortlistState,
                     current_call: CallContext | None,
-                    evaluation_snapshot: EvaluationSnapshot | None = None) -> str:
+                    evaluation_snapshot: EvaluationSnapshot | None = None,
+                    second_stage: SecondStageState = SecondStageState(frozenset()),
+                    stage_two: bool = False,
+                    advancement_editable: bool = False) -> str:
     evaluation_link = (
         f'<a class="report-download" href="/internal/calls/{escape(current_call.public_slug)}/evaluations/">View evaluations by grade</a>'
         if current_call else ""
@@ -164,7 +176,8 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...], shortlist: Shor
         f'{_scatterplot(records, "Citations by academic age", "academic_age", "Academic age")}'
         f'{_age_comparison_plot(records)}'
         "</div>"
-        '<div class="report-actions"><label class="report-filter" for="report-applicant-filter">Filter applicants'
+        + _stage_switch(current_call, stage_two)
+        + '<div class="report-actions"><label class="report-filter" for="report-applicant-filter">Filter applicants'
         '<select id="report-applicant-filter" data-report-filter>'
         '<option value="" selected disabled>Select application status</option>'
         '<option value="completed">Completed applications</option>'
@@ -175,13 +188,29 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...], shortlist: Shor
         '<span><strong>B:</strong> Interesting application; invite only if there is enough space.</span>'
         '<span><strong>C:</strong> Do not invite to the second selection step.</span>'
         '</aside>' + evaluation_link + '<a class="report-download" href="/internal/reports/metrics.xlsx">Download Excel</a></div>'
-        f'{_report_table(records, shortlist, evaluation_snapshot, current_call)}</section>'
+        f'{_report_table(records, shortlist, evaluation_snapshot, current_call, second_stage, advancement_editable)}</section>'
+    )
+
+
+def _stage_switch(current_call: CallContext | None, stage_two: bool) -> str:
+    if current_call is None:
+        return ""
+    target = "first" if stage_two else "second"
+    label = "Show all applicants" if stage_two else "Show second-stage applicants"
+    href = f"/internal/calls/{escape(current_call.public_slug, quote=True)}/?stage={target}"
+    return (
+        '<nav class="selection-stage-switch" aria-label="Selection stage">'
+        f'<a class="report-download" data-selection-stage="{target}" href="{href}">{label}</a>'
+        f'<span aria-live="polite">{("Second-stage selection" if stage_two else "First-stage selection")}</span>'
+        '</nav>'
     )
 
 
 def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: ShortlistState,
                   evaluation_snapshot: EvaluationSnapshot | None = None,
-                  current_call: CallContext | None = None) -> str:
+                  current_call: CallContext | None = None,
+                  second_stage: SecondStageState = SecondStageState(frozenset()),
+                  advancement_editable: bool = False) -> str:
     headers = (
         ("Applicant", "text"), ("Degree", "text"), ("Age", "number"),
         ("Academic age (years)", "number"), ("Gender", "text"),
@@ -197,7 +226,11 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: Shortl
     )
 
 
-    shortlist_header = (
+    advancement_header = (
+        '<span class="report-advancement-heading" role="columnheader">Advance to second stage</span>'
+        if current_call else ""
+    )
+    shortlist_header = advancement_header + (
         '<span class="report-shortlist-group" role="columnheader" aria-colspan="3">Shortlist</span>'
         + "".join(
             f'<span class="report-shortlist-heading" role="columnheader"><span>{name}</span>'
@@ -227,7 +260,7 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: Shortl
                 comment_by_application[applicant.id.casefold()] = by_reviewer
     rows = "".join(
         _report_row(record, labels, _h_index_saturation(record.h_index, h_index_low, h_index_high),
-                    shortlist, comment_by_application, current_call)
+                    shortlist, comment_by_application, current_call, second_stage, advancement_editable)
         for record in records
     )
     empty = (
@@ -277,6 +310,8 @@ def _report_row(
     shortlist: ShortlistState,
     evaluation_comments: Mapping[str, Mapping[str, str]] | None = None,
     current_call: CallContext | None = None,
+    second_stage: SecondStageState = SecondStageState(frozenset()),
+    advancement_editable: bool = False,
 ) -> str:
     values = (
         (record.applicant, _display_markup(record.applicant), None, None),
@@ -306,6 +341,16 @@ def _report_row(
         for label, (_raw, markup, sort_value, heat) in zip(headers, values, strict=True)
     )
     application_id_value = record.application_id or ""
+    if current_call:
+        app_id = escape(record.application_id or "", quote=True)
+        checked = " checked" if record.application_id and second_stage.selected(record.application_id) else ""
+        disabled = "" if advancement_editable and record.application_id else " disabled"
+        cells += (
+            f'<span class="report-advancement-cell" role="cell" data-label="Advance to second stage">'
+            f'<input type="checkbox" data-advancement-checkbox data-application-id="{app_id}" '
+            f'data-call-slug="{escape(current_call.public_slug, quote=True)}" aria-label="Advance {escape(record.applicant, quote=True)} to second stage"{checked}{disabled}>'
+            '</span>'
+        )
     cells += "".join(
         _shortlist_cell(
             application_id_value,

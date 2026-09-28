@@ -258,8 +258,8 @@ def test_original_003_prefix_upgrades_through_applicant_publication_preview() ->
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert applied == 47
-    assert sorted(connection.records) == list(range(1, 51))
+    assert applied == 48
+    assert sorted(connection.records) == list(range(1, 52))
     assert connection.records[3][1] == PUBLISHED_003_MIGRATION_SHA256
     for migration in migrations[3:]:
         assert connection.records[migration.version] == (
@@ -290,7 +290,7 @@ def test_repository_003_drift_still_blocks_004() -> None:
     assert connection.commit_count == 0
 
 
-def test_fresh_repository_run_applies_all_fifty_migrations() -> None:
+def test_fresh_repository_run_applies_all_fifty_one_migrations() -> None:
     """Break caught: a new database could omit the synthetic-session boundary."""
     module = migrations_module()
     migrations = module.discover_migrations(MIGRATION_DIRECTORY)
@@ -298,8 +298,8 @@ def test_fresh_repository_run_applies_all_fifty_migrations() -> None:
 
     applied = module.apply_migrations(connection, migrations)
 
-    assert [migration.version for migration in migrations] == list(range(1, 51))
-    assert applied == 50
+    assert [migration.version for migration in migrations] == list(range(1, 52))
+    assert applied == 51
     assert connection.records == {
         migration.version: (migration.name, migration.checksum)
         for migration in migrations
@@ -311,7 +311,7 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
     """Break caught: a later metrics filter could remove the authoritative academic-age derivation."""
     migrations = migrations_module().discover_migrations(MIGRATION_DIRECTORY)
 
-    assert [migration.path.name for migration in migrations[-21:]] == [
+    assert [migration.path.name for migration in migrations[-22:]] == [
         "030_applicant_detail_author_roles.sql",
         "031_citation_metric_cutoff_runs.sql",
         "032_revoke_cutoff_activation_runtime.sql",
@@ -333,6 +333,7 @@ def test_academic_age_recovery_migration_is_ordered_and_preserves_the_metrics_bo
         "048_restrict_publication_review_permission.sql",
         "049_call_evaluation_groups.sql",
         "050_call_evaluation_comments.sql",
+        "051_call_second_stage_selection.sql",
     ]
     migration = (MIGRATION_DIRECTORY / "020_synthetic_metrics_academic_age.sql").read_text(
         encoding="utf-8"
@@ -552,6 +553,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "048_restrict_publication_review_permission.sql",
         "049_call_evaluation_groups.sql",
         "050_call_evaluation_comments.sql",
+        "051_call_second_stage_selection.sql",
     ]
     assert [path.name for path in sorted(VALIDATION_DIRECTORY.glob("*.sql"))] == [
         "001_validate_database_contract.sql",
@@ -604,6 +606,7 @@ def test_sql_contract_files_and_validators_exist() -> None:
         "048_validate_publication_review_permission.sql",
         "049_validate_call_evaluation_groups.sql",
         "050_validate_call_evaluation_comments.sql",
+        "051_validate_call_second_stage_selection.sql",
     ]
 
 
@@ -666,7 +669,8 @@ def test_every_table_has_a_primary_key_and_database_generated_utc_timestamp() ->
         "TrusteeShortlistSelection",
         "FellowshipCallGroupGrant",
         "FellowshipCallEvaluator",
-        "CallEvaluationSelection",
+            "CallEvaluationSelection",
+            "CallSecondStageSelection",
     }
     for table_name, block in blocks.items():
         assert re.search(r"\bPRIMARY KEY\b", block, flags=re.IGNORECASE), table_name
