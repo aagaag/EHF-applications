@@ -132,18 +132,8 @@ def _call_navigation_links(
 
 
 def _call_default_control(preference: CallNavigationPreference) -> str:
-    options = (
-        ("resume-last-opened", "Last round I used"),
-        ("latest-application-deadline", "Latest application deadline"),
-    )
-    markup = "".join(
-        f'<option value="{value}"{(" selected" if preference.mode == value else "")}>{label}</option>'
-        for value, label in options
-    )
     return (
-        '<label class="call-default-setting">Default round'
-        f'<select data-call-default-mode>{markup}</select></label>'
-        '<span class="call-default-status" data-call-default-status aria-live="polite"></span>'
+        '<p class="call-default-setting">Home opens the earliest unfinished round.</p>'
     )
 
 

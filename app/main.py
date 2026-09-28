@@ -344,22 +344,23 @@ def create_app(
         summaries = calls.list_authorized(internal_role(principal))
         if not summaries:
             return None
-        preference = preferences.load_call_navigation(principal.identity)
-        if preference.mode == "resume-last-opened" and preference.last_fellowship_call_id:
-            resumed = next(
-                (
-                    summary.context
-                    for summary in summaries
-                    if summary.context.fellowship_call_id
-                    == preference.last_fellowship_call_id
-                ),
-                None,
+        # Submission closure does not finish a round whose selection is still open.
+        unfinished = (
+            summary.context
+            for summary in summaries
+            if summary.context.internal_selection_status != "LOCKED"
+            and (
+                summary.context.call_status == "OPEN"
+                or (
+                    summary.context.call_status == "CLOSED"
+                    and summary.context.internal_selection_status == "OPEN"
+                )
             )
-            if resumed is not None:
-                return resumed
-        return max(
-            (summary.context for summary in summaries),
+        )
+        return min(
+            unfinished,
             key=lambda context: (context.application_deadline_utc, context.public_slug),
+            default=None,
         )
 
     if synthetic_applicant_service is not None:
@@ -416,6 +417,8 @@ def create_app(
         role = internal_role(principal)
         selected = default_call(principal)
         if selected is None:
+            if calls.list_authorized(role):
+                return RedirectResponse("/internal/calls/", status_code=303)
             shortlist = shortlists.load(
                 principal.identity.key, role, principal.entra_object_id
             )
@@ -466,7 +469,12 @@ def create_app(
             )
             evaluation_snapshot = evaluations.load(current_call.fellowship_call_id, role)
             second_stage = second_stages.load(current_call.fellowship_call_id, role)
-            stage_two = request.query_params.get("stage") == "second"
+            stage = request.query_params.get("stage")
+            stage_two = (
+                stage == "second"
+                if stage in {"first", "second"}
+                else bool(second_stage.selected_application_ids)
+            )
             report_records = metrics.load(role)
             if stage_two:
                 report_records = tuple(

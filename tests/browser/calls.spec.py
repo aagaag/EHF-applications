@@ -10,9 +10,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize("viewport", [(1440, 900), (390, 844)])
+@pytest.mark.parametrize("surface", ["inventory", "legacy", "future"])
+@pytest.mark.parametrize("viewport", [(1920, 1080), (1366, 768), (900, 900), (390, 844)])
 def test_call_inventory_is_responsive_accessible_and_keeps_rounds_in_navigation(
-    viewport: tuple[int, int],
+    viewport: tuple[int, int], surface: str,
 ) -> None:
     pytest.importorskip("playwright.sync_api")
     from axe_playwright_python.sync_playwright import Axe
@@ -20,7 +21,8 @@ def test_call_inventory_is_responsive_accessible_and_keeps_rounds_in_navigation(
 
     from app.calls import CallContext, CallSummary
     from app.identity import AuthenticatedIdentity
-    from app.internal_calls import render_call_inventory
+    from app.internal_calls import render_call_inventory, render_call_workspace
+    from app.internal_preview import render_internal_preview
     from app.navigation import INTERNAL_GROUPS
     from app.preferences import CallNavigationPreference, Identity
 
@@ -49,11 +51,15 @@ def test_call_inventory_is_responsive_accessible_and_keeps_rounds_in_navigation(
         Identity("test:admin", "admin@example.invalid", "Admin"),
         frozenset({INTERNAL_GROUPS.administrators}),
     )
-    html = render_call_inventory(
-        principal,
-        summaries,
-        preference=CallNavigationPreference("resume-last-opened"),
-    )
+    if surface == "inventory":
+        html = render_call_inventory(principal, summaries)
+    elif surface == "legacy":
+        html = render_internal_preview(
+            principal, call_summaries=summaries, current_call=summaries[0].context,
+            stage_two=True,
+        )
+    else:
+        html = render_call_workspace(principal, summaries, summaries[1].context)
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
@@ -69,8 +75,9 @@ def test_call_inventory_is_responsive_accessible_and_keeps_rounds_in_navigation(
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
             assert page.get_by_role("link", name="EHF 2026 Open").count() == 1
             assert page.get_by_role("link", name="EHF 2027 Draft").count() == 1
-            assert page.locator(".call-card").count() == 2
-            assert page.locator("[data-call-default-mode]").input_value() == "resume-last-opened"
+            assert page.locator(".call-card").count() == (2 if surface == "inventory" else 0)
+            assert page.get_by_text("Home opens the earliest unfinished round.").count() == 1
+            assert page.locator("[data-call-default-mode]").count() == 0
             if viewport[0] <= 720:
                 toggle = page.get_by_role("button", name="Open application navigation")
                 toggle.click()

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
+
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -12,7 +15,7 @@ from app.identity import AuthenticatedIdentity
 from app.internal_preview import PreviewApplicantMetric, render_internal_preview
 from app.main import ReadinessChecks, create_app
 from app.navigation import INTERNAL_GROUPS
-from app.preferences import Identity
+from app.preferences import Identity, InMemoryPreferenceRepository
 from app.second_stage import SecondStageState, SqlSecondStageRepository
 
 
@@ -121,3 +124,44 @@ def test_sql_second_stage_repository_calls_scoped_procedures_and_commits() -> No
     assert "dbo.GetCallSecondStageSelections" in str(calls[0][0])
     assert "dbo.SetCallSecondStageSelection" in str(calls[1][0])
     assert connection.commits == 1
+
+
+@pytest.mark.parametrize("group", [INTERNAL_GROUPS.administrators, INTERNAL_GROUPS.trustees])
+@pytest.mark.parametrize(
+    ("advanced", "query", "expected_stage"),
+    [
+        (True, "", "second"),
+        (False, "", "first"),
+        (True, "?stage=first", "first"),
+        (False, "?stage=second", "second"),
+        (True, "?stage=second", "second"),
+        (False, "?stage=first", "first"),
+    ],
+)
+def test_call_workspace_defaults_to_persisted_advancement_and_allows_switching(
+    group, advanced, query, expected_stage
+) -> None:
+    repository = MemorySecondStageRepository()
+    repository.state = SecondStageState(frozenset({str(APPROVED)}) if advanced else frozenset())
+    class Metrics:
+        def load(self, actor_group):
+            return (
+                PreviewApplicantMetric("Ada", application_id=str(APPROVED)),
+                PreviewApplicantMetric("Bea", application_id=str(OTHER)),
+            )
+
+    client = TestClient(create_app(
+        Settings.from_environment({}),
+        readiness_checks=ReadinessChecks(lambda _: None, lambda _: None),
+        identity_resolver=lambda _: replace(principal(), groups=frozenset({group})),
+        preference_repository=InMemoryPreferenceRepository(),
+        second_stage_repository=repository,
+        metric_repository=Metrics(),
+        call_catalog=InMemoryCallCatalog((CALL,), {CALL.public_slug: frozenset({group})}),
+    ))
+    response = client.get("/" if not query else f"/internal/calls/{CALL.public_slug}/{query}",
+                          headers={"host": "localhost"})
+    assert response.status_code == 200
+    assert f'data-selection-stage="{expected_stage}" aria-current="page"' in response.text
+    assert ("Bea" in response.text) == (expected_stage == "first")
+    assert ("Ada" in response.text) == (expected_stage == "first" or advanced)

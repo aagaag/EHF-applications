@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
+
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -134,12 +137,12 @@ def test_unknown_call_is_neutral_and_never_falls_back_to_2026() -> None:
     assert response.headers.get("location") is None
 
 
-def test_internal_home_resumes_the_last_authorized_call_by_default() -> None:
-    """Break caught: returning users could lose their last application-round context."""
+def test_internal_home_ignores_last_opened_round() -> None:
+    """Home must choose the current round even after a later round was opened."""
     client, _repository = _client_and_preferences(
         INTERNAL_GROUPS.administrators,
         CallNavigationPreference(
-            "resume-last-opened", CALL_2026.fellowship_call_id
+            "resume-last-opened", CALL_2027.fellowship_call_id
         ),
     )
 
@@ -151,8 +154,8 @@ def test_internal_home_resumes_the_last_authorized_call_by_default() -> None:
     assert response.headers["location"] == "/internal/calls/ehf-2026/"
 
 
-def test_latest_deadline_mode_chooses_the_authorized_call_with_latest_deadline() -> None:
-    """Break caught: latest mode could use insertion order instead of the call deadline."""
+def test_internal_home_ignores_legacy_latest_deadline_preference() -> None:
+    """Legacy preferences must not send the landing page to a future draft."""
     client, _repository = _client_and_preferences(
         INTERNAL_GROUPS.administrators,
         CallNavigationPreference(
@@ -165,7 +168,7 @@ def test_latest_deadline_mode_chooses_the_authorized_call_with_latest_deadline()
     )
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/internal/calls/ehf-2027/"
+    assert response.headers["location"] == "/internal/calls/ehf-2026/"
 
 
 def test_opening_a_call_updates_only_the_current_identity_last_opened_call() -> None:
@@ -255,3 +258,79 @@ def test_trustee_cannot_create_a_call() -> None:
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("status", "selection", "expected"),
+    [
+        ("OPEN", "OPEN", "ehf-2026"),
+        ("CLOSED", "OPEN", "ehf-2026"),
+        ("CLOSED", "LOCKED", "ehf-2027"),
+        ("OPEN", "LOCKED", "ehf-2027"),
+        ("CLOSED", "DISABLED", "ehf-2027"),
+        ("DRAFT", "OPEN", "ehf-2027"),
+        ("ARCHIVED", "OPEN", "ehf-2027"),
+    ],
+)
+def test_home_chooses_earliest_unfinished_authorized_round(status, selection, expected) -> None:
+    earlier = replace(CALL_2026, call_status=status, internal_selection_status=selection)
+    later = replace(CALL_2027, call_status="OPEN")
+    catalog = InMemoryCallCatalog(
+        (later, earlier),
+        {c.public_slug: frozenset({INTERNAL_GROUPS.administrators}) for c in (earlier, later)},
+    )
+    client = TestClient(create_app(
+        Settings.from_environment({}),
+        call_catalog=catalog,
+        identity_resolver=_identity(INTERNAL_GROUPS.administrators),
+        preference_repository=InMemoryPreferenceRepository(),
+        readiness_checks=ReadinessChecks(lambda _: None, lambda _: None),
+    ))
+    response = client.get("/", follow_redirects=True, headers={"host": "localhost"})
+    assert response.status_code == 200
+    assert response.url.path == f"/internal/calls/{expected}/"
+
+
+def test_home_with_only_finished_rounds_shows_inventory() -> None:
+    finished = replace(CALL_2026, call_status="CLOSED", internal_selection_status="LOCKED")
+    catalog = InMemoryCallCatalog(
+        (finished,), {finished.public_slug: frozenset({INTERNAL_GROUPS.administrators})}
+    )
+    client = TestClient(create_app(
+        Settings.from_environment({}),
+        call_catalog=catalog,
+        identity_resolver=_identity(INTERNAL_GROUPS.administrators),
+        preference_repository=InMemoryPreferenceRepository(),
+        readiness_checks=ReadinessChecks(lambda _: None, lambda _: None),
+    ))
+    response = client.get("/", headers={"host": "localhost"})
+    assert response.status_code == 200
+    assert response.url.path == "/internal/calls/"
+
+
+def test_round_pages_explain_fixed_home_default() -> None:
+    client = _client(INTERNAL_GROUPS.administrators)
+    for url in ("/internal/calls/", "/internal/calls/ehf-2026/", "/internal/calls/ehf-2027/"):
+        html = client.get(url, headers={"host": "localhost"}).text
+        assert "Home opens the earliest unfinished round." in html
+        assert "data-call-default-mode" not in html
+
+
+def test_home_never_selects_an_earlier_ungranted_round() -> None:
+    ungranted = replace(CALL_2027, call_status="OPEN",
+                        application_deadline_utc=datetime(2025, 1, 1, tzinfo=UTC))
+    catalog = InMemoryCallCatalog(
+        (ungranted, CALL_2026),
+        {CALL_2026.public_slug: frozenset({INTERNAL_GROUPS.trustees}),
+         ungranted.public_slug: frozenset({INTERNAL_GROUPS.administrators})},
+    )
+    client = TestClient(create_app(
+        Settings.from_environment({}),
+        call_catalog=catalog,
+        identity_resolver=_identity(INTERNAL_GROUPS.trustees),
+        preference_repository=InMemoryPreferenceRepository(),
+        readiness_checks=ReadinessChecks(lambda _: None, lambda _: None),
+    ))
+    response = client.get("/", headers={"host": "localhost"})
+    assert response.url.path == "/internal/calls/ehf-2026/"
+    assert "ehf-2027" not in response.text

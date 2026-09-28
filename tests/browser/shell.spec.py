@@ -87,7 +87,7 @@ def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_ov
                 header_columns = page.locator(".report-header").evaluate(
                     "node => getComputedStyle(node).gridTemplateColumns.split(' ').length"
                 )
-                assert header_columns == (12 if viewport[0] >= 2500 else 4)
+                assert header_columns == (13 if viewport[0] >= 2500 else 4)
             if viewport[0] >= 2500:
                 header_width = page.locator(".report-header").evaluate(
                     "node => node.getBoundingClientRect().width"
