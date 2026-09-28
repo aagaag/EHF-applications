@@ -249,11 +249,17 @@ def _restore_configuration(snapshot: dict[Path, PathSnapshot]) -> None:
         _restore_path(path, snapshot[path])
 
 
-def _run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
+def _run(
+    command: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    step: str = "deployment command",
+) -> None:
     try:
         subprocess.run(command, cwd=cwd, env=env, check=True, capture_output=True, text=True)
     except (OSError, subprocess.CalledProcessError) as error:
-        raise DeploymentError("A required deployment command failed.") from error
+        raise DeploymentError(f"The {step} failed.") from error
 
 
 def _require_root() -> None:
@@ -544,8 +550,9 @@ def _preactivation_tests(
             "EHF_SQL_PRINCIPAL_PYTHON": str(python),
         }
     )
-    _run([str(python), "-m", "pytest", "infra/test-install-ehf.py", "-q"], cwd=release)
-    _run([str(python), "-m", "pytest", "-q"], cwd=release)
+    _run([str(python), "-m", "pytest", "infra/test-install-ehf.py", "-q"], cwd=release,
+         step="release installer test suite")
+    _run([str(python), "-m", "pytest", "-q"], cwd=release, step="complete release test suite")
     _run(
         [
             str(python),
@@ -554,9 +561,12 @@ def _preactivation_tests(
             str(sql_admin_credential),
         ],
         cwd=release,
+        step="database migration and validator run",
     )
-    _run(["/bin/bash", "infra/test-sql-login.sh"], cwd=release, env=environment)
-    _run(["/bin/bash", "infra/setup-sql-login.sh"], cwd=release, env=environment)
+    _run(["/bin/bash", "infra/test-sql-login.sh"], cwd=release, env=environment,
+         step="isolated SQL permission validation")
+    _run(["/bin/bash", "infra/setup-sql-login.sh"], cwd=release, env=environment,
+         step="application SQL login setup")
     _require_protected_file(CONFIG_ROOT / "sql-app-password", group_id=account.pw_gid)
 
 
