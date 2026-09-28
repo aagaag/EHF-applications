@@ -84,6 +84,12 @@ def render_internal_preview(
         else "No application records are loaded."
     )
     shortlist_state = shortlist or ShortlistState({}, editable_trustee(principal.entra_object_id))
+    stage_controls = (
+        _stage_switch(current_call, stage_two)
+        if current_call else
+        f'<div class="preview-notice" role="status">Preview only<span>{escape(notice)} '
+        f'Submission is not active. Communication sending is not active. {escape(record_notice)}</span></div>'
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EHF Fellowships — internal preview</title><link rel="stylesheet" href="/assets/site.css"></head>
@@ -94,7 +100,7 @@ def render_internal_preview(
 <div class="app-nav-scroll"><nav class="app-nav-list" aria-label="Application rounds">{_call_navigation_links(call_summaries, current_call)}</nav><nav class="app-nav-list" aria-label="Primary navigation">{_navigation_links(navigation)}</nav></div>
 <nav class="app-nav-list app-nav-lower" aria-label="Settings and help navigation"><span class="app-nav-heading">Settings</span>{_call_default_control(call_preference)}<a class="app-nav-link" href="#appearance">Appearance</a><button class="app-nav-disclosure" type="button" data-disclosure aria-expanded="false" aria-controls="help-links">Help</button><div class="app-nav-submenu" id="help-links" hidden>{_help_links(help_items)}</div>{_authorization_pills(pills)}</nav></aside>
 <main class="site-main" id="main-content" tabindex="-1"><header class="site-hero" id="overview"><h1>{escape(current_call.display_name if current_call else "Charles Weissmann Fellowships")}</h1><p>Internal workspace preview for the Ernst Hadorn Foundation.</p></header>
-<div class="preview-notice" role="status">Preview only<span>{escape(notice)} Submission is not active. Communication sending is not active. {escape(record_notice)}</span></div>
+{stage_controls}
 {_report_section(records, shortlist_state, current_call, evaluation_snapshot, second_stage, stage_two, advancement_editable)}{_sections(entries, include=frozenset({"operations"}))}<section id="appearance" aria-labelledby="appearance-heading"><div class="section-heading"><h2 id="appearance-heading">Appearance preview</h2><p>Preferences load and save server-side only after secure sign-in is active.</p></div>{_appearance_controls()}</section></main>
 <footer class="site-footer">EHF Fellowships · internal preview · Page last modified: <time data-last-modified></time></footer><script src="/assets/theme.js"></script><script src="/assets/shell.js"></script></body></html>"""
 
@@ -176,7 +182,6 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...], shortlist: Shor
         f'{_scatterplot(records, "Citations by academic age", "academic_age", "Academic age")}'
         f'{_age_comparison_plot(records)}'
         "</div>"
-        + _stage_switch(current_call, stage_two)
         + '<div class="report-actions"><label class="report-filter" for="report-applicant-filter">Filter applicants'
         '<select id="report-applicant-filter" data-report-filter>'
         '<option value="" selected disabled>Select application status</option>'
@@ -195,13 +200,18 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...], shortlist: Shor
 def _stage_switch(current_call: CallContext | None, stage_two: bool) -> str:
     if current_call is None:
         return ""
-    target = "first" if stage_two else "second"
-    label = "Show all applicants" if stage_two else "Show second-stage applicants"
-    href = f"/internal/calls/{escape(current_call.public_slug, quote=True)}/?stage={target}"
+    base_href = f"/internal/calls/{escape(current_call.public_slug, quote=True)}/"
+    links = "".join(
+        f'<a class="selection-stage-button" data-selection-stage="{stage}"'
+        f'{(" aria-current=\"page\"" if active else "")} href="{base_href}?stage={stage}">{label}</a>'
+        for stage, label, active in (
+            ("second", "Show Second Stage Applicants", stage_two),
+            ("first", "Show Full Applicants", not stage_two),
+        )
+    )
     return (
         '<nav class="selection-stage-switch" aria-label="Selection stage">'
-        f'<a class="report-download" data-selection-stage="{target}" href="{href}">{label}</a>'
-        f'<span aria-live="polite">{("Second-stage selection" if stage_two else "First-stage selection")}</span>'
+        + links +
         '</nav>'
     )
 

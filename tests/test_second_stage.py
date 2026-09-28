@@ -74,6 +74,20 @@ def test_advancement_endpoint_persists_same_origin_selection() -> None:
     assert repository.writes[0][1:3] == (OTHER, True)
 
 
+def test_stage_buttons_replace_live_preview_notice_above_reports() -> None:
+    for stage_two in (False, True):
+        html = render_internal_preview(principal(), current_call=CALL, stage_two=stage_two)
+        assert 'class="preview-notice"' not in html
+        assert html.count('class="selection-stage-switch"') == 1
+        assert html.count('Show Second Stage Applicants') == 1
+        assert html.count('Show Full Applicants') == 1
+        assert html.index('class="selection-stage-switch"') < html.index('<section id="reports"')
+        assert 'href="/internal/calls/ehf-2026/?stage=second"' in html
+        assert 'href="/internal/calls/ehf-2026/?stage=first"' in html
+        active_stage = "second" if stage_two else "first"
+        assert f'data-selection-stage="{active_stage}" aria-current="page"' in html
+
+
 def test_sql_second_stage_repository_calls_scoped_procedures_and_commits() -> None:
     calls: list[tuple[object, ...]] = []
 
