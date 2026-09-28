@@ -184,3 +184,11 @@ def test_low_level_publication_review_writer_is_not_runtime_callable() -> None:
     assert "DATABASE_PRINCIPAL_ID(N'EHFApplicationRuntime')" in validator
     assert "RecordPendingPublicationReview" in validator
     assert "PASS 048 publication review permission" in validator
+
+
+def test_disposition_validator_seeds_pending_history_before_the_review() -> None:
+    """The fixture must not let tied timestamps choose a review by random UUID."""
+    validator = DISPOSITION_VALIDATOR.read_text(encoding="utf-8")
+    pending_fixture = validator.split("EXEC dbo.RecordPendingPublicationReview", 1)[0]
+    assert "RecordedAtUtc" in pending_fixture
+    assert "DATEADD(second,-1,SYSUTCDATETIME())" in pending_fixture

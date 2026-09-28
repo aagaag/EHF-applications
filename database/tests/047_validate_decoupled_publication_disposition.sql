@@ -61,12 +61,15 @@ BEGIN TRY
         @ReviewerIdentity=N'validator',
         @ReviewReason=N'Complete bibliographic evidence establishes publication.',
         @EvidenceJson=N'{"source":"validator-047","doi":null}';
-    EXEC dbo.RecordApplicationPublicationReview
-        @ApplicationPublicationId=@PendingId,
-        @ReviewDisposition='PENDING_REVIEW',
-        @ReviewerIdentity=N'validator',
-        @ReviewReason=N'Awaiting rapid manual classification.',
-        @EvidenceJson=N'{"source":"validator-047","doi":null}';
+    -- Seed older pending history explicitly: rapid SYSUTCDATETIME() calls can
+    -- tie, letting the random review UUID determine the latest disposition.
+    INSERT dbo.ApplicationPublicationReview
+        (ApplicationPublicationReviewId,ApplicationPublicationId,ReviewDisposition,
+         ResolutionStatus,ReviewerIdentity,ReviewReason,EvidenceJson,RecordedAtUtc)
+    VALUES
+        (NEWID(),@PendingId,'PENDING_REVIEW','UNRESOLVED',N'validator',
+         N'Awaiting rapid manual classification.',
+         N'{"source":"validator-047","doi":null}',DATEADD(second,-1,SYSUTCDATETIME()));
     EXEC dbo.RecordPendingPublicationReview
         @ApplicationPublicationId=@PendingId,
         @ReviewDisposition='PUBLISHED',
