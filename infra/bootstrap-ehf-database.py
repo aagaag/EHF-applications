@@ -101,7 +101,7 @@ def apply_checksum_migrations(connection) -> int:
     try:
         return apply_migrations(connection, discover_migrations(migrations))
     except MigrationError as error:
-        raise BootstrapError("The EHF checksum migration run failed.") from error
+        raise BootstrapError(f"The EHF checksum migration run failed: {error}") from error
 
 
 def run_validators(connection) -> None:
@@ -169,9 +169,14 @@ def run_validators(connection) -> None:
             "SET CONCAT_NULL_YIELDS_NULL ON; SET NUMERIC_ROUNDABORT OFF;"
         )
         for path in files:
-            cursor.execute(path.read_text(encoding="utf-8"))
+            try:
+                cursor.execute(path.read_text(encoding="utf-8"))
+            except Exception as error:
+                raise BootstrapError(f"The EHF SQL validator failed: {path.name}.") from error
     except Exception as error:
-        raise BootstrapError("The EHF SQL validator failed.") from error
+        if isinstance(error, BootstrapError):
+            raise
+        raise BootstrapError("The EHF SQL validator setup failed.") from error
 
 
 def bootstrap(credential_path: Path) -> int:
