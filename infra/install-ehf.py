@@ -39,6 +39,12 @@ ARCHIVE_RE = re.compile(r"^/tmp/ehf-[0-9]+\.tar$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 MAX_ARCHIVE_MEMBERS = 10_000
 MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
+SAFE_BOOTSTRAP_DETAIL = re.compile(
+    r"EHF_DATABASE_BOOTSTRAP_ERROR: (?:"
+    r"The EHF checksum migration run failed: Migration [0-9]{3}_[a-z0-9_]+\.sql failed\."
+    r"|The EHF SQL validator failed: [0-9]{3}_validate_[a-z0-9_]+\.sql\."
+    r")"
+)
 REQUIRED_RELEASE_FILES = (
     "app/config.py",
     "app/main.py",
@@ -259,6 +265,10 @@ def _run(
     try:
         subprocess.run(command, cwd=cwd, env=env, check=True, capture_output=True, text=True)
     except (OSError, subprocess.CalledProcessError) as error:
+        if step == "database migration and validator run" and isinstance(error, subprocess.CalledProcessError):
+            match = SAFE_BOOTSTRAP_DETAIL.search(error.stderr or "")
+            if match:
+                raise DeploymentError(match.group(0)) from error
         raise DeploymentError(f"The {step} failed.") from error
 
 

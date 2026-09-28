@@ -87,6 +87,33 @@ def test_release_bundle_requires_the_scoped_sql_bootstrap_and_every_migration_ar
     assert bundled_validators == expected_validators
 
 
+def test_database_preflight_failure_reports_only_an_allowlisted_sql_filename(monkeypatch) -> None:
+    installer = load_installer()
+
+    def failed_run(*_args, **_kwargs):
+        raise installer.subprocess.CalledProcessError(
+            1,
+            ["bootstrap", "--secret-argument"],
+            stderr=(
+                "EHF_DATABASE_BOOTSTRAP_ERROR: The EHF SQL validator failed: "
+                "051_validate_call_second_stage_selection.sql.\n"
+                "password must never be included"
+            ),
+        )
+
+    monkeypatch.setattr(installer.subprocess, "run", failed_run)
+    with pytest.raises(
+        installer.DeploymentError,
+        match=r"051_validate_call_second_stage_selection\.sql",
+    ) as error:
+        installer._run(
+            ["bootstrap", "--secret-argument"],
+            step="database migration and validator run",
+        )
+    assert "password" not in str(error.value)
+    assert "secret-argument" not in str(error.value)
+
+
 def test_prepare_release_is_idempotent_and_rejects_a_conflicting_commit(tmp_path: Path) -> None:
     """Break caught: a release directory could be silently reused for different archive bytes."""
     installer = load_installer()
