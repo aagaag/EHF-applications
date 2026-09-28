@@ -41,6 +41,10 @@ IF OBJECT_ID(N'dbo.GetCallEvaluationOverview', N'P') IS NULL
     THROW 51530, 'The call-evaluation overview procedure is missing.', 1;
 IF OBJECT_ID(N'dbo.SetCallEvaluationComment', N'P') IS NULL
     THROW 51531, 'The evaluation-comment procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.GetCallSecondStageSelections', N'P') IS NULL
+    THROW 51532, 'The second-stage selection read procedure is missing.', 1;
+IF OBJECT_ID(N'dbo.SetCallSecondStageSelection', N'P') IS NULL
+    THROW 51533, 'The second-stage selection write procedure is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'EHFApplicationRuntime') IS NULL
     THROW 51503, 'The EHF runtime role is missing.', 1;
 IF DATABASE_PRINCIPAL_ID(N'ehf_app') IS NULL
@@ -62,6 +66,7 @@ INSERT @ApprovedProcedures VALUES
     (N'RecordInternalReviewArtifactFailure'),
     (N'GetInternalShortlistSelections'), (N'SetInternalShortlistSelection'),
     (N'GetCallEvaluationOverview'), (N'SetCallEvaluationComment'),
+    (N'GetCallSecondStageSelections'), (N'SetCallSecondStageSelection'),
     (N'ListAuthorizedFellowshipCalls'), (N'GetAuthorizedFellowshipCallBySlug'),
     (N'GetPublicFellowshipCallBySlug'), (N'CreateFellowshipCall'),
     (N'TransitionFellowshipCall'), (N'SetFellowshipCallGroupGrant'),
@@ -109,7 +114,8 @@ INSERT @ProtectedTables VALUES
     (N'PublicationCitationObservation'), (N'CitationMetricCutoffRun'),
     (N'InternalReviewArtifactProvenance'),
     (N'ShortlistTrustee'), (N'TrusteeShortlistSelection'),
-    (N'FellowshipCallEvaluator'), (N'CallEvaluationSelection');
+    (N'FellowshipCallEvaluator'), (N'CallEvaluationSelection'),
+    (N'CallSecondStageSelection');
 DECLARE @RequiredDmlDenies TABLE (TableName sysname NOT NULL, PermissionName sysname NOT NULL, PRIMARY KEY (TableName, PermissionName));
 INSERT @RequiredDmlDenies
 SELECT TableName, PermissionName

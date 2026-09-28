@@ -264,6 +264,8 @@ def test_permission_validator_includes_the_complete_applicant_runtime_surface() 
         "ListInternalReviewArtifacts",
         "GetInternalReviewArtifact",
         "RecordInternalReviewArtifactFailure",
+        "GetCallSecondStageSelections",
+        "SetCallSecondStageSelection",
     ):
         assert f"(N'{procedure}')" in validator
     for table in (
@@ -278,6 +280,7 @@ def test_permission_validator_includes_the_complete_applicant_runtime_surface() 
         "ApplicantFinalConfirmation",
         "ApplicantReopenScope",
         "ApplicantDocumentSubmission",
+        "CallSecondStageSelection",
     ):
         assert f"(N'{table}')" in validator
     assert "(N'vw_ApplicantFacingApplication')" in validator
