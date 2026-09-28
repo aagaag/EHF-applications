@@ -948,7 +948,10 @@ def test_database_script_requires_and_applies_019() -> None:
     assert "048_validate_publication_review_permission.sql" in script
     assert "049_call_evaluation_groups.sql" in script
     assert "049_validate_call_evaluation_groups.sql" in script
-    assert "Applied 50 migration\\(s\\)\\." in script
+    assert "050_call_evaluation_comments.sql" in script
+    assert "051_call_second_stage_selection.sql" in script
+    assert "051_validate_call_second_stage_selection.sql" in script
+    assert "Applied 51 migration\\(s\\)\\." in script
 
 
 def test_synthetic_applicant_workspace_preserves_the_legacy_session_contract() -> None:
@@ -1312,14 +1315,18 @@ def test_validator_cleanup_rolls_back_before_session_context_or_revert() -> None
             assert rollback_position < min(cleanup_positions)
 
 
-def test_database_contract_validator_reports_version_forty_nine() -> None:
-    """Break caught: post-upgrade validation could still require the old schema tip."""
+def test_database_contract_validator_requires_a_contiguous_current_migration_tip() -> None:
+    """Break caught: post-upgrade validation could accept a gapped or stale schema history."""
     validator = (
         VALIDATION_DIRECTORY / "001_validate_database_contract.sql"
     ).read_text(encoding="utf-8")
 
-    assert "COUNT_BIG(*) FROM dbo.SchemaMigration) <> 50" in validator
-    assert "WHERE MigrationCount = 50 AND CurrentVersion = 50" in validator
+    assert "@RecordedMigrationCount = COUNT_BIG(*)" in validator
+    assert "@CurrentMigrationVersion = MAX(MigrationVersion)" in validator
+    assert "@RecordedMigrationCount <> CONVERT(bigint, @CurrentMigrationVersion)" in validator
+    assert "migration_row.MigrationVersion - 1" in validator
+    assert "WHERE MigrationCount = @RecordedMigrationCount" in validator
+    assert "AND CurrentVersion = @CurrentMigrationVersion" in validator
 
 
 def test_multi_call_foundation_exposes_call_ownership_and_authorized_catalog_contract() -> None:

@@ -8,8 +8,29 @@ IF OBJECT_ID(N'dbo.SchemaVersion', N'V') IS NULL
 IF OBJECT_ID(N'dbo.TR_SchemaMigration_AppendOnly', N'TR') IS NULL
     THROW 51102, 'SchemaMigration append-only guard is missing.', 1;
 
-IF (SELECT COUNT_BIG(*) FROM dbo.SchemaMigration) <> 50
-    THROW 51103, 'Exactly fifty migrations must be recorded.', 1;
+DECLARE @RecordedMigrationCount bigint;
+DECLARE @CurrentMigrationVersion int;
+SELECT
+    @RecordedMigrationCount = COUNT_BIG(*),
+    @CurrentMigrationVersion = MAX(MigrationVersion)
+FROM dbo.SchemaMigration;
+
+IF @RecordedMigrationCount = 0
+   OR @CurrentMigrationVersion IS NULL
+   OR @RecordedMigrationCount <> CONVERT(bigint, @CurrentMigrationVersion)
+   OR EXISTS
+   (
+       SELECT 1
+       FROM dbo.SchemaMigration AS migration_row
+       WHERE migration_row.MigrationVersion > 1
+         AND NOT EXISTS
+         (
+             SELECT 1
+             FROM dbo.SchemaMigration AS predecessor_row
+             WHERE predecessor_row.MigrationVersion = migration_row.MigrationVersion - 1
+         )
+   )
+    THROW 51103, 'Migration history must be a contiguous prefix.', 1;
 IF EXISTS
 (
     SELECT 1
@@ -23,9 +44,10 @@ IF NOT EXISTS
 (
     SELECT 1
     FROM dbo.SchemaVersion
-WHERE MigrationCount = 50 AND CurrentVersion = 50
+    WHERE MigrationCount = @RecordedMigrationCount
+      AND CurrentVersion = @CurrentMigrationVersion
 )
-    THROW 51105, 'SchemaVersion does not report version 50.', 1;
+    THROW 51105, 'SchemaVersion does not report the recorded migration tip.', 1;
 
 IF EXISTS
 (
