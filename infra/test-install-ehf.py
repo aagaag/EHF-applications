@@ -113,6 +113,27 @@ def test_database_preflight_failure_reports_only_an_allowlisted_sql_filename(mon
     assert "password" not in str(error.value)
     assert "secret-argument" not in str(error.value)
 
+    def failed_permission_validation(*_args, **_kwargs):
+        raise installer.subprocess.CalledProcessError(
+            2,
+            ["bash", "--secret-argument"],
+            stderr=(
+                "The isolated EHF SQL validator 051_validate_call_second_stage_selection.sql "
+                "failed without credential details.\npassword must never be included"
+            ),
+        )
+
+    monkeypatch.setattr(installer.subprocess, "run", failed_permission_validation)
+    with pytest.raises(
+        installer.DeploymentError,
+        match=r"051_validate_call_second_stage_selection\.sql",
+    ) as error:
+        installer._run(
+            ["bash", "--secret-argument"], step="isolated SQL permission validation"
+        )
+    assert "password" not in str(error.value)
+    assert "secret-argument" not in str(error.value)
+
 
 def test_prepare_release_is_idempotent_and_rejects_a_conflicting_commit(tmp_path: Path) -> None:
     """Break caught: a release directory could be silently reused for different archive bytes."""

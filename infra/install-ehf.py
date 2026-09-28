@@ -45,6 +45,10 @@ SAFE_BOOTSTRAP_DETAIL = re.compile(
     r"|The EHF SQL validator failed: [0-9]{3}_validate_[a-z0-9_]+\.sql\."
     r")"
 )
+SAFE_SQL_PERMISSION_DETAIL = re.compile(
+    r"The isolated EHF SQL validator [0-9]{3}_validate_[a-z0-9_]+\.sql "
+    r"failed without credential details\."
+)
 REQUIRED_RELEASE_FILES = (
     "app/config.py",
     "app/main.py",
@@ -267,6 +271,10 @@ def _run(
     except (OSError, subprocess.CalledProcessError) as error:
         if step == "database migration and validator run" and isinstance(error, subprocess.CalledProcessError):
             match = SAFE_BOOTSTRAP_DETAIL.search(error.stderr or "")
+            if match:
+                raise DeploymentError(match.group(0)) from error
+        if step == "isolated SQL permission validation" and isinstance(error, subprocess.CalledProcessError):
+            match = SAFE_SQL_PERMISSION_DETAIL.search(error.stderr or "")
             if match:
                 raise DeploymentError(match.group(0)) from error
         raise DeploymentError(f"The {step} failed.") from error
