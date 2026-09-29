@@ -59,11 +59,11 @@ def test_overview_starts_with_three_reports_and_uses_compact_combined_metrics() 
     assert 'data-application-id="a7000000-0000-4000-8000-000000000001"' in html
     assert 'data-report-details-url="/api/internal/applicants/a7000000-0000-4000-8000-000000000001/metrics-detail"' in html
     assert '<div class="report-details-content" data-report-details>' in html
-    assert html.count('<strong class="missing-value">Missing</strong>') == 1
-    assert html.count('data-report-sort-direction="ascending"') == 9
-    assert html.count('data-report-sort-direction="descending"') == 9
-    assert 'aria-label="Sort Applicant ascending"' in html
-    assert 'aria-label="Sort OpenAlex citations (20 Sep 2026) descending"' in html
+    assert '<strong class="missing-value">Missing</strong>' in html
+    assert 'data-report-fallback-field="Gender"' in html
+    assert 'data-report-sort-select' in html
+    assert html.count('<option value=') >= 9
+    assert 'OpenAlex citations' in html
     assert 'data-report-filter' in html
     assert '<option value="completed">Completed applications</option>' in html
     assert '<option value="missing">Applications where anything is missing</option>' in html
@@ -82,7 +82,7 @@ def test_overview_starts_with_three_reports_and_uses_compact_combined_metrics() 
     assert "First / last author papers" in html
     assert "Published papers/preprints" in html
     assert "Applicant-reported / validated published papers" not in html
-    assert "OpenAlex citations (20 Sep 2026)" in html
+    assert "20 September 2026 cutoff" in html
     assert "2 / 0" in html
     assert "16 / 2" in html
     assert ">656<" in html
@@ -103,7 +103,7 @@ def test_reports_name_the_verified_profile_source_without_overwriting_the_self_r
 
     html = render_internal_preview(_administrator(), simulation=True, records=(record,))
 
-    assert "OpenAlex citations (20 Sep 2026)" in html
+    assert "20 September 2026 cutoff" in html
     assert "Citation source" not in html
     assert ">710<" in html
     assert "OpenAlex citations are calculated" in html

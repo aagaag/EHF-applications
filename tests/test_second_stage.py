@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -55,9 +56,9 @@ def test_stage_switch_filters_graphs_and_rows_and_marks_promotions() -> None:
     html = render_internal_preview(principal(), records=records, current_call=CALL,
                                    second_stage=SecondStageState(frozenset({str(APPROVED)})),
                                        stage_two=True, advancement_editable=True)
-    assert 'data-selection-stage="first"' in html
-    assert 'data-advancement-checkbox data-application-id="a7000000-0000-4000-8000-000000000001"' in html
-    assert 'aria-label="Advance Ada to second stage" checked' in html
+    assert 'data-selection-stage="second" aria-current="page"' in html
+    assert 'data-advancement-checkbox' not in html
+    assert 'report-review-strip' not in html
     assert "Bea" not in html
     assert html.count('class="report-card"') == 3
 
@@ -165,3 +166,38 @@ def test_call_workspace_defaults_to_persisted_advancement_and_allows_switching(
     assert f'data-selection-stage="{expected_stage}" aria-current="page"' in response.text
     assert ("Bea" in response.text) == (expected_stage == "first")
     assert ("Ada" in response.text) == (expected_stage == "first" or advanced)
+
+
+def test_stage_two_report_hides_first_round_controls_and_primary_rows_keep_review_strip() -> None:
+    from app.shortlist import ShortlistState
+
+    record = PreviewApplicantMetric("Ada", age=40, academic_age=10, verified_citations=20,
+                                    application_id=str(APPROVED))
+    shortlist = ShortlistState({str(APPROVED).casefold(): {"ricky": "B"}}, "adriano")
+    second = render_internal_preview(principal(), records=(record,), current_call=CALL,
+                                     shortlist=shortlist, second_stage=SecondStageState(frozenset({str(APPROVED)})), stage_two=True)
+    table = second.split('class="report-table"', 1)[1].split("</div>", 1)[0]
+    assert 'data-selection-stage="second"' in table
+    assert 'data-label="Advance to second stage"' not in second
+    assert "Shortlist — Ricky" not in second
+    assert "data-shortlist-grade" not in second
+    assert 'First-round shortlist history' in second
+    assert 'Ricky: B' in second
+    assert 'data-selection-stage="first"' in render_internal_preview(
+        principal(), records=(record,), current_call=CALL, shortlist=shortlist
+    )
+    first = render_internal_preview(principal(), records=(record,), current_call=CALL,
+                                    shortlist=shortlist)
+    assert 'class="report-review-strip"' in first
+    assert first.count('data-report-sort-select') == 1
+
+
+
+
+def test_report_row_details_activation_ignores_nested_labels() -> None:
+    source = (Path(__file__).resolve().parents[1] / "public/assets/shell.js").read_text(encoding="utf-8")
+    selector = "input, button, a, select, textarea, summary, label"
+    report_row_handlers = source.split('document.querySelectorAll("[data-report-row]")', 1)[1].split(
+        'const shortlistStatus', 1
+    )[0]
+    assert report_row_handlers.count(f'event.target.closest("{selector}")') == 2

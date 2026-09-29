@@ -189,17 +189,32 @@
     }
   };
   const fallbackReportDetails = (row) => {
-    const cells = [...row.querySelectorAll('[role="cell"]:not(.report-shortlist-cell)')];
+    const cells = [...row.querySelectorAll(".report-metric-cell")];
+    const hiddenFields = new Map([...row.querySelectorAll("[data-report-fallback-field]")]
+      .map((field) => [field.dataset.reportFallbackField, field]));
+    const details = [
+      { label: "Applicant", text: row.querySelector(".report-applicant-name")?.textContent.trim() || "Missing" },
+      { label: "Degree", source: hiddenFields.get("Degree") },
+      { label: "Age", source: hiddenFields.get("Age") },
+      { label: "Academic age (years)", source: cells[1] },
+      { label: "Gender", source: hiddenFields.get("Gender") },
+      { label: "First / last author papers", source: cells[2] },
+      { label: "Published papers/preprints", source: cells[3] },
+      { label: "h-index", source: cells[4] },
+      { label: "OpenAlex citations (20 Sep 2026)", source: cells[5] },
+    ];
     const list = document.createElement("dl");
     list.className = "report-details-list";
-    list.append(...cells.map((cell) => {
+    list.append(...details.map(({ label, text, source }) => {
       const item = document.createElement("div");
       item.className = "report-details-item";
       const term = document.createElement("dt");
-      term.textContent = cell.dataset.label || "Detail";
+      term.textContent = label;
       const description = document.createElement("dd");
-      description.textContent = cell.textContent.trim();
-      if (cell.querySelector(".missing-value")) description.className = "missing-value";
+      description.textContent = text ?? source?.textContent.trim() ?? "Missing";
+      if (source?.querySelector(".missing-value") || source?.classList.contains("missing-value")) {
+        description.className = "missing-value";
+      }
       item.append(term, description);
       return item;
     }));
@@ -208,8 +223,7 @@
   const openReportDetails = async (row) => {
     if (!reportModal || !reportDetails || !reportTitle) return;
     reportModal.querySelector("[data-report-summary] .applicant-detail-identity")?.remove();
-    const cells = [...row.querySelectorAll('[role="cell"]')];
-    reportTitle.textContent = cells[0]?.textContent.trim() || "Application details";
+    reportTitle.textContent = row.querySelector(".report-applicant-name")?.textContent.trim() || "Application details";
     activeReportRow = row;
     loadReportArtifacts(row.dataset.applicationId);
     reportModal.showModal();
@@ -302,12 +316,12 @@
   };
   document.querySelectorAll("[data-report-row]").forEach((row) => {
     row.addEventListener("dblclick", (event) => {
-      if (event.target.closest("input, button, a, select, textarea, summary")) return;
+      if (event.target.closest("input, button, a, select, textarea, summary, label")) return;
       openReportDetails(row);
     });
     row.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
-      if (event.target.closest("input, button, a, select, textarea, summary")) return;
+      if (event.target.closest("input, button, a, select, textarea, summary, label")) return;
       event.preventDefault();
       openReportDetails(row);
     });
@@ -398,36 +412,42 @@
   });
 
   const reportCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-  document.querySelectorAll("[data-report-sort]").forEach((button) => {
+  document.querySelectorAll("[data-report-sort-apply]").forEach((button) => {
     button.addEventListener("click", () => {
-      const table = button.closest(".report-table");
+      const shell = button.closest(".report-table-shell");
+      const table = shell?.querySelector(".report-table");
       const data = table?.querySelector(".report-data");
-      const index = Number(button.dataset.reportSortIndex);
-      const kind = button.dataset.reportSortKind;
-      const direction = button.dataset.reportSortDirection;
+      const field = shell?.querySelector("[data-report-sort-select]");
+      const index = Number(field?.value);
+      const kind = field?.selectedOptions[0]?.dataset.sortKind;
+      const direction = button.dataset.direction || "ascending";
       if (!data || !Number.isInteger(index)) return;
       const rows = [...data.children].filter((row) => row.matches("[data-report-row]"));
       rows.sort((leftRow, rightRow) => {
-        const left = leftRow.querySelectorAll('[role="cell"]')[index];
-        const right = rightRow.querySelectorAll('[role="cell"]')[index];
-        const leftMissing = Boolean(left?.querySelector(".missing-value"));
-        const rightMissing = Boolean(right?.querySelector(".missing-value"));
+        const left = index < 6 ? leftRow.querySelectorAll(".report-metric-cell")[index] : null;
+        const right = index < 6 ? rightRow.querySelectorAll(".report-metric-cell")[index] : null;
+        const hiddenField = ["", "", "", "", "", "", "degree", "age", "gender"][index];
+        const leftText = left ? (left.dataset.reportSortValue || left.textContent.trim()) : leftRow.dataset[`sort${hiddenField[0].toUpperCase()}${hiddenField.slice(1)}`];
+        const rightText = right ? (right.dataset.reportSortValue || right.textContent.trim()) : rightRow.dataset[`sort${hiddenField[0].toUpperCase()}${hiddenField.slice(1)}`];
+        const leftMissing = left ? (index === 0 ? !(left.dataset.reportSortValue || "").trim() : Boolean(left.querySelector(".missing-value"))) : !leftText;
+        const rightMissing = right ? (index === 0 ? !(right.dataset.reportSortValue || "").trim() : Boolean(right.querySelector(".missing-value"))) : !rightText;
         if (leftMissing || rightMissing) {
           if (leftMissing === rightMissing) return 0;
           return leftMissing ? 1 : -1;
         }
-        const leftText = left?.dataset.reportSortValue || left?.textContent.trim() || "";
-        const rightText = right?.dataset.reportSortValue || right?.textContent.trim() || "";
         const comparison = kind === "number"
-          ? Number(leftText.replaceAll(",", "")) - Number(rightText.replaceAll(",", ""))
-          : reportCollator.compare(leftText, rightText);
+          ? Number((leftText || "").replaceAll(",", "")) - Number((rightText || "").replaceAll(",", ""))
+          : reportCollator.compare(leftText || "", rightText || "");
         return direction === "descending" ? -comparison : comparison;
       });
       data.append(...rows);
-      table.querySelectorAll("[data-report-sort]").forEach((control) => control.setAttribute("aria-pressed", "false"));
       table.querySelectorAll('[role="columnheader"]').forEach((header) => header.removeAttribute("aria-sort"));
-      button.setAttribute("aria-pressed", "true");
-      button.closest('[role="columnheader"]')?.setAttribute("aria-sort", direction);
+      table.querySelectorAll('[role="columnheader"]')[index]?.setAttribute("aria-sort", direction);
+      button.dataset.direction = direction === "ascending" ? "descending" : "ascending";
+      button.textContent = `Sort ${button.dataset.direction}`;
+      button.setAttribute("aria-label", `Sort ${button.dataset.direction}`);
+      const status = table.querySelector("[data-report-sort-status]");
+      if (status) status.textContent = `Sorted by ${field.selectedOptions[0].textContent} ${direction}.`;
     });
   });
 

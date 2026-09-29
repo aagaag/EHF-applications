@@ -166,7 +166,7 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...], shortlist: Shor
     )
     return (
         '<section id="reports" aria-labelledby="reports-heading"><div class="section-heading">'
-        '<h2 id="reports-heading">Reports</h2><p>OpenAlex citations are calculated from each applicant’s verified published works at the 20 September 2026 cutoff; validated publication counts use the same verified set. Applicant-reported publication totals remain separate, while unmatched and non-publication records are excluded from validated statistics and retained for audit.</p><p class="report-interaction-hint">Use the triangles beside any field title to sort ascending or descending. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
+        '<h2 id="reports-heading">Reports</h2><p>OpenAlex citations are calculated from each applicant’s verified published works at the 20 September 2026 cutoff; validated publication counts use the same verified set. Applicant-reported publication totals remain separate, while unmatched and non-publication records are excluded from validated statistics and retained for audit.</p><p class="report-interaction-hint">Choose a field in Sort by, then activate the sort button. It switches between ascending and descending order. Double-click a row, or focus it and press Enter, to view all details.</p></div>'
         '<div class="report-grid">'
         f'{_scatterplot(records, "Citations by anagraphic age", "age", "Anagraphic age")}'
         f'{_scatterplot(records, "Citations by academic age", "academic_age", "Academic age")}'
@@ -183,7 +183,7 @@ def _report_section(records: tuple[PreviewApplicantMetric, ...], shortlist: Shor
         '<span><strong>B:</strong> Interesting application; invite only if there is enough space.</span>'
         '<span><strong>C:</strong> Do not invite to the second selection step.</span>'
         '</aside>' + evaluation_link + '<a class="report-download" href="/internal/reports/metrics.xlsx">Download Excel</a></div>'
-        f'{_report_table(records, shortlist, evaluation_snapshot, current_call, second_stage, advancement_editable)}</section>'
+        f'{_report_table(records, shortlist, evaluation_snapshot, current_call, second_stage, advancement_editable, stage_two)}</section>'
     )
 
 
@@ -210,41 +210,19 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: Shortl
                   evaluation_snapshot: EvaluationSnapshot | None = None,
                   current_call: CallContext | None = None,
                   second_stage: SecondStageState = SecondStageState(frozenset()),
-                  advancement_editable: bool = False) -> str:
+                  advancement_editable: bool = False,
+                  stage_two: bool = False) -> str:
     headers = (
-        ("Applicant", "text"), ("Degree", "text"), ("Age", "number"),
-        ("Academic age (years)", "number"), ("Gender", "text"),
+        ("Applicant", "text"), ("Academic age (years)", "number"),
         ("First / last author papers", "number"),
-        ("Published papers/preprints", "number"),
-        ("h-index", "number"),
-        ("OpenAlex citations (20 Sep 2026)", "number"),
+        ("Published papers/preprints", "number"), ("h-index", "number"),
+        ("OpenAlex citations", "number"),
     )
     labels = tuple(label for label, _kind in headers)
-    metric_header = "".join(
-        _report_header(index, label, kind)
-        for index, (label, kind) in enumerate(headers)
-    )
+    metric_header = "".join(f'<span role="columnheader" data-report-column="{escape(label)}">{escape(label)}</span>'
+                             for label, _kind in headers)
 
 
-    advancement_header = (
-        '<span class="report-advancement-heading" role="columnheader">Advance to second stage</span>'
-        if current_call else ""
-    )
-    shortlist_header = advancement_header + (
-        '<span class="report-shortlist-group" role="columnheader" aria-colspan="3">Shortlist</span>'
-        + "".join(
-            f'<span class="report-shortlist-heading" role="columnheader"><span>{name}</span>'
-            f'<span class="report-shortlist-mode" data-shortlist-mode="{mode}">{label}</span></span>'
-            for trustee_code, name in (
-                ("ricky", "Ricky"), ("magda", "Magda"), ("adriano", "Adriano")
-            )
-            for mode, label in (
-                ("editable", "Yours")
-                if trustee_code == shortlist.editable_trustee
-                else ("saved", "Saved"),
-            )
-        )
-    )
     h_indices = tuple(record.h_index for record in records if record.h_index is not None)
     h_index_low = min(h_indices, default=None)
     h_index_high = max(h_indices, default=None)
@@ -260,7 +238,8 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: Shortl
                 comment_by_application[applicant.id.casefold()] = by_reviewer
     rows = "".join(
         _report_row(record, labels, _h_index_saturation(record.h_index, h_index_low, h_index_high),
-                    shortlist, comment_by_application, current_call, second_stage, advancement_editable)
+                    shortlist, comment_by_application, current_call, second_stage, advancement_editable,
+                    stage_two)
         for record in records
     )
     empty = (
@@ -268,9 +247,21 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: Shortl
         if not records else ""
     )
     return (
-        '<div class="report-table" role="table" aria-label="2026 applicant metrics">'
-        f'<div class="report-header" role="row">{metric_header}{shortlist_header}</div>'
-        f'<div class="report-data" role="rowgroup">{rows}</div></div>{empty}'
+        '<div class="report-table-shell"><div class="report-sort-bar"><label>Sort by <select data-report-sort-select>'
+        '<option value="0" data-sort-kind="text">Applicant</option>'
+        '<option value="6" data-sort-kind="text">Degree</option>'
+        '<option value="7" data-sort-kind="number">Age</option>'
+        '<option value="1" data-sort-kind="number">Academic age</option>'
+        '<option value="8" data-sort-kind="text">Gender</option>'
+        '<option value="2" data-sort-kind="number">First / last author papers</option>'
+        '<option value="3" data-sort-kind="number">Published papers/preprints</option>'
+        '<option value="4" data-sort-kind="number">h-index</option>'
+        '<option value="5" data-sort-kind="number">OpenAlex citations</option>'
+        '</select></label><button type="button" data-report-sort-apply data-direction="ascending">Sort ascending</button>'
+        '<span data-report-sort-status role="status" aria-live="polite"></span></div>'
+        f'<div class="report-table" data-selection-stage="{"second" if stage_two else "first"}" role="table" aria-label="2026 applicant metrics">'
+        f'<div class="report-header" role="row">{metric_header}</div>'
+        f'<div class="report-data" role="rowgroup">{rows}</div></div></div>{empty}'
         '<p class="report-filter-empty" data-report-filter-empty role="status" hidden>No applications match the selected filter.</p>'
         '<dialog class="report-details-modal" data-report-modal aria-labelledby="report-details-title" aria-modal="true">'
         '<div class="report-details-panel"><div class="report-details-header">'
@@ -289,18 +280,7 @@ def _report_table(records: tuple[PreviewApplicantMetric, ...], shortlist: Shortl
 
 def _report_header(index: int, label: str, kind: str) -> str:
     escaped_label = escape(label)
-    buttons = "".join(
-        f'<button type="button" class="report-sort-button" data-report-sort '
-        f'data-report-sort-index="{index}" data-report-sort-kind="{kind}" '
-        f'data-report-sort-direction="{direction}" aria-label="Sort {escaped_label} {direction}" '
-        f'aria-pressed="false"><span aria-hidden="true">{triangle}</span></button>'
-        for direction, triangle in (("ascending", "▲"), ("descending", "▼"))
-    )
-    return (
-        f'<span role="columnheader" data-report-column="{escaped_label}">'
-        f'<span class="report-column-label">{escaped_label}</span>'
-        f'<span class="report-sort-buttons">{buttons}</span></span>'
-    )
+    return f'<span role="columnheader" data-report-column="{escaped_label}">{escaped_label}</span>'
 
 
 def _report_row(
@@ -312,13 +292,11 @@ def _report_row(
     current_call: CallContext | None = None,
     second_stage: SecondStageState = SecondStageState(frozenset()),
     advancement_editable: bool = False,
+    stage_two: bool = False,
 ) -> str:
     values = (
-        (record.applicant, _display_markup(record.applicant), None, None),
-        (record.degree, _display_markup(record.degree), None, None),
-        (record.age, _display_markup(_number(record.age)), None, None),
-        (record.academic_age, _display_markup(_number(record.academic_age)), None, None),
-        (record.gender, _display_markup(record.gender), None, None),
+        (record.applicant, f'<span class="report-applicant-name">{_display_markup(record.applicant)}</span> <span class="report-degree">— {_display_markup(record.degree)}</span>', record.applicant, None),
+        (record.academic_age, _display_markup(_number(record.academic_age)), _number(record.academic_age), None),
         (
             (record.first_author_papers, record.last_author_papers),
             _combined_metric_markup(record.first_author_papers, record.last_author_papers),
@@ -336,22 +314,38 @@ def _report_row(
         (record.h_index, _display_markup(_number(record.h_index)), None, h_index_saturation),
         (record.verified_citations, _display_markup(_number(record.verified_citations)), None, None),
     )
-    cells = "".join(
-        _report_cell(label, markup, sort_value=sort_value, h_index_saturation=heat)
-        for label, (_raw, markup, sort_value, heat) in zip(headers, values, strict=True)
-    )
+    first_last = f'{_combined_metric_markup(record.first_author_papers, record.last_author_papers)}'
+    published = _combined_metric_markup(record.validated_published_papers, record.validated_preprint_papers)
+    visible_values = (values[0], values[1], ((record.first_author_papers, record.last_author_papers), first_last, _number(record.first_author_papers), None),
+                      ((record.validated_published_papers, record.validated_preprint_papers), published, _number(record.validated_published_papers), None),
+                      values[4], values[5])
+    cells = "".join(_report_cell(label, markup, sort_value=sort_value, h_index_saturation=heat)
+                    for label, (_raw, markup, sort_value, heat) in zip(headers, visible_values, strict=True))
     application_id_value = record.application_id or ""
-    if current_call:
-        app_id = escape(record.application_id or "", quote=True)
-        checked = " checked" if record.application_id and second_stage.selected(record.application_id) else ""
-        disabled = "" if advancement_editable and record.application_id else " disabled"
-        cells += (
-            f'<span class="report-advancement-cell" role="cell" data-label="Advance to second stage">'
-            f'<input type="checkbox" data-advancement-checkbox data-application-id="{app_id}" '
-            f'data-call-slug="{escape(current_call.public_slug, quote=True)}" aria-label="Advance {escape(record.applicant, quote=True)} to second stage"{checked}{disabled}>'
-            '</span>'
+    review_strip = ""
+    shortlist_history = ""
+    if stage_two:
+        history_items = "".join(
+            f'<li>{name}: {escape(shortlist.group(application_id_value, code) or "Unassigned")}</li>'
+            for code, name in (("ricky", "Ricky"), ("magda", "Magda"), ("adriano", "Adriano"))
+            if shortlist.group(application_id_value, code)
         )
-    cells += "".join(
+        if history_items:
+            shortlist_history = ('<details class="report-shortlist-history"><summary>First-round shortlist history</summary>'
+                                 f'<ul>{history_items}</ul></details>')
+    if not stage_two:
+        review_items = []
+        if current_call:
+            app_id = escape(record.application_id or "", quote=True)
+            checked = " checked" if record.application_id and second_stage.selected(record.application_id) else ""
+            disabled = "" if advancement_editable and record.application_id else " disabled"
+            review_items.append(
+                f'<span class="report-review-item" data-label="Advance to second stage">'
+                f'<label class="report-advancement-control"><input type="checkbox" data-advancement-checkbox data-application-id="{app_id}" '
+                f'data-call-slug="{escape(current_call.public_slug, quote=True)}" aria-label="Advance {escape(record.applicant, quote=True)} to second stage"{checked}{disabled}><span>Advance</span></label>'
+                '</span>'
+            )
+        review_items.extend(
         _shortlist_cell(
             application_id_value,
             code,
@@ -361,10 +355,19 @@ def _report_row(
             (evaluation_comments or {}).get(application_id_value.casefold(), {}).get(code),
             current_call.public_slug if current_call else None,
         )
-        for code, name in (("ricky", "Ricky"), ("magda", "Magda"), ("adriano", "Adriano"))
-    )
-    status_values = tuple(value[0] for value in values)
+        .replace('class="report-shortlist-cell"', 'class="report-review-item report-shortlist-cell"')
+        for code, name in (("ricky", "Ricky"), ("magda", "Magda"), ("adriano", "Adriano")))
+        if review_items:
+            review_strip = '<div class="report-review-strip">' + ''.join(review_items) + '</div>'
+    status_values = (record.applicant, record.degree, record.age, record.academic_age, record.gender,
+                     record.first_author_papers, record.last_author_papers,
+                     record.validated_published_papers, record.validated_preprint_papers,
+                     record.h_index, record.verified_citations)
     status = "missing" if any(value in (None, "") or (isinstance(value, tuple) and any(part in (None, "") for part in value)) for value in status_values) else "completed"
+    fallback_fields = "".join(
+        f'<span hidden data-report-fallback-field="{escape(label, quote=True)}">{_display_markup(value)}</span>'
+        for label, value in (("Degree", record.degree), ("Age", _number(record.age)), ("Gender", record.gender))
+    )
     detail_attributes = ""
     if record.application_id:
         application_id = escape(record.application_id, quote=True)
@@ -374,7 +377,10 @@ def _report_row(
         )
     return (
         f'<div class="report-data-row" role="row" data-report-row tabindex="0" data-report-status="{status}"{detail_attributes} '
-        f'aria-label="Open full details for {escape(record.applicant)}">{cells}</div>'
+        f'aria-label="Open full details for {escape(record.applicant)}" '
+        f'data-sort-degree="{escape(str(record.degree or ""), quote=True)}" '
+        f'data-sort-age="{escape(str(record.age if record.age is not None else ""), quote=True)}" '
+        f'data-sort-gender="{escape(str(record.gender or ""), quote=True)}">{cells}{fallback_fields}{review_strip}{shortlist_history}</div>'
     )
 
 
@@ -395,7 +401,7 @@ def _report_cell(
         if h_index_saturation is not None
         else ""
     )
-    return f'<span role="cell" data-label="{escape(label)}"{heat_attribute}{sort_attribute}>{markup}</span>'
+    return f'<span class="report-metric-cell" role="cell" data-label="{escape(label)}"{heat_attribute}{sort_attribute}>{markup}</span>'
 
 
 def _shortlist_cell(application_id: str, trustee_code: str, name: str, group: str | None,
@@ -410,6 +416,7 @@ def _shortlist_cell(application_id: str, trustee_code: str, name: str, group: st
         )
         return (
             f'<span class="report-shortlist-cell" role="cell" data-label="Shortlist — {name}">'
+            '<span class="report-shortlist-mode" data-shortlist-mode="saved">Saved</span>'
             f'<span class="shortlist-grade-readonly" data-shortlist-owner="{trustee_code}" '
             f'data-shortlist-assignment="{assignment}" aria-label="{escape(name)}: Group {label}">{label}</span>'
             f'{comment_markup}</span>'
@@ -423,6 +430,7 @@ def _shortlist_cell(application_id: str, trustee_code: str, name: str, group: st
     )
     return (
         f'<span class="report-shortlist-cell" role="cell" data-label="Shortlist — {name}">'
+        '<span class="report-shortlist-mode" data-shortlist-mode="editable">Yours</span>'
         f'<span class="shortlist-grade-control" role="group" aria-label="Shortlist group for {escape(name)}: {escape(application_id)}">{buttons}</span>'
         + (f'<details class="evaluation-comment"><summary>Comment</summary>'
            f'<textarea maxlength="2000" aria-label="Comment for {escape(name)}" data-evaluation-comment>{escape(comment or "")}</textarea>'

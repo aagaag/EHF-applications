@@ -83,19 +83,11 @@ def test_shared_shell_is_responsive_keyboard_accessible_and_has_no_horizontal_ov
                     "nodes => nodes.map(node => node.getBoundingClientRect().top)"
                 )
                 assert max(top_edges) - min(top_edges) < 1
-                assert page.locator(".report-header [role='columnheader']").count() == 13
+                assert page.locator(".report-header [role='columnheader']").count() == 6
                 header_columns = page.locator(".report-header").evaluate(
                     "node => getComputedStyle(node).gridTemplateColumns.split(' ').length"
                 )
-                assert header_columns == (13 if viewport[0] >= 2500 else 4)
-            if viewport[0] >= 2500:
-                header_width = page.locator(".report-header").evaluate(
-                    "node => node.getBoundingClientRect().width"
-                )
-                shortlist_width = page.locator(".report-shortlist-group").evaluate(
-                    "node => node.getBoundingClientRect().width"
-                )
-                assert shortlist_width / header_width >= 0.35
+                assert header_columns == 6
 
             if viewport[0] <= 720:
                 assert page.evaluate("matchMedia('(max-width: 720px)').matches")
@@ -745,8 +737,8 @@ def test_modal_publication_filter_shows_only_first_and_last_author_rows() -> Non
             browser.close()
 
 
-def test_report_field_triangles_sort_text_and_numbers_with_missing_values_last() -> None:
-    """Break caught: field sort controls could disappear or order numeric and missing values incorrectly."""
+def test_report_dropdown_sorts_text_and_numbers_with_missing_values_last() -> None:
+    """Break caught: report sorting could order text, numbers, or missing values incorrectly."""
     pytest.importorskip("playwright.sync_api")
     from axe_playwright_python.sync_playwright import Axe
     from playwright.sync_api import sync_playwright
@@ -782,23 +774,33 @@ def test_report_field_triangles_sort_text_and_numbers_with_missing_values_last()
             page.add_script_tag(path=str(ROOT / "public" / "assets" / "shell.js"))
 
             def applicant_order() -> list[str]:
-                return page.locator("[data-report-row] [role='cell']:first-child").all_inner_texts()
+                return [
+                    label.removeprefix("Open full details for ")
+                    for label in page.locator("[data-report-row]").evaluate_all(
+                        "nodes => nodes.map(node => node.getAttribute('aria-label'))"
+                    )
+                ]
 
-            assert page.locator("[data-report-sort]").count() == 18
-            assert page.get_by_role("button", name="Sort Applicant ascending").is_visible()
-
-            page.get_by_role("button", name="Sort Applicant ascending").click()
-            assert applicant_order() == ["Applicant A", "Applicant M", "Applicant Z"]
+            assert page.locator("[data-report-sort-select]").count() == 1
+            assert page.locator("[data-report-sort-apply]").count() == 1
+            sort_field = page.locator("[data-report-sort-select]")
+            sort_button = page.locator("[data-report-sort-apply]")
+            sort_field.select_option("0")
+            assert sort_button.inner_text() == "Sort ascending"
+            sort_button.click()
+            assert applicant_order() == ["Applicant A", "Applicant M", "Applicant Z"], applicant_order()
             assert page.locator('[data-report-column="Applicant"]').get_attribute("aria-sort") == "ascending"
 
-            page.get_by_role("button", name="Sort Applicant descending").click()
+            assert sort_button.inner_text() == "Sort descending"
+            sort_button.click()
             assert applicant_order() == ["Applicant Z", "Applicant M", "Applicant A"]
             assert page.locator('[data-report-column="Applicant"]').get_attribute("aria-sort") == "descending"
 
-            page.get_by_role("button", name="Sort Age ascending").click()
+            sort_field.select_option("7")
+            sort_button.click()
             assert applicant_order() == ["Applicant A", "Applicant Z", "Applicant M"]
 
-            page.get_by_role("button", name="Sort Age descending").click()
+            sort_button.click()
             assert applicant_order() == ["Applicant Z", "Applicant A", "Applicant M"]
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
             assert Axe().run(page).violations_count == 0
